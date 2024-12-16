@@ -5,12 +5,16 @@ export interface AutocompleteOption {
   slug: string;
 }
 
-export type SIM = (typeof SIM_TYPES)[number];
+export type Sim = (typeof SIM_TYPES)[number];
 
-export interface CameraData {
+export type DirtySku = { ram: number; rom: number };
+export type DirtyMarket = { mkid: string; devices: DirtySku[] };
+export type Sku = { marketId: string; ram_gb: number; storage_gb: number };
+
+export interface SingleCameraData {
   resolution_mp: number;
-  aperture: string;
-  features: string[];
+  aperture_fstop: string;
+  sensor: string | null;
 }
 
 export interface PhoneData {
@@ -37,20 +41,19 @@ export interface PhoneData {
     features: string[];
   };
   hardware: {
+    skus: Sku[];
     cpu: string | null;
     gpu: string | null;
-    ramOptions_gb: number[];
-    storageOptions_gb: number[];
     sdSlot: boolean | null;
   };
   camera: {
-    rear: CameraData[];
-    front: CameraData[];
+    rear: { cameras: SingleCameraData[]; features: string[] };
+    front: { cameras: SingleCameraData[]; features: string[] };
   };
   connectivity: {
     nfc: boolean | null;
     bluetooth: string | null;
-    sim: SIM[];
+    sim: Sim[];
     usb: "USB-C" | "Lightning" | "MicroUSB" | null;
     headphoneJack: boolean | null;
   };

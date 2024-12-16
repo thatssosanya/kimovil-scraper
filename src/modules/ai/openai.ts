@@ -1,24 +1,38 @@
 import OpenAI from "openai";
 import { AutocompleteOption, PhoneData } from "../../types";
+import { debugLog } from "../../utils/logging";
 
-export async function adaptScrapedData(
-  data: PhoneData,
-  openaiClient: OpenAI
-): Promise<any> {
+export const createOpenaiClient = () => {
+  const openaiApiKey = process.env.OPENAI_API_KEY;
+  if (!openaiApiKey) {
+    throw new Error("OPENAI_API_KEY is not available in env.");
+  }
+
+  const openaiClient = new OpenAI({ apiKey: openaiApiKey });
+
+  debugLog(`Initialized OpenAI client.`);
+
+  return openaiClient;
+};
+
+export const adaptScrapedData = async (data: PhoneData): Promise<any> => {
+  const openaiClient = createOpenaiClient();
+
   return data;
-}
+};
 
-export async function pickMatchingSlug(
+export const pickMatchingSlug = async (
   name: string,
-  options: AutocompleteOption[],
-  openaiClient: OpenAI
-): Promise<string> {
+  options: AutocompleteOption[]
+): Promise<string> => {
   if (options.length === 0) {
     throw new Error("No autocomplete options available.");
   }
   if (options.length === 1) {
     return options[0].slug;
   }
+
+  const openaiClient = createOpenaiClient();
 
   const optionList = options
     .map(
@@ -56,4 +70,4 @@ export async function pickMatchingSlug(
   }
 
   return picked.slug;
-}
+};
