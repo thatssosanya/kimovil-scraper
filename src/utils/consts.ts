@@ -7,5 +7,6 @@ export const SIM_TYPES = [
   "SIM",
 ] as const;
 
-export const PLAYWRIGHT_TIMEOUT =
-  process.env.ENV === "development" ? 5 * 60 * 1000 : 2 * 60 * 1000;
+export const PLAYWRIGHT_TIMEOUT = 2 * 60 * 1000;
+
+export const MESSAGE_RETRIES = 5;
