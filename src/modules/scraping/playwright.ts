@@ -197,11 +197,11 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
 
     const rearCamerasFromTables: SingleCameraData[] = await page.$$eval(
       'section.container-sheet-camera h3:has-text("rear camera") + .k-column-blocks table',
-      getCameraExtractor(false)
+      getCameraExtractor, false
     );
     const rearCamerasFromDls: SingleCameraData[] = await page.$$eval(
       'section.container-sheet-camera h3:has-text("rear camera") + .k-column-blocks dl',
-      getCameraExtractor(false)
+      getCameraExtractor, false
     );
     const rearCameras = [...rearCamerasFromTables, ...rearCamerasFromDls];
     const rearCameraFeatures: string[] = await page.$$eval(
@@ -210,7 +210,7 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
     );
     const frontCameras: SingleCameraData[] = await page.$$eval(
       'section.container-sheet-camera h3.k-h4:has-text("Selfie") + .k-column-blocks table',
-      getCameraExtractor(true)
+      getCameraExtractor, true
     );
     const frontCameraFeatures: string[] = await page.$$eval(
       'section.container-sheet-camera dl.k-dl dt:has-text("Extra") + dd li',
@@ -358,9 +358,8 @@ const getTextExtractor =
 
 const getTrimmedText = (e: HTMLElement) => e.textContent?.trim() || "";
 
-const getCameraExtractor =
-  (front: boolean) =>
-  (cameraTables: Element[]): SingleCameraData[] => {
+const getCameraExtractor  = 
+  (cameraTables: Element[], front: boolean): SingleCameraData[] => {
     return cameraTables
       .map((el) => {
         const cameraData: Record<string, string> = {};
@@ -403,7 +402,8 @@ const getCameraExtractor =
           : null;
       })
       .filter(Boolean) as SingleCameraData[];
-  };
+  }
+
 
 const getCameraFeatures = (features: Element[]): string[] => {
   return features.map((el) => el.textContent?.trim() || "").filter(Boolean);
