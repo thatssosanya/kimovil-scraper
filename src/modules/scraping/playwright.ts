@@ -197,11 +197,13 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
 
     const rearCamerasFromTables: SingleCameraData[] = await page.$$eval(
       'section.container-sheet-camera h3:has-text("rear camera") + .k-column-blocks table',
-      getCameraExtractor, false
+      getCameraExtractor,
+      false
     );
     const rearCamerasFromDls: SingleCameraData[] = await page.$$eval(
       'section.container-sheet-camera h3:has-text("rear camera") + .k-column-blocks dl',
-      getCameraExtractor, false
+      getCameraExtractor,
+      false
     );
     const rearCameras = [...rearCamerasFromTables, ...rearCamerasFromDls];
     const rearCameraFeatures: string[] = await page.$$eval(
@@ -210,7 +212,8 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
     );
     const frontCameras: SingleCameraData[] = await page.$$eval(
       'section.container-sheet-camera h3.k-h4:has-text("Selfie") + .k-column-blocks table',
-      getCameraExtractor, true
+      getCameraExtractor,
+      true
     );
     const frontCameraFeatures: string[] = await page.$$eval(
       'section.container-sheet-camera dl.k-dl dt:has-text("Extra") + dd li',
@@ -301,7 +304,11 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
       cameras: [...rearCameras, ...frontCameras],
       rearCameraFeatures: rearCameraFeatures.join("|"),
       frontCameraFeatures: frontCameraFeatures.join("|"),
-      raw,
+      raw: raw.slice(
+        // FIXME
+        raw.indexOf(">", raw.indexOf("<main")) + 1,
+        raw.indexOf("</main")
+      ),
     };
 
     return data;
@@ -358,52 +365,53 @@ const getTextExtractor =
 
 const getTrimmedText = (e: HTMLElement) => e.textContent?.trim() || "";
 
-const getCameraExtractor  = 
-  (cameraTables: Element[], front: boolean): SingleCameraData[] => {
-    return cameraTables
-      .map((el) => {
-        const cameraData: Record<string, string> = {};
+const getCameraExtractor = (
+  cameraTables: Element[],
+  front: boolean
+): SingleCameraData[] => {
+  return cameraTables
+    .map((el) => {
+      const cameraData: Record<string, string> = {};
 
-        // some cameras may be presented in tables, some in dls
-        if (el.tagName === "TABLE") {
-          el.querySelectorAll("tr").forEach((row) => {
-            const th = row.querySelector("th")?.textContent?.trim();
-            const td = row.querySelector("td")?.textContent?.trim();
-            if (th && td) {
-              cameraData[th] = td;
-            }
-          });
-        } else if (el.tagName === "DL") {
-          let currentKey = "";
-          el.querySelectorAll("dt, dd").forEach((item) => {
-            if (item.tagName === "DT") {
-              currentKey = item.textContent?.trim() || "";
-            } else if (item.tagName === "DD" && currentKey) {
-              const value = item.textContent?.trim() || "";
-              cameraData[currentKey] = value;
-            }
-          });
-        }
+      // some cameras may be presented in tables, some in dls
+      if (el.tagName === "TABLE") {
+        el.querySelectorAll("tr").forEach((row) => {
+          const th = row.querySelector("th")?.textContent?.trim();
+          const td = row.querySelector("td")?.textContent?.trim();
+          if (th && td) {
+            cameraData[th] = td;
+          }
+        });
+      } else if (el.tagName === "DL") {
+        let currentKey = "";
+        el.querySelectorAll("dt, dd").forEach((item) => {
+          if (item.tagName === "DT") {
+            currentKey = item.textContent?.trim() || "";
+          } else if (item.tagName === "DD" && currentKey) {
+            const value = item.textContent?.trim() || "";
+            cameraData[currentKey] = value;
+          }
+        });
+      }
 
-        const resolutionText = cameraData["Resolution"] || "";
-        const resolutionMatch = resolutionText.match(/\b(\d+\.?\d*)\b/);
-        const resolution_mp = resolutionMatch
-          ? parseFloat(resolutionMatch[1])
-          : null;
+      const resolutionText = cameraData["Resolution"] || "";
+      const resolutionMatch = resolutionText.match(/\b(\d+\.?\d*)\b/);
+      const resolution_mp = resolutionMatch
+        ? parseFloat(resolutionMatch[1])
+        : null;
 
-        const apertureText = cameraData["Aperture"] || "";
-        const aperture_fstop = apertureText.replace("ƒ/", "").trim() || null;
+      const apertureText = cameraData["Aperture"] || "";
+      const aperture_fstop = apertureText.replace("ƒ/", "").trim() || null;
 
-        const sensorText = cameraData["Sensor"];
-        const sensor = sensorText === "--" ? null : sensorText;
+      const sensorText = cameraData["Sensor"];
+      const sensor = sensorText === "--" ? null : sensorText;
 
-        return resolution_mp !== null
-          ? { resolution_mp, aperture_fstop, sensor, front }
-          : null;
-      })
-      .filter(Boolean) as SingleCameraData[];
-  }
-
+      return resolution_mp !== null
+        ? { resolution_mp, aperture_fstop, sensor, front }
+        : null;
+    })
+    .filter(Boolean) as SingleCameraData[];
+};
 
 const getCameraFeatures = (features: Element[]): string[] => {
   return features.map((el) => el.textContent?.trim() || "").filter(Boolean);
