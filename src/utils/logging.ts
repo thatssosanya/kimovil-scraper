@@ -9,11 +9,11 @@ export const errorLog = (...args: unknown[]) => {
 };
 
 export const withDebugLog = <Args extends unknown[], R>(
-  fn: (...args: Args) => R,
+  fn: (...args: Args) => Promise<R>,
   tag?: string
-): ((...args: Args) => R) => {
-  return (...args: Args) => {
-    const result = fn(...args);
+): ((...args: Args) => Promise<R>) => {
+  return async (...args: Args) => {
+    const result = await fn(...args);
     const logArguments: Array<string | R> = tag ? [tag] : [];
     logArguments.push(result);
     debugLog(...logArguments);

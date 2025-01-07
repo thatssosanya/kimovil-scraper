@@ -39,6 +39,8 @@ export const onMessage = (
 
       const result = await processCallback(cleanPayload);
       await successCallbacks[queueName]?.(result, cleanPayload);
+
+      debugLog(`Successfully processed ${queueName} message.`);
     } catch (error) {
       errorLog(
         `Failed to process ${queueName} message:`,
@@ -76,7 +78,6 @@ export const onMessage = (
         errorLog(`Failed to requeue ${queueName} message:`, requeueError);
       }
     } finally {
-      debugLog(`Successfully processed ${queueName} message.`);
       channel.ack(msg);
     }
   });
