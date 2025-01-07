@@ -15,51 +15,56 @@ export interface SingleCameraData {
   resolution_mp: number;
   aperture_fstop: string;
   sensor: string | null;
+  front: boolean;
 }
 
+// fields representing string[] are cast to |-delimited strings
+// due to sqlite limitations. see main repo's prisma schema
 export interface PhoneData {
+  // essentials
   name: string;
   brand: string;
-  aliases: string[];
-  releaseDate: string | null;
-  design: {
-    dimensions_mm: {
-      height: number;
-      width: number;
-      thickness: number;
-    } | null;
-    weight_g: number | null;
-    materials: string[];
-    ipRating: string | null;
-    colors: string[];
-  };
-  display: {
-    size_in: number | null;
-    type: string | null;
-    resolution: string | null;
-    ppi: number | null;
-    features: string[];
-  };
-  hardware: {
-    skus: Sku[];
-    cpu: string | null;
-    gpu: string | null;
-    sdSlot: boolean | null;
-  };
-  camera: {
-    rear: { cameras: SingleCameraData[]; features: string[] };
-    front: { cameras: SingleCameraData[]; features: string[] };
-  };
-  connectivity: {
-    nfc: boolean | null;
-    bluetooth: string | null;
-    sim: Sim[];
-    usb: "USB-C" | "Lightning" | "MicroUSB" | null;
-    headphoneJack: boolean | null;
-  };
-  battery: {
-    capacity_mah: number | null;
-    fastCharging: boolean | null;
-  };
+  aliases: string; // |-delimited
+  releaseDate: Date | null;
+  raw: string;
+
+  // design
+  height_mm: number | null;
+  width_mm: number | null;
+  thickness_mm: number | null;
+  weight_g: number | null;
+  materials: string; // |-delimited
+  ipRating: string | null;
+  colors: string; // |-delimited
+
+  // display
+  size_in: number | null;
+  displayType: string | null;
+  resolution: string | null;
+  ppi: number | null;
+  displayFeatures: string; // |-delimited
+
+  // hardware
+  cpu: string | null;
+  gpu: string | null;
+  sdSlot: boolean | null;
+  skus: Sku[];
+
+  // connectivity
+  nfc: boolean | null;
+  bluetooth: string | null;
+  sim: string; // |-delimited
+  usb: "USB-C" | "Lightning" | "MicroUSB" | null;
+  headphoneJack: boolean | null;
+
+  // battery
+  batteryCapacity_mah: number | null;
+  batteryFastCharging: boolean | null;
+
+  // cameras
+  cameras: SingleCameraData[];
+  rearCameraFeatures: string; // |-delimited
+  frontCameraFeatures: string; // |-delimited
 }
+
 export { SIM_TYPES as simTypes };

@@ -6,6 +6,10 @@ import {
 import { pickMatchingSlug } from "./modules/ai/openai";
 import { initRMQ, onMessage } from "./modules/mq/rmq";
 
+if (!process.env.COD_URL) {
+  throw new Error("COD_URL is not available in env.");
+}
+
 (async () => {
   await initRMQ();
 

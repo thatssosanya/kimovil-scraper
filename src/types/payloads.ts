@@ -1,8 +1,8 @@
 import { AutocompleteOption } from ".";
 
 export interface BasePayload {
-  user: string;
-  device: string;
+  userId: string;
+  deviceId: string;
 }
 
 export interface GetAutocompleteOptionsRequestPayload extends BasePayload {

@@ -65,7 +65,7 @@ export const onMessage = (
             Buffer.from(
               JSON.stringify({
                 requestType: queueName,
-                user: payload.user,
+                userId: payload.userId,
                 error,
               })
             ),
@@ -96,8 +96,8 @@ const successCallbacks: Record<
       "getMatchingSlugRequest",
       Buffer.from(
         JSON.stringify({
-          user: payload.user,
-          device: payload.device,
+          userId: payload.userId,
+          deviceId: payload.deviceId,
           options: result,
         })
       )
@@ -112,8 +112,8 @@ const successCallbacks: Record<
       "getUserConfirmedSlugRequest",
       Buffer.from(
         JSON.stringify({
-          user: payload.user,
-          device: payload.device,
+          userId: payload.userId,
+          deviceId: payload.deviceId,
           slug: result,
           options: payload.options,
         })
@@ -122,13 +122,35 @@ const successCallbacks: Record<
   },
 
   getKimovilDataRequest: async (
-    result: { raw: string; parsed: PhoneData },
+    result: PhoneData,
     payload: GetKimovilDataRequestPayload
   ) => {
+    const saveResult = await fetch(
+      `${process.env.COD_URL!}/api/ext/save-kimovil-data`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${Buffer.from(
+            ":" + process.env.COD_SECRET!
+          ).toString("base64")}`,
+        },
+        body: JSON.stringify({ ...result, deviceId: payload.deviceId }),
+      }
+    );
+
+    if (!saveResult.ok) {
+      throw new Error(
+        `COD failed to save data to database: ${await saveResult.json()}`
+      );
+    }
+
     channel.sendToQueue(
       "getKimovilDataResponse",
       Buffer.from(
-        JSON.stringify({ user: payload.user, device: payload.device, result })
+        JSON.stringify({
+          userId: payload.userId,
+          deviceId: payload.deviceId,
+        })
       )
     );
   },
