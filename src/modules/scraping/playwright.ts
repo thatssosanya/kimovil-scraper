@@ -388,7 +388,7 @@ const getCameras = (cameraTables: Element[]): SingleCameraData[] => {
         });
       }
 
-      const type = el.querySelector(".k-head")?.textContent?.trim() || "";
+      const type = el.querySelector(".k-head")?.textContent?.trim() || "Selfie";
 
       const resolutionText = cameraData["Resolution"] || "";
       const resolutionMatch = resolutionText.match(/\b(\d+\.?\d*)\b/);
