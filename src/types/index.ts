@@ -15,7 +15,8 @@ export interface SingleCameraData {
   resolution_mp: number;
   aperture_fstop: string;
   sensor: string | null;
-  front: boolean;
+  type: string;
+  features: string;
 }
 
 // fields representing string[] are cast to |-delimited strings
@@ -64,8 +65,7 @@ export interface PhoneData {
 
   // cameras
   cameras: SingleCameraData[];
-  rearCameraFeatures: string; // |-delimited
-  frontCameraFeatures: string; // |-delimited
+  cameraFeatures: string; // |-delimited
 }
 
 export { SIM_TYPES as simTypes };
