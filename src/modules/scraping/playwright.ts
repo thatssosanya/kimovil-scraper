@@ -197,13 +197,11 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
 
     const rearCamerasFromTables: SingleCameraData[] = await page.$$eval(
       'section.container-sheet-camera h3:has-text("rear camera") + .k-column-blocks table',
-      getCameraExtractor,
-      false
+      getCameras
     );
     const rearCamerasFromDls: SingleCameraData[] = await page.$$eval(
       'section.container-sheet-camera h3:has-text("rear camera") + .k-column-blocks dl',
-      getCameraExtractor,
-      false
+      getCameras
     );
     const rearCameras = [...rearCamerasFromTables, ...rearCamerasFromDls];
     const rearCameraFeatures: string[] = await page.$$eval(
@@ -212,8 +210,7 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
     );
     const frontCameras: SingleCameraData[] = await page.$$eval(
       'section.container-sheet-camera h3.k-h4:has-text("Selfie") + .k-column-blocks table',
-      getCameraExtractor,
-      true
+      getCameras
     );
     const frontCameraFeatures: string[] = await page.$$eval(
       'section.container-sheet-camera dl.k-dl dt:has-text("Extra") + dd li',
@@ -303,8 +300,7 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
       batteryCapacity_mah: batteryCapacity,
       batteryFastCharging: fastCharging,
       cameras: [...rearCameras, ...frontCameras],
-      rearCameraFeatures: rearCameraFeatures.join("|"),
-      frontCameraFeatures: frontCameraFeatures.join("|"),
+      cameraFeatures: [...rearCameraFeatures, ...frontCameraFeatures].join("|"),
       raw: raw.slice(
         // FIXME
         raw.indexOf(">", raw.indexOf("<main")) + 1,
@@ -366,10 +362,7 @@ const getTextExtractor =
 
 const getTrimmedText = (e: HTMLElement) => e.textContent?.trim() || "";
 
-const getCameraExtractor = (
-  cameraTables: Element[],
-  front: boolean
-): SingleCameraData[] => {
+const getCameras = (cameraTables: Element[]): SingleCameraData[] => {
   return cameraTables
     .map((el) => {
       const cameraData: Record<string, string> = {};
@@ -395,6 +388,8 @@ const getCameraExtractor = (
         });
       }
 
+      const type = el.querySelector(".k-head")?.textContent?.trim() || "";
+
       const resolutionText = cameraData["Resolution"] || "";
       const resolutionMatch = resolutionText.match(/\b(\d+\.?\d*)\b/);
       const resolution_mp = resolutionMatch
@@ -408,7 +403,7 @@ const getCameraExtractor = (
       const sensor = sensorText === "--" ? null : sensorText;
 
       return resolution_mp !== null
-        ? { resolution_mp, aperture_fstop, sensor, front }
+        ? { resolution_mp, aperture_fstop, sensor, type, features: "" }
         : null;
     })
     .filter(Boolean) as SingleCameraData[];
