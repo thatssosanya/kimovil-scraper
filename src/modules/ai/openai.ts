@@ -18,19 +18,54 @@ export const createOpenaiClient = () => {
   return openaiClient;
 };
 
+type AnyObject = { [key: string]: any };
+
+export const convertArraysToPipeDelimited = (obj: AnyObject): AnyObject => {
+  if (obj === null || typeof obj !== "object") {
+    return obj;
+  }
+
+  const result: AnyObject = {};
+
+  for (const [key, value] of Object.entries(obj)) {
+    if (Array.isArray(value)) {
+      // Check if array contains only strings
+      if (value.every((item) => typeof item === "string")) {
+        result[key] = value.join("|");
+      } else {
+        // If array contains objects, recursively process each item
+        result[key] = value.map((item) => convertArraysToPipeDelimited(item));
+      }
+    } else if (typeof value === "object") {
+      // Recursively process nested objects
+      result[key] = convertArraysToPipeDelimited(value);
+    } else {
+      result[key] = value;
+    }
+  }
+
+  return result;
+};
+
 const kimovilCameraSchema = z.object({
   resolution_mp: z.number(),
   aperture_fstop: z.string(),
   sensor: z.string().nullable(),
   features: z.enum(["macro", "monochrome"]).array().optional(),
-  type: z
-    .enum(["широкоугольная", "зум", "основная", "фронтальная", "lidar"])
-    .array(),
+  type: z.enum([
+    "ширик",
+    "зум",
+    "основная",
+    "фронтальная",
+    "lidar",
+    "макро",
+    "инфракрасная",
+  ]),
 });
 
 const kimovilSkuSchema = z.object({
   ram_gb: z.number().int(),
-  regions: z.enum(["global", "CN", "RU", "IN", "EU", "USA", "JP"]).array(),
+  marketId: z.enum(["global", "CN", "RU", "IN", "EU", "USA", "JP"]).array(),
   storage_gb: z.number().int(),
 });
 
@@ -68,11 +103,10 @@ const kimovilDataSchema = z.object({
   batteryCapacity_mah: z.number().nullable(),
   batteryFastCharging: z.boolean().nullable(),
   cameras: z.array(kimovilCameraSchema),
-  rearCameraFeatures: z.string(),
-  frontCameraFeatures: z.string(),
+  cameraFeatures: z.string(),
 });
 
-export const adaptScrapedData = async (data: PhoneData): Promise<any> => {
+export const adaptScrapedData = async (data: PhoneData) => {
   const openaiClient = createOpenaiClient();
 
   try {
@@ -93,7 +127,14 @@ export const adaptScrapedData = async (data: PhoneData): Promise<any> => {
         - make sure that the data is consistent with the raw data
         - do not add any new features
         - only keep skus that are unique by combination of ram and storage and store region in correct field
-        - Concatenate brand name with model name for all phones
+        - write "-" for apertrure when it is unknown
+        - write short cpu names: instead of	Qualcomm Snapdragon 7s Gen2 (SM-7435AB) write Qualcomm Snapdragon 7s Gen2
+        - keep features relevant and omit any that seem excessive and exist in majority of phones (like multitouch, dual sim, frameless)
+        - if cameras main purpose is macro, then it is macro, otherwise type should be wide angle with macro feature included
+        - Do NOT translate features that sound weird in russian (you should NOT translate hole-punch, dual edge display, etc)
+        - Do NOT translate features that sound weird in russian (you should NOT translate hole-punch, dual edge display, etc)
+        - Do NOT translate features that sound weird in russian (you should NOT translate hole-punch, dual edge display, etc)
+        - Do NOT translate features that sound weird in russian (you should NOT translate hole-punch, dual edge display, etc)
         ${data.name}:\n${JSON.stringify({ ...data, raw: "" })}`,
         },
       ],
@@ -102,7 +143,9 @@ export const adaptScrapedData = async (data: PhoneData): Promise<any> => {
       max_tokens: 8024,
     });
     debugLog(response);
-    return response;
+    return convertArraysToPipeDelimited(
+      JSON.parse(response.choices[0].message.content?.trim() || "")
+    );
   } catch (e) {
     debugLog(e);
     throw e;
