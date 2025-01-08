@@ -10,6 +10,7 @@ import {
 } from "../../types";
 import { PLAYWRIGHT_TIMEOUT, SIM_TYPES } from "../../utils/consts";
 import { debugLog, withDebugLog } from "../../utils/logging";
+import { adaptScrapedData } from "../ai/openai";
 
 export const createBrightDataBrowser = async (tag?: string) => {
   if (process.env.LOCAL_PLAYWRIGHT) {
@@ -308,7 +309,11 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
       ),
     };
 
-    return data;
+    debugLog(`trying to adapt data with openai gpt4-mini`);
+    const adaptedData = await adaptScrapedData(data);
+    debugLog(`successfully adapted data ${adaptedData}`);
+
+    return adaptedData || data;
   } catch (e) {
     throw e;
   } finally {
