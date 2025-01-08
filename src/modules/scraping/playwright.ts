@@ -274,6 +274,7 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
       : null;
 
     const data: PhoneData = {
+      slug,
       name: name!,
       brand: brand!,
       aliases: aliases.join("|"),

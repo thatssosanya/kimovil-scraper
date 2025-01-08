@@ -22,6 +22,7 @@ export interface SingleCameraData {
 // due to sqlite limitations. see main repo's prisma schema
 export interface PhoneData {
   // essentials
+  slug: string;
   name: string;
   brand: string;
   aliases: string; // |-delimited
