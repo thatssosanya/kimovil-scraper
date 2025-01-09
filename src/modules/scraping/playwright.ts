@@ -7,6 +7,7 @@ import {
   PhoneData,
   Sim,
   Sku,
+  Benchmark,
 } from "../../types";
 import { PLAYWRIGHT_TIMEOUT, SIM_TYPES } from "../../utils/consts";
 import { debugLog, withDebugLog } from "../../utils/logging";
@@ -123,6 +124,10 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
       (els) => els.map((e) => e.textContent?.trim() || "").filter(Boolean)
     );
 
+    const aspectRatio = await extractText(
+      'section.container-sheet-design .k-dltable tr:has-text("Aspect Ratio") td'
+    );
+
     const displaySizeText = await extractText(
       'section.container-sheet-design .k-dltable tr:has-text("Diagonal") td'
     );
@@ -156,9 +161,18 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
       (els) => els.map((e) => e.textContent?.trim() || "").filter(Boolean)
     );
 
-    const cpu = await extractText(
+    const cpuText = await extractText(
       'section.container-sheet-hardware h3:has-text("Processor") + .k-dltable tr:has-text("Model") td'
     );
+    const [cpuManufacturer, ...cpuArr] = !cpuText
+      ? [null, null]
+      : cpuText?.split(" ");
+    const cpu = cpuArr?.join(" ");
+
+    const cpuCoresText = await extractText(
+      'section.container-sheet-hardware h3:has-text("Processor") + .k-dltable tr:has-text("CPU") td'
+    );
+    const cpuCores = getCpuCores(cpuCoresText);
 
     const gpu = await extractText(
       'section.container-sheet-hardware .k-dltable tr:has-text("GPU") td'
@@ -170,31 +184,57 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
     );
     const skusData = JSON.parse(skusDataJson!);
     const marketsData = Object.values(skusData) as DirtyMarket[];
-    const foundSkusHashes = [] as string[];
-    const skus = marketsData.reduce((acc, market) => {
+    const groupedSkus: Record<string, Sku> = {};
+    marketsData.forEach((market) => {
       const dirtySkus = Object.values(market.devices) as DirtySku[];
-
-      const cleanSkus = dirtySkus.map((sku) => ({
-        marketId: market.mkid,
-        ram_gb: sku.ram / 1024,
-        storage_gb: sku.rom / 1024,
-      }));
-
-      cleanSkus.forEach((sku) => {
-        const skuHash = `${sku.marketId}/${sku.ram_gb}/${sku.storage_gb}`;
-        if (!foundSkusHashes.includes(skuHash)) {
-          foundSkusHashes.push(skuHash);
-          acc.push(sku);
+      dirtySkus.forEach((sku) => {
+        const ram_gb = sku.ram / 1024;
+        const storage_gb = sku.rom / 1024;
+        const key = `${ram_gb}/${storage_gb}`;
+        if (groupedSkus[key]) {
+          if (!groupedSkus[key].marketId.includes(market.mkid)) {
+            groupedSkus[key] = {
+              ...groupedSkus[key],
+              marketId: groupedSkus[key].marketId + "|" + market.mkid,
+            };
+          }
+        } else {
+          groupedSkus[key] = {
+            marketId: market.mkid,
+            ram_gb,
+            storage_gb,
+          };
         }
       });
-
-      return acc;
-    }, [] as Sku[]);
+    });
+    const skus = Object.values(groupedSkus);
 
     const sdSlotText = await extractText(
       'section.container-sheet-hardware .k-dltable tr:has-text("SD Slot") td'
     );
     const sdSlot = sdSlotText ? sdSlotText.includes("Yes") : null;
+
+    const fingerprintPositionText = await extractText(
+      'section.container-sheet-hardware h3:has-text("Security") + .k-dltable tr:has-text("Fingerprint") td'
+    );
+    const fingerprintPosition = fingerprintPositionText?.includes("screen")
+      ? "screen"
+      : fingerprintPositionText?.includes("side")
+      ? "side"
+      : fingerprintPositionText?.includes("back")
+      ? "back"
+      : null;
+
+    const benchmarks: Benchmark[] = [];
+    const antutuText = await extractText(
+      'section.container-sheet-hardware .k-dltable tr:has-text("Diagonal") td'
+    );
+    if (antutuText) {
+      const [_, antutuScore, antutuVersion, ..._2] = antutuText
+        .split("\n")
+        .map((part) => part.replace(/[•\.]/, "").replace(",", "").trim());
+      benchmarks.push({ name: antutuVersion, score: parseFloat(antutuScore) });
+    }
 
     const rearCamerasFromTables: SingleCameraData[] = await page.$$eval(
       'section.container-sheet-camera h3:has-text("rear camera") + .k-column-blocks table',
@@ -232,11 +272,7 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
     const usbText = await extractText(
       'section.container-sheet-connectivity .k-dltable tr:has-text("Proprietary") td'
     );
-    const usb = !usbText
-      ? null
-      : usbText.includes("Yes")
-      ? "Lightning"
-      : "USB-C";
+    const usb = usbText && usbText.includes("Yes") ? "Lightning" : "USB-C";
 
     const simText = await extractText(
       'section.container-sheet-connectivity h3.k-h4:has-text("SIM card") + .k-dltable tr:has-text("Type") td'
@@ -258,18 +294,35 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
       }
     }
 
+    const headphoneJackText = await extractText(
+      'section.container-sheet-connectivity .k-dltable tr:has-text("Audio Jack") td'
+    );
+    const headphoneJack = headphoneJackText === "Yes" ? true : false;
+
     const batteryCapacityText = await extractText(
       'section.container-sheet-battery .k-dltable tr:has-text("Capacity") td'
     );
     const batteryCapacity = batteryCapacityText
       ? parseInt(batteryCapacityText)
       : null;
+
     const fastChargingText = await extractText(
       'section.container-sheet-battery .k-dltable tr:has-text("Fast charge") td'
     );
     const fastCharging = fastChargingText
       ? fastChargingText.includes("Yes")
       : null;
+    const batteryWattageMatch = fastChargingText
+      ?.toLowerCase()
+      ?.match(/(\d*(?:\.\d+)?)w/i);
+    const batteryWattage = batteryWattageMatch
+      ? parseFloat(batteryWattageMatch[1])
+      : null;
+
+    const osText = await extractText(
+      'section.container-sheet-software .k-dltable tr:has-text("Fast charge") td'
+    );
+    const software = getSoftware(osText);
 
     const data: PhoneData = {
       slug,
@@ -284,6 +337,7 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
       materials: materials.join("|"),
       ipRating,
       colors: colors.join("|"),
+      aspectRatio,
       size_in: displaySize,
       displayType,
       resolution: displayResolution,
@@ -291,17 +345,25 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
       displayFeatures: displayFeatures.join("|"),
       skus,
       cpu,
+      cpuManufacturer,
+      cpuCores: cpuCores?.join("|") ?? null,
       gpu,
       sdSlot,
+      fingerprintPosition,
+      benchmarks,
       nfc,
       bluetooth,
       sim: sim.join("|"),
+      simCount: sim.length,
       usb,
-      headphoneJack: false,
+      headphoneJack,
       batteryCapacity_mah: batteryCapacity,
       batteryFastCharging: fastCharging,
+      batteryWattage,
       cameras: [...rearCameras, ...frontCameras],
       cameraFeatures: [...rearCameraFeatures, ...frontCameraFeatures].join("|"),
+      os: software?.os ?? null,
+      osSkin: software?.osSkin ?? null,
       raw: raw.slice(
         // FIXME
         raw.indexOf(">", raw.indexOf("<main")) + 1,
@@ -311,6 +373,10 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
 
     debugLog(`trying to adapt data with openai gpt4-mini`);
     const adaptedData = await adaptScrapedData(data);
+    adaptedData.cameras = adaptedData.cameras.map(
+      (camera: SingleCameraData & { features: string[] }) =>
+        camera.features.join("|")
+    );
     debugLog(`successfully adapted data ${adaptedData}`);
 
     return adaptedData || data;
@@ -402,7 +468,10 @@ const getCameras = (cameraTables: Element[]): SingleCameraData[] => {
         : null;
 
       const apertureText = cameraData["Aperture"] || "";
-      const aperture_fstop = apertureText.replace("ƒ/", "").trim() || null;
+      let aperture_fstop = apertureText.replace("ƒ/", "").trim() || null;
+      if (aperture_fstop === "Unknown") {
+        aperture_fstop = null;
+      }
 
       const sensorText = cameraData["Sensor"];
       const sensor = sensorText === "--" ? null : sensorText;
@@ -412,6 +481,55 @@ const getCameras = (cameraTables: Element[]): SingleCameraData[] => {
         : null;
     })
     .filter(Boolean) as SingleCameraData[];
+};
+
+const getCpuCores = (input: string | null) => {
+  if (!input) {
+    return null;
+  }
+
+  const parts = input.split(/ ?[,+] ?/);
+
+  const result = [];
+  for (const part of parts) {
+    const trimmedPart = part.replace(" ", "").toLowerCase();
+    if (!trimmedPart) continue;
+
+    const match = trimmedPart.match(
+      /(?:(\d) ?x).*?(?:(\d{4,}) ?mhz|([\d\.,]{3,}) ?ghz)/i
+    );
+
+    if (!match || match.length < 2) {
+      continue;
+    }
+
+    const count = parseInt(match[1] || "1", 10);
+    const frequency = parseFloat(match[2].replace(",", "."));
+    const frequencyInMhz = trimmedPart.includes("ghz")
+      ? frequency * 1000
+      : frequency;
+
+    result.push(`${count}x${frequencyInMhz}`);
+  }
+
+  return result;
+};
+
+const getSoftware = (input: string | null) => {
+  if (!input) {
+    return null;
+  }
+
+  const [_, osPart, _2, osSkinPart] = input.split("\n");
+
+  const osMatch = osPart.trim().match(/\w* ?[\d\.,]*/i);
+  if (!osMatch) {
+    return null;
+  }
+
+  const osSkinSplit = osSkinPart.split("(");
+
+  return { os: osMatch[1], osSkin: osSkinSplit[0] };
 };
 
 const getCameraFeatures = (features: Element[]): string[] => {

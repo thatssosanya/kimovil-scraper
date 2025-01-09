@@ -64,9 +64,14 @@ const kimovilCameraSchema = z.object({
 });
 
 const kimovilSkuSchema = z.object({
+  marketId: z.string(),
   ram_gb: z.number().int(),
-  marketId: z.enum(["global", "CN", "RU", "IN", "EU", "USA", "JP"]).array(),
   storage_gb: z.number().int(),
+});
+
+const benchmarkSchema = z.object({
+  name: z.string(),
+  score: z.number(),
 });
 
 const kimovilDataSchema = z.object({
@@ -89,21 +94,30 @@ const kimovilDataSchema = z.object({
   size_in: z.number().nullable(),
   displayType: z.string().nullable(),
   resolution: z.string().nullable(),
+  aspectRatio: z.string().nullable(),
   ppi: z.number().int().nullable(),
   displayFeatures: z.string(),
   cpu: z.string().nullable(),
+  cpuManufacturer: z.string().nullable(),
+  cpuCores: z.string().nullable(),
   gpu: z.string().nullable(),
   sdSlot: z.boolean().nullable(),
   skus: z.array(kimovilSkuSchema),
+  fingerprintPosition: z.string().nullable(),
+  benchmarks: z.array(benchmarkSchema),
   nfc: z.boolean().nullable(),
   bluetooth: z.string().nullable(),
   sim: z.string(),
-  usb: z.string().nullable(),
+  simCount: z.number(),
+  usb: z.enum(["USB-C", "Lightning"]).nullable(),
   headphoneJack: z.boolean().nullable(),
   batteryCapacity_mah: z.number().nullable(),
   batteryFastCharging: z.boolean().nullable(),
+  batteryWattage: z.number().nullable(),
   cameras: z.array(kimovilCameraSchema),
   cameraFeatures: z.string(),
+  os: z.string().nullable(),
+  osSkin: z.string().nullable(),
 });
 
 export const adaptScrapedData = async (data: PhoneData) => {
@@ -120,23 +134,24 @@ export const adaptScrapedData = async (data: PhoneData) => {
         },
         {
           role: "user",
+          /*
+TODO:
+
+add raw
+- double-check that all features match the raw data
+*/
           content: `Your goal is to make phone data consistent with the following requirements:
-        - use russian language for phone features except for the name
-        - only keep features that are present in the raw data
-        - make features short and concise
-        - make sure that the data is consistent with the raw data
+        - keep the lists of features, i.e. \`displayFeatures\` and \`cameraFeatures\`, informative. omit features that exist in the majority of phones, e.g. multitouch, dual sim, frameless, etc.
         - do not add any new features
-        - only keep skus that are unique by combination of ram and storage and store region in correct field
-        - write "-" for apertrure when it is unknown
-        - write short cpu names: instead of	Qualcomm Snapdragon 7s Gen2 (SM-7435AB) write Qualcomm Snapdragon 7s Gen2
-        - keep features relevant and omit any that seem excessive and exist in majority of phones (like multitouch, dual sim, frameless)
-        - if cameras main purpose is macro, then it is macro, otherwise type should be wide angle with macro feature included
-        - materials should not include glass type
-        - Do NOT translate features that sound weird in russian (you should NOT translate hole-punch, dual edge display, etc)
-        - Do NOT translate features that sound weird in russian (you should NOT translate hole-punch, dual edge display, etc)
-        - Do NOT translate features that sound weird in russian (you should NOT translate hole-punch, dual edge display, etc)
-        - Do NOT translate features that sound weird in russian (you should NOT translate hole-punch, dual edge display, etc)
-        ${data.name}:\n${JSON.stringify({ ...data, raw: "" })}`,
+        - translate the names of features, as well as the names of \`materials\` and \`colors\`, to russian
+        - do not translate features that sound nonsensical in russian such as "hole-punch notch", "dual edge display", etc. leave these as is
+        - excluse glass type from \`materials\` if present
+        - keep translated names short and concise
+        - make sure \`cpu\` is concise, e.g. you should replace "Snapdragon 7s Gen2 (SM-7435AB)" with "Snapdragon 7s Gen2"
+        - for \`cameras\`, pick a type that best matches the input type. if a camera's primary type is not macro, but macro is mentioned in the type, such as in a "Wide Angle + Macro" type, add macro as a feature
+        \`\`\`
+        ${JSON.stringify({ ...data, raw: "" })}
+        \`\`\``,
         },
       ],
       temperature: 0.5,
