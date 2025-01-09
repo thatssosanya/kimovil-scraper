@@ -10,6 +10,16 @@ import {
 
 let channel: amqp.Channel;
 
+// Function to get queue-specific config
+const getQueueConfig = (queueName: string) => ({
+  durable: true,
+  arguments: {
+    "x-message-ttl": 300000, // 5 minutes TTL
+    "x-dead-letter-exchange": "dlx",
+    "x-dead-letter-routing-key": `${queueName}_dead`,
+  },
+});
+
 export const initRMQ = async () => {
   const rmqConnstr = process.env.RMQ_CONNSTR;
   if (!rmqConnstr) {
@@ -19,6 +29,24 @@ export const initRMQ = async () => {
   const connection = await amqp.connect(rmqConnstr);
   channel = await connection.createChannel();
 
+  // Setup dead letter exchange
+  await channel.assertExchange("dlx", "direct", { durable: true });
+
+  // Setup dead letter queues for each main queue
+  const queues = [
+    "getAutocompleteOptionsRequest",
+    "getMatchingSlugRequest",
+    "getUserConfirmedSlugRequest",
+    "getKimovilDataRequest",
+    "getKimovilDataResponse",
+  ];
+
+  for (const queue of queues) {
+    const deadQueueName = `${queue}_dead`;
+    await channel.assertQueue(deadQueueName, { durable: true });
+    await channel.bindQueue(deadQueueName, "dlx", deadQueueName);
+  }
+
   console.log(`Initialized RMQ channel.`);
 };
 
@@ -26,7 +54,8 @@ export const onMessage = (
   queueName: string,
   processCallback: (payload: any) => Promise<any>
 ) => {
-  channel.assertQueue(queueName, { durable: true });
+  // Use queue-specific config
+  channel.assertQueue(queueName, getQueueConfig(queueName));
 
   channel.consume(queueName, async (msg) => {
     if (!msg) return;
@@ -93,6 +122,11 @@ const successCallbacks: Record<
     result: AutocompleteOption[],
     payload: GetAutocompleteOptionsRequestPayload
   ) => {
+    // Use queue-specific config
+    await channel.assertQueue(
+      "getMatchingSlugRequest",
+      getQueueConfig("getMatchingSlugRequest")
+    );
     channel.sendToQueue(
       "getMatchingSlugRequest",
       Buffer.from(
@@ -101,7 +135,8 @@ const successCallbacks: Record<
           deviceId: payload.deviceId,
           options: result,
         })
-      )
+      ),
+      { persistent: true }
     );
   },
 
@@ -109,6 +144,11 @@ const successCallbacks: Record<
     result: string,
     payload: GetMatchingSlugRequestPayload
   ) => {
+    // Use queue-specific config
+    await channel.assertQueue(
+      "getUserConfirmedSlugRequest",
+      getQueueConfig("getUserConfirmedSlugRequest")
+    );
     channel.sendToQueue(
       "getUserConfirmedSlugRequest",
       Buffer.from(
@@ -118,7 +158,8 @@ const successCallbacks: Record<
           slug: result,
           options: payload.options,
         })
-      )
+      ),
+      { persistent: true }
     );
   },
 
@@ -145,6 +186,11 @@ const successCallbacks: Record<
       );
     }
 
+    // Use queue-specific config
+    await channel.assertQueue(
+      "getKimovilDataResponse",
+      getQueueConfig("getKimovilDataResponse")
+    );
     channel.sendToQueue(
       "getKimovilDataResponse",
       Buffer.from(
@@ -152,7 +198,8 @@ const successCallbacks: Record<
           userId: payload.userId,
           deviceId: payload.deviceId,
         })
-      )
+      ),
+      { persistent: true }
     );
   },
 };

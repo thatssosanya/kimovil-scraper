@@ -131,6 +131,7 @@ export const adaptScrapedData = async (data: PhoneData) => {
         - write short cpu names: instead of	Qualcomm Snapdragon 7s Gen2 (SM-7435AB) write Qualcomm Snapdragon 7s Gen2
         - keep features relevant and omit any that seem excessive and exist in majority of phones (like multitouch, dual sim, frameless)
         - if cameras main purpose is macro, then it is macro, otherwise type should be wide angle with macro feature included
+        - materials should not include glass type
         - Do NOT translate features that sound weird in russian (you should NOT translate hole-punch, dual edge display, etc)
         - Do NOT translate features that sound weird in russian (you should NOT translate hole-punch, dual edge display, etc)
         - Do NOT translate features that sound weird in russian (you should NOT translate hole-punch, dual edge display, etc)
