@@ -3,7 +3,6 @@ import { AutocompleteOption, PhoneData } from "../../types";
 import { debugLog, withDebugLog } from "../../utils/logging";
 import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
-import { features } from "process";
 
 export const createOpenaiClient = () => {
   const openaiApiKey = process.env.OPENAI_API_KEY;
@@ -103,7 +102,7 @@ const kimovilDataSchema = z.object({
   gpu: z.string().nullable(),
   sdSlot: z.boolean().nullable(),
   skus: z.array(kimovilSkuSchema),
-  fingerprintPosition: z.string().nullable(),
+  fingerprintPosition: z.enum(["screen", "side", "back"]).nullable(),
   benchmarks: z.array(benchmarkSchema),
   nfc: z.boolean().nullable(),
   bluetooth: z.string().nullable(),
@@ -148,7 +147,8 @@ add raw
         - excluse glass type from \`materials\` if present
         - keep translated names short and concise
         - make sure \`cpu\` is concise, e.g. you should replace "Snapdragon 7s Gen2 (SM-7435AB)" with "Snapdragon 7s Gen2"
-        - for \`cameras\`, pick a type that best matches the input type. if a camera's primary type is not macro, but macro is mentioned in the type, such as in a "Wide Angle + Macro" type, add macro as a feature
+        - for \`cameras\`, pick a type that best matches the input type
+        - if a camera's primary type is macro, put the type as macro and don't put macro in features. if the primary type is not macro, but macro is mentioned in the type, such as in a "Wide Angle + Macro" type, add macro as a feature
         \`\`\`
         ${JSON.stringify({ ...data, raw: "" })}
         \`\`\``,
