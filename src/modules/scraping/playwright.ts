@@ -373,10 +373,6 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
 
     debugLog(`trying to adapt data with openai gpt4-mini`);
     const adaptedData = await adaptScrapedData(data);
-    adaptedData.cameras = adaptedData.cameras.map(
-      (camera: SingleCameraData & { features: string[] }) =>
-        camera.features.join("|")
-    );
     debugLog(`successfully adapted data ${adaptedData}`);
 
     return adaptedData || data;
