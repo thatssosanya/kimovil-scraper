@@ -227,12 +227,12 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
 
     const benchmarks: Benchmark[] = [];
     const antutuText = await extractText(
-      'section.container-sheet-hardware .k-dltable tr:has-text("Diagonal") td'
+      'section.container-sheet-hardware .k-dltable tr:has-text("Score") td'
     );
     if (antutuText) {
-      const [_, antutuScore, antutuVersion, ..._2] = antutuText
+      const [antutuScore, antutuVersion] = antutuText
         .split("\n")
-        .map((part) => part.replace(/[•\.]/, "").replace(",", "").trim());
+        .map((part) => part.replace(/[•\.,]/, "").trim());
       benchmarks.push({ name: antutuVersion, score: parseFloat(antutuScore) });
     }
 
@@ -320,7 +320,7 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
       : null;
 
     const osText = await extractText(
-      'section.container-sheet-software .k-dltable tr:has-text("Fast charge") td'
+      'section.container-sheet-software .k-dltable tr:has-text("Operating System") td'
     );
     const software = getSoftware(osText);
 
@@ -371,9 +371,12 @@ export const scrapeBySlug = withDebugLog(async (slug: string) => {
       ),
     };
 
-    debugLog(`trying to adapt data with openai gpt4-mini`);
+    debugLog(`Trying to adapt data with OpenAI gpt-4o-mini.`);
     const adaptedData = await adaptScrapedData(data);
-    debugLog(`successfully adapted data ${adaptedData}`);
+    debugLog(`Successfully adapted data:`, JSON.stringify(adaptedData));
+    if (adaptedData) {
+      adaptedData.raw = data.raw;
+    }
 
     return adaptedData || data;
   } catch (e) {
@@ -500,7 +503,7 @@ const getCpuCores = (input: string | null) => {
     }
 
     const count = parseInt(match[1] || "1", 10);
-    const frequency = parseFloat(match[2].replace(",", "."));
+    const frequency = parseFloat(match[2] || match[3].replace(",", "."));
     const frequencyInMhz = trimmedPart.includes("ghz")
       ? frequency * 1000
       : frequency;
@@ -516,16 +519,16 @@ const getSoftware = (input: string | null) => {
     return null;
   }
 
-  const [_, osPart, _2, osSkinPart] = input.split("\n");
+  const [osPart, _, osSkinPart] = input.split("\n");
 
-  const osMatch = osPart.trim().match(/\w* ?[\d\.,]*/i);
+  const osMatch = osPart.trim().match(/\w+ ?[\d\.,]*/i);
   if (!osMatch) {
     return null;
   }
 
   const osSkinSplit = osSkinPart.split("(");
 
-  return { os: osMatch[1], osSkin: osSkinSplit[0] };
+  return { os: osMatch[0], osSkin: osSkinSplit[0].trim() };
 };
 
 const getCameraFeatures = (features: Element[]): string[] => {
