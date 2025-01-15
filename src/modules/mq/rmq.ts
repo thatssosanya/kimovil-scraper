@@ -1,12 +1,12 @@
 import amqp from "amqplib";
-import { debugLog, errorLog } from "../../utils/logging";
-import { MESSAGE_RETRIES } from "../../utils/consts";
-import { AutocompleteOption, PhoneData } from "../../types";
+import { debugLog, errorLog } from "../../utils/logging.js";
+import { MESSAGE_RETRIES } from "../../utils/consts.js";
+import { AutocompleteOption, PhoneData } from "../../types/index.js";
 import {
   GetAutocompleteOptionsRequestPayload,
   GetMatchingSlugRequestPayload,
   GetKimovilDataRequestPayload,
-} from "../../types/payloads";
+} from "../../types/payloads.js";
 
 let channel: amqp.Channel;
 

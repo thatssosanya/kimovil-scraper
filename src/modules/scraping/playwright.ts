@@ -8,10 +8,10 @@ import {
   Sim,
   Sku,
   Benchmark,
-} from "../../types";
-import { PLAYWRIGHT_TIMEOUT, SIM_TYPES } from "../../utils/consts";
-import { debugLog, withDebugLog } from "../../utils/logging";
-import { adaptScrapedData } from "../ai/openai";
+} from "../../types/index.js";
+import { PLAYWRIGHT_TIMEOUT, SIM_TYPES } from "../../utils/consts.js";
+import { debugLog, withDebugLog } from "../../utils/logging.js";
+import { adaptScrapedData } from "../ai/openai.js";
 
 export const createBrightDataBrowser = async (tag?: string) => {
   if (process.env.LOCAL_PLAYWRIGHT) {

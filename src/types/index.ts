@@ -1,4 +1,4 @@
-import { SIM_TYPES } from "../utils/consts";
+import { SIM_TYPES } from "../utils/consts.js";
 
 export interface AutocompleteOption {
   name: string;

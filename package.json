@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "listen": "tsx --env-file=.env src/index.ts",
+    "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",

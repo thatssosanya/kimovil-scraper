@@ -1,0 +1,13 @@
+FROM rabbitmq:3-management
+
+# Copy the definitions file into the RabbitMQ configuration directory
+COPY rmq_definitions.json /etc/rabbitmq/definitions.json
+
+# Set ownership of the definitions file (important for RabbitMQ to read it)
+RUN chown rabbitmq:rabbitmq /etc/rabbitmq/definitions.json
+
+# Add curl for healthcheck
+RUN apt-get update
+RUN apt-get install -y curl
+# also 4369 5671 15671 25672?
+EXPOSE 5672 15672

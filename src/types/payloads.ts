@@ -1,4 +1,4 @@
-import { AutocompleteOption } from ".";
+import { AutocompleteOption } from "./index.js";
 
 export interface BasePayload {
   userId: string;

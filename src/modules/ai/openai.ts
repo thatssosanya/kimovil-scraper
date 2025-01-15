@@ -1,6 +1,6 @@
 import OpenAI from "openai";
-import { AutocompleteOption, PhoneData } from "../../types";
-import { debugLog, withDebugLog } from "../../utils/logging";
+import { AutocompleteOption, PhoneData } from "../../types/index.js";
+import { debugLog, withDebugLog } from "../../utils/logging.js";
 import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
 

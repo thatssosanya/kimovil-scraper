@@ -1,0 +1,28 @@
+services:
+  kimovil-scraper:
+    build: .
+    env_file:
+      - .env
+    depends_on:
+      - rmq
+    extra_hosts:
+        - "host.docker.internal:host-gateway"
+    restart: on-failure
+
+  rmq:
+    build:
+      context: .
+      dockerfile: Dockerfile.rmq
+    env_file:
+      - .env
+    ports:
+      - "5679:5672"
+      - "15679:15672"
+    volumes:
+      - /var/lib/kimovil-rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:15672"]
+        interval: 5s
+        timeout: 5s
+        retries: 5
+
