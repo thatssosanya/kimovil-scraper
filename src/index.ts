@@ -1,6 +1,7 @@
 import "dotenv/config";
 import {
   getAutocompleteOptions,
+  scrapeMissingSlugs,
   scrapeBySlug,
 } from "./modules/scraping/playwright.js";
 import { pickMatchingSlug } from "./modules/ai/openai.js";
@@ -26,4 +27,6 @@ if (!process.env.COD_URL) {
   onMessage("getKimovilDataRequest", (payload) => scrapeBySlug(payload.slug));
 
   console.log("Listening for RMQ messages.");
+
+  await scrapeMissingSlugs([]);
 })();

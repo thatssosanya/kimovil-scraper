@@ -16,7 +16,7 @@ export const withDebugLog = <Args extends unknown[], R>(
     const result = await fn(...args);
     const logArguments: Array<string | R> = tag ? [tag] : [];
     logArguments.push(result);
-    debugLog(...logArguments);
+    debugLog(JSON.stringify(logArguments));
     return result;
   };
 };

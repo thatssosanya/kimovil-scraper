@@ -12,6 +12,7 @@ import {
 import { PLAYWRIGHT_TIMEOUT, SIM_TYPES } from "../../utils/consts.js";
 import { debugLog, withDebugLog } from "../../utils/logging.js";
 import { adaptScrapedData } from "../ai/openai.js";
+import * as cheerio from "cheerio";
 
 export const createBrightDataBrowser = async (tag?: string) => {
   if (process.env.LOCAL_PLAYWRIGHT) {
@@ -417,6 +418,113 @@ export const getAutocompleteOptions = withDebugLog(
     } finally {
       browser?.close();
     }
+  }
+);
+
+const slugMarketIds = ["global", "international", "china", "cn", "in", "latam"];
+const extractSlugFromUrl = (url: string): string | null => {
+  if (!url) return null;
+  const dirtySegment = url.split("/").pop();
+  const dirtySlug = dirtySegment?.replace("where-to-buy-", "");
+  return (
+    dirtySlug
+      ?.split("-")
+      .filter(
+        (part) => !part.match(/\d+[gt]b/) && !slugMarketIds.includes(part)
+      )
+      .join("-") || null
+  );
+};
+
+export const scrapeMissingSlugs = withDebugLog(
+  async (existingSlugs: string[]): Promise<string[]> => {
+    const newSlugs: string[] = [];
+    const processedItems = new Set<string>();
+    let pageNumber = 1;
+    const baseUrl =
+      "https://www.kimovil.com/en/compare-smartphones/order.dm+unveiledDate";
+
+    while (pageNumber < 10) {
+      let browser: Browser | null = null;
+      try {
+        browser = await createBrightDataBrowser("getMissingSlugs");
+        const page = await browser.newPage();
+
+        const url = `${baseUrl},page.${pageNumber}?xhr=1`;
+        await page.goto(url, {
+          waitUntil: "load",
+        });
+        debugLog(`Navigated to API endpoint: ${url}.`);
+
+        const content = await page.content();
+        const startIndex = content.indexOf("{");
+        const endIndex = content.lastIndexOf("}");
+
+        if (startIndex === -1 || endIndex === -1 || startIndex >= endIndex) {
+          debugLog("Could not find valid JSON in the response. Stopping.");
+          break;
+        }
+
+        const jsonString = content.substring(startIndex, endIndex + 1);
+        let jsonData;
+        try {
+          jsonData = JSON.parse(jsonString);
+        } catch (error) {
+          debugLog(`Error parsing JSON: ${error}`);
+          break;
+        }
+
+        if (!jsonData.content) {
+          debugLog("JSON response does not contain 'content'. Stopping.");
+          break;
+        }
+
+        const contentHtml = jsonData.content;
+
+        const $ = cheerio.load(contentHtml);
+
+        const items: { href: string; id: string }[] = [];
+        $(".item.smartphone").each((i, element) => {
+          const href = $(element).find(".device-link").attr("href") || "";
+          const id = $(element).attr("id") || "";
+          items.push({ href, id });
+        });
+
+        if (items.length === 0) {
+          debugLog(`No more items found on page ${pageNumber}. Stopping.`);
+          break;
+        }
+
+        for (const item of items) {
+          if (processedItems.has(item.id)) {
+            continue;
+          }
+          processedItems.add(item.id);
+
+          const slug = extractSlugFromUrl(item.href);
+          if (slug) {
+            if (existingSlugs.includes(slug)) {
+              debugLog(`Found existing slug "${slug}". Stopping.`);
+              return newSlugs;
+            }
+            if (!newSlugs.includes(slug)) {
+              newSlugs.push(slug);
+            }
+          }
+        }
+
+        debugLog(
+          `Total ${newSlugs.length} new slugs after processing page ${pageNumber}.`
+        );
+        pageNumber++;
+      } catch (e) {
+        throw e;
+      } finally {
+        await browser?.close();
+      }
+    }
+
+    return newSlugs;
   }
 );
 
