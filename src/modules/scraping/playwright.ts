@@ -421,7 +421,22 @@ export const getAutocompleteOptions = withDebugLog(
   }
 );
 
-const slugMarketIds = ["global", "international", "china", "cn", "in", "latam"];
+const slugMarketIds = [
+  "global",
+  "international",
+  "america", // America
+  "na", // North America
+  "brazil", // Brazil
+  "latam", // Latin America
+  "china", // China
+  "cn",
+  "india", // India
+  "in",
+  "sudasi", // SEA
+  "kr", // Korea
+  "japan", // Japan
+  "jp",
+];
 const extractSlugFromUrl = (url: string): string | null => {
   if (!url) return null;
   const dirtySegment = url.split("/").pop();
