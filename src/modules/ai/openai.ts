@@ -3,6 +3,11 @@ import { AutocompleteOption, PhoneData } from "../../types/index.js";
 import { debugLog, withDebugLog } from "../../utils/logging.js";
 import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
+import {
+  mockAdaptScrapedData,
+  mockPickMatchingSlug,
+} from "../mocks/kimovil.js";
+import { withMock } from "../mocks/util.js";
 
 export const createOpenaiClient = () => {
   const openaiApiKey = process.env.OPENAI_API_KEY;
@@ -119,27 +124,29 @@ const kimovilDataSchema = z.object({
   osSkin: z.string().nullable(),
 });
 
-export const adaptScrapedData = async (data: PhoneData) => {
-  const openaiClient = createOpenaiClient();
+export const adaptScrapedData = withMock(
+  mockAdaptScrapedData,
+  withDebugLog(async (data: PhoneData) => {
+    const openaiClient = createOpenaiClient();
 
-  try {
-    const response = await openaiClient.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a helpful assistant that is knowledgeable about phones.",
-        },
-        {
-          role: "user",
-          /*
-TODO:
+    try {
+      const response = await openaiClient.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a helpful assistant that is knowledgeable about phones.",
+          },
+          {
+            role: "user",
+            /*
+              TODO:
 
-add raw
-- double-check that all features match the raw data
-*/
-          content: `Your goal is to make phone data consistent with the following requirements:
+              add raw
+              - double-check that all features match the raw data
+            */
+            content: `Your goal is to make phone data consistent with the following requirements:
         - keep the lists of features, i.e. \`displayFeatures\` and \`cameraFeatures\`, informative. omit features that exist in the majority of phones, e.g. multitouch, dual sim, frameless, etc.
         - do not add any new features
         - translate the names of features, as well as the names of \`materials\` and \`colors\`, to russian
@@ -152,23 +159,25 @@ add raw
         \`\`\`
         ${JSON.stringify({ ...data, raw: "" })}
         \`\`\``,
-        },
-      ],
-      temperature: 0.5,
-      response_format: zodResponseFormat(kimovilDataSchema, "json_schema"),
-      max_tokens: 8024,
-    });
-    debugLog(response);
-    return convertArraysToPipeDelimited(
-      JSON.parse(response.choices[0].message.content?.trim() || "")
-    );
-  } catch (e) {
-    debugLog(e);
-    throw e;
-  }
-};
+          },
+        ],
+        temperature: 0.5,
+        response_format: zodResponseFormat(kimovilDataSchema, "json_schema"),
+        max_tokens: 8024,
+      });
 
-export const pickMatchingSlug = withDebugLog(
+      return convertArraysToPipeDelimited(
+        JSON.parse(response.choices[0].message.content?.trim() || "")
+      );
+    } catch (e) {
+      debugLog(e);
+      throw e;
+    }
+  }, "adaptScrapedData")
+);
+
+export const pickMatchingSlug = withMock(
+  mockPickMatchingSlug,
   async (name: string, options: AutocompleteOption[]): Promise<string> => {
     if (options.length === 0) {
       throw new Error("No autocomplete options available.");

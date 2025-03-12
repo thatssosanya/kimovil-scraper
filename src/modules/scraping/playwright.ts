@@ -9,10 +9,21 @@ import {
   Sku,
   Benchmark,
 } from "../../types/index.js";
-import { PLAYWRIGHT_TIMEOUT, SIM_TYPES } from "../../utils/consts.js";
+import {
+  EXCLUDED_RESOURCE_TYPES,
+  PLAYWRIGHT_TIMEOUT,
+  SIM_TYPES,
+} from "../../utils/consts.js";
 import { debugLog, withDebugLog } from "../../utils/logging.js";
 import { adaptScrapedData } from "../ai/openai.js";
 import * as cheerio from "cheerio";
+import { withMock } from "../mocks/util.js";
+import {
+  mockGetAutocompleteOptions,
+  mockScrapeBySlug,
+  mockScrapeMissingSlugs,
+} from "../mocks/kimovil.js";
+import { GetMissingSlugsRequestPayload } from "../../types/payloads.js";
 
 export const createBrightDataBrowser = async (tag?: string) => {
   if (process.env.LOCAL_PLAYWRIGHT) {
@@ -36,367 +47,379 @@ export const createBrightDataBrowser = async (tag?: string) => {
   return browser;
 };
 
-export const scrapeBySlug = withDebugLog(async (slug: string) => {
-  let browser: Browser | null = null;
-  try {
-    browser = await createBrightDataBrowser("scrapeBySlug");
-    const page = await browser.newPage();
-    const url =
-      process.env.ENV === "development" && process.env.LOCAL_PLAYWRIGHT
-        ? `http://127.0.0.1:8080/Apple%20iPhone%2014_%20Price%20(from%20566.31%24)%20and%20specifications%20%5BDecember%202024%5D.html`
-        : `https://www.kimovil.com/en/where-to-buy-${slug}`;
-    await page.goto(url, { waitUntil: "load" });
-    debugLog(`Navigated to ${url}.`);
+export const scrapeBySlug = withMock(
+  mockScrapeBySlug,
+  withDebugLog(async (slug: string) => {
+    let browser: Browser | null = null;
+    try {
+      browser = await createBrightDataBrowser("scrapeBySlug");
+      const page = await browser.newPage();
+      await abortExtraResources(page);
+      const url =
+        process.env.ENV === "development" && process.env.LOCAL_PLAYWRIGHT
+          ? `http://127.0.0.1:8080/Apple%20iPhone%2014_%20Price%20(from%20566.31%24)%20and%20specifications%20%5BDecember%202024%5D.html`
+          : `https://www.kimovil.com/en/where-to-buy-${slug}`;
+      await page.goto(url, { waitUntil: "load", timeout: PLAYWRIGHT_TIMEOUT });
+      debugLog(`Navigated to ${url}.`);
 
-    const raw = await page.content();
+      const raw = await page.content();
 
-    const extractText = getTextExtractor(page);
+      const extractText = getTextExtractor(page);
 
-    const nameText = await extractText("header .title-group #sec-start");
-    const fullName = nameText
-      ?.replace("Price and specifications on", "")
-      .trim()
-      .split(" ");
-    const name = fullName ? fullName.slice(1).join(" ") : null;
-    const brand = fullName ? fullName[0] : null;
+      const nameText = await extractText("header .title-group #sec-start");
+      const fullName = nameText
+        ?.replace("Price and specifications on", "")
+        .trim()
+        .split(" ");
+      const name = fullName ? fullName.slice(1).join(" ") : null;
+      const brand = fullName ? fullName[0] : null;
 
-    const aliasesText = await extractText(
-      'section.container-sheet-intro .k-dltable tr:has-text("Aliases") td'
-    );
-    const aliases = aliasesText
-      ? aliasesText
-          .split(",")
-          .map((a) => a.trim())
-          .filter(Boolean)
-      : [];
+      const aliasesText = await extractText(
+        'section.container-sheet-intro .k-dltable tr:has-text("Aliases") td'
+      );
+      const aliases = aliasesText
+        ? aliasesText
+            .split(",")
+            .map((a) => a.trim())
+            .filter(Boolean)
+        : [];
 
-    const releaseDateText = await extractText(
-      'section.container-sheet-intro .k-dltable tr:has-text("Release date") td'
-    );
-    const releaseDate = releaseDateText
-      ? releaseDateText.split(",")[0].trim()
-      : "";
+      const releaseDateText = await extractText(
+        'section.container-sheet-intro .k-dltable tr:has-text("Release date") td'
+      );
+      const releaseDate = releaseDateText
+        ? releaseDateText.split(",")[0].trim()
+        : "";
 
-    const dimensionsText = await extractText(
-      'section.container-sheet-design .k-dltable tr:has-text("Size") td'
-    );
-    let height: number | null = null;
-    let width: number | null = null;
-    let thickness: number | null = null;
-    if (dimensionsText) {
-      const mmMatches = dimensionsText.match(/\b(\d+\.?\d*)\b/g);
-      // assuming height > width > thickness
-      if (mmMatches && mmMatches.length === 3) {
-        const values = mmMatches
-          .map((m) => parseFloat(m))
-          .sort((a, b) => b - a);
-        height = values[0] || null;
-        width = values[1] || null;
-        thickness = values[2] || null;
+      const dimensionsText = await extractText(
+        'section.container-sheet-design .k-dltable tr:has-text("Size") td'
+      );
+      let height: number | null = null;
+      let width: number | null = null;
+      let thickness: number | null = null;
+      if (dimensionsText) {
+        const mmMatches = dimensionsText.match(/\b(\d+\.?\d*)\b/g);
+        // assuming height > width > thickness
+        if (mmMatches && mmMatches.length === 3) {
+          const values = mmMatches
+            .map((m) => parseFloat(m))
+            .sort((a, b) => b - a);
+          height = values[0] || null;
+          width = values[1] || null;
+          thickness = values[2] || null;
+        }
       }
-    }
 
-    const weightText = await extractText(
-      'section.container-sheet-design .k-dltable tr:has-text("Weight") td'
-    );
-    let weight: number | null = null;
-    const weightMatch = weightText?.match(/([\d.]+)\s*g/);
-    if (weightMatch) {
-      weight = parseFloat(weightMatch[1]);
-    }
+      const weightText = await extractText(
+        'section.container-sheet-design .k-dltable tr:has-text("Weight") td'
+      );
+      let weight: number | null = null;
+      const weightMatch = weightText?.match(/([\d.]+)\s*g/);
+      if (weightMatch) {
+        weight = parseFloat(weightMatch[1]);
+      }
 
-    const materialsText = await extractText(
-      'section.container-sheet-design .k-dltable tr:has-text("Materials") td'
-    );
-    const materials = materialsText
-      ? materialsText
-          .split(",")
-          .map((m) => m.trim())
-          .filter(Boolean)
-      : [];
+      const materialsText = await extractText(
+        'section.container-sheet-design .k-dltable tr:has-text("Materials") td'
+      );
+      const materials = materialsText
+        ? materialsText
+            .split(",")
+            .map((m) => m.trim())
+            .filter(Boolean)
+        : [];
 
-    const ipText = await extractText(
-      'section.container-sheet-design .k-dltable tr:has-text("Resistance certificates") td'
-    );
-    const ipRating = ipText || null;
+      const ipText = await extractText(
+        'section.container-sheet-design .k-dltable tr:has-text("Resistance certificates") td'
+      );
+      const ipRating = ipText || null;
 
-    const colors = await page.$$eval(
-      'section.container-sheet-design .k-dltable tr:has-text("Colors") td .color-sep',
-      (els) => els.map((e) => e.textContent?.trim() || "").filter(Boolean)
-    );
+      const colors = await page.$$eval(
+        'section.container-sheet-design .k-dltable tr:has-text("Colors") td .color-sep',
+        (els) => els.map((e) => e.textContent?.trim() || "").filter(Boolean)
+      );
 
-    const aspectRatio = await extractText(
-      'section.container-sheet-design .k-dltable tr:has-text("Aspect Ratio") td'
-    );
+      const aspectRatio = await extractText(
+        'section.container-sheet-design .k-dltable tr:has-text("Aspect Ratio") td'
+      );
 
-    const displaySizeText = await extractText(
-      'section.container-sheet-design .k-dltable tr:has-text("Diagonal") td'
-    );
-    let displaySize: number | null = null;
-    const displaySizeMatch = displaySizeText?.match(/([\d.]+)"/);
-    if (displaySizeMatch) {
-      displaySize = parseFloat(displaySizeMatch[1]);
-    }
+      const displaySizeText = await extractText(
+        'section.container-sheet-design .k-dltable tr:has-text("Diagonal") td'
+      );
+      let displaySize: number | null = null;
+      const displaySizeMatch = displaySizeText?.match(/([\d.]+)"/);
+      if (displaySizeMatch) {
+        displaySize = parseFloat(displaySizeMatch[1]);
+      }
 
-    const displayType = await extractText(
-      'section.container-sheet-design .k-dltable tr:has-text("Type") td'
-    );
+      const displayType = await extractText(
+        'section.container-sheet-design .k-dltable tr:has-text("Type") td'
+      );
 
-    const displayResolutionText = await extractText(
-      'section.container-sheet-design .k-dltable tr:has-text("Resolution") td'
-    );
-    const resolutionMatch = displayResolutionText?.match(/(\d+\s*x\s*\d+)/i);
-    let displayResolution: string | null = null;
-    if (resolutionMatch) {
-      displayResolution = resolutionMatch[1];
-    }
+      const displayResolutionText = await extractText(
+        'section.container-sheet-design .k-dltable tr:has-text("Resolution") td'
+      );
+      const resolutionMatch = displayResolutionText?.match(/(\d+\s*x\s*\d+)/i);
+      let displayResolution: string | null = null;
+      if (resolutionMatch) {
+        displayResolution = resolutionMatch[1];
+      }
 
-    const displayPpiText = await extractText(
-      'section.container-sheet-design .k-dltable tr:has-text("Density") td'
-    );
-    const ppiMatch = displayPpiText?.match(/(\d+)\s*ppi/i);
-    let displayPpi = ppiMatch ? parseInt(ppiMatch[1], 10) : null;
+      const displayPpiText = await extractText(
+        'section.container-sheet-design .k-dltable tr:has-text("Density") td'
+      );
+      const ppiMatch = displayPpiText?.match(/(\d+)\s*ppi/i);
+      let displayPpi = ppiMatch ? parseInt(ppiMatch[1], 10) : null;
 
-    const displayFeatures = await page.$$eval(
-      'section.container-sheet-design .k-dltable tr:has-text("Others") td li',
-      (els) => els.map((e) => e.textContent?.trim() || "").filter(Boolean)
-    );
+      const displayFeatures = await page.$$eval(
+        'section.container-sheet-design .k-dltable tr:has-text("Others") td li',
+        (els) => els.map((e) => e.textContent?.trim() || "").filter(Boolean)
+      );
 
-    const cpuText = await extractText(
-      'section.container-sheet-hardware h3:has-text("Processor") + .k-dltable tr:has-text("Model") td'
-    );
-    const [cpuManufacturer, ...cpuArr] = !cpuText
-      ? [null, null]
-      : cpuText?.split(" ");
-    const cpu = cpuArr?.join(" ");
+      const cpuText = await extractText(
+        'section.container-sheet-hardware h3:has-text("Processor") + .k-dltable tr:has-text("Model") td'
+      );
+      const [cpuManufacturer, ...cpuArr] = !cpuText
+        ? [null, null]
+        : cpuText?.split(" ");
+      const cpu = cpuArr?.join(" ");
 
-    const cpuCoresText = await extractText(
-      'section.container-sheet-hardware h3:has-text("Processor") + .k-dltable tr:has-text("CPU") td'
-    );
-    const cpuCores = getCpuCores(cpuCoresText);
+      const cpuCoresText = await extractText(
+        'section.container-sheet-hardware h3:has-text("Processor") + .k-dltable tr:has-text("CPU") td'
+      );
+      const cpuCores = getCpuCores(cpuCoresText);
 
-    const gpu = await extractText(
-      'section.container-sheet-hardware .k-dltable tr:has-text("GPU") td'
-    );
+      const gpu = await extractText(
+        'section.container-sheet-hardware .k-dltable tr:has-text("GPU") td'
+      );
 
-    const skusDataJson = await page.$eval(
-      "header .grouped-versions-list",
-      (e) => e.getAttribute("data-versions")
-    );
-    const skusData = JSON.parse(skusDataJson!);
-    const marketsData = Object.values(skusData) as DirtyMarket[];
-    const groupedSkus: Record<string, Sku> = {};
-    marketsData.forEach((market) => {
-      const dirtySkus = Object.values(market.devices) as DirtySku[];
-      dirtySkus.forEach((sku) => {
-        const ram_gb = sku.ram / 1024;
-        const storage_gb = sku.rom / 1024;
-        const key = `${ram_gb}/${storage_gb}`;
-        if (groupedSkus[key]) {
-          if (!groupedSkus[key].marketId.includes(market.mkid)) {
+      const skusDataJson = await page.$eval(
+        "header .grouped-versions-list",
+        (e) => e.getAttribute("data-versions")
+      );
+      const skusData = JSON.parse(skusDataJson!);
+      const marketsData = Object.values(skusData) as DirtyMarket[];
+      const groupedSkus: Record<string, Sku> = {};
+      marketsData.forEach((market) => {
+        const dirtySkus = Object.values(market.devices) as DirtySku[];
+        dirtySkus.forEach((sku) => {
+          const ram_gb = sku.ram / 1024;
+          const storage_gb = sku.rom / 1024;
+          const key = `${ram_gb}/${storage_gb}`;
+          if (groupedSkus[key]) {
+            if (!groupedSkus[key].marketId.includes(market.mkid)) {
+              groupedSkus[key] = {
+                ...groupedSkus[key],
+                marketId: groupedSkus[key].marketId + "|" + market.mkid,
+              };
+            }
+          } else {
             groupedSkus[key] = {
-              ...groupedSkus[key],
-              marketId: groupedSkus[key].marketId + "|" + market.mkid,
+              marketId: market.mkid,
+              ram_gb,
+              storage_gb,
             };
           }
-        } else {
-          groupedSkus[key] = {
-            marketId: market.mkid,
-            ram_gb,
-            storage_gb,
-          };
-        }
+        });
       });
-    });
-    const skus = Object.values(groupedSkus);
+      const skus = Object.values(groupedSkus);
 
-    const sdSlotText = await extractText(
-      'section.container-sheet-hardware .k-dltable tr:has-text("SD Slot") td'
-    );
-    const sdSlot = sdSlotText ? sdSlotText.includes("Yes") : null;
-
-    const fingerprintPositionText = await extractText(
-      'section.container-sheet-hardware h3:has-text("Security") + .k-dltable tr:has-text("Fingerprint") td'
-    );
-    const fingerprintPosition = fingerprintPositionText?.includes("screen")
-      ? "screen"
-      : fingerprintPositionText?.includes("side")
-      ? "side"
-      : fingerprintPositionText?.includes("back")
-      ? "back"
-      : null;
-
-    const benchmarks: Benchmark[] = [];
-    const antutuText = await extractText(
-      'section.container-sheet-hardware .k-dltable tr:has-text("Score") td'
-    );
-    if (antutuText) {
-      const [antutuScore, antutuVersion] = antutuText
-        .split("\n")
-        .map((part) => part.replace(/[•\.,]/, "").trim());
-      benchmarks.push({ name: antutuVersion, score: parseFloat(antutuScore) });
-    }
-
-    const rearCamerasFromTables: SingleCameraData[] = await page.$$eval(
-      'section.container-sheet-camera h3:has-text("rear camera") + .k-column-blocks table',
-      getCameras
-    );
-    const rearCamerasFromDls: SingleCameraData[] = await page.$$eval(
-      'section.container-sheet-camera h3:has-text("rear camera") + .k-column-blocks dl',
-      getCameras
-    );
-    const rearCameras = [...rearCamerasFromTables, ...rearCamerasFromDls];
-    const rearCameraFeatures: string[] = await page.$$eval(
-      'section.container-sheet-camera table.k-dltable th:has-text("Features") + td li',
-      getCameraFeatures
-    );
-    const frontCameras: SingleCameraData[] = await page.$$eval(
-      'section.container-sheet-camera h3.k-h4:has-text("Selfie") + .k-column-blocks table',
-      getCameras
-    );
-    const frontCameraFeatures: string[] = await page.$$eval(
-      'section.container-sheet-camera dl.k-dl dt:has-text("Extra") + dd li',
-      getCameraFeatures
-    );
-
-    const nfcText = await extractText(
-      'section.container-sheet-connectivity dl.k-dl dt:has-text("NFC") + dd'
-    );
-    const nfc = nfcText ? nfcText.includes("Yes") : null;
-
-    const bluetoothText = await extractText(
-      'section.container-sheet-connectivity h3.k-h4:has-text("Bluetooth") + .k-dltable tr:has-text("Version") td'
-    );
-    const bluetoothMatch = bluetoothText?.match(/Bluetooth\s([\d.]+)/i);
-    const bluetooth = bluetoothMatch ? `Bluetooth ${bluetoothMatch[1]}` : null;
-
-    const usbText = await extractText(
-      'section.container-sheet-connectivity .k-dltable tr:has-text("Proprietary") td'
-    );
-    const usb = usbText && usbText.includes("Yes") ? "Lightning" : "USB-C";
-
-    const simText = await extractText(
-      'section.container-sheet-connectivity h3.k-h4:has-text("SIM card") + .k-dltable tr:has-text("Type") td'
-    );
-    let sim: Sim[] = [];
-    if (simText) {
-      let trimmedSimText = simText.slice(
-        simText.indexOf("("),
-        simText.indexOf(")") + 1
+      const sdSlotText = await extractText(
+        'section.container-sheet-hardware .k-dltable tr:has-text("SD Slot") td'
       );
-      for (const simType of SIM_TYPES) {
-        const i = trimmedSimText.indexOf(simType);
-        if (i !== -1 && trimmedSimText) {
-          sim.push(simType);
-          trimmedSimText =
-            trimmedSimText.slice(0, i) +
-            trimmedSimText.slice(i + simType.length);
+      const sdSlot = sdSlotText ? sdSlotText.includes("Yes") : null;
+
+      const fingerprintPositionText = await extractText(
+        'section.container-sheet-hardware h3:has-text("Security") + .k-dltable tr:has-text("Fingerprint") td'
+      );
+      const fingerprintPosition = fingerprintPositionText?.includes("screen")
+        ? "screen"
+        : fingerprintPositionText?.includes("side")
+        ? "side"
+        : fingerprintPositionText?.includes("back")
+        ? "back"
+        : null;
+
+      const benchmarks: Benchmark[] = [];
+      const antutuText = await extractText(
+        'section.container-sheet-hardware .k-dltable tr:has-text("Score") td'
+      );
+      if (antutuText) {
+        const [antutuScore, antutuVersion] = antutuText
+          .split("\n")
+          .map((part) => part.replace(/[•\.,]/, "").trim());
+        benchmarks.push({
+          name: antutuVersion,
+          score: parseFloat(antutuScore),
+        });
+      }
+
+      const rearCamerasFromTables: SingleCameraData[] = await page.$$eval(
+        'section.container-sheet-camera h3:has-text("rear camera") + .k-column-blocks table',
+        getCameras
+      );
+      const rearCamerasFromDls: SingleCameraData[] = await page.$$eval(
+        'section.container-sheet-camera h3:has-text("rear camera") + .k-column-blocks dl',
+        getCameras
+      );
+      const rearCameras = [...rearCamerasFromTables, ...rearCamerasFromDls];
+      const rearCameraFeatures: string[] = await page.$$eval(
+        'section.container-sheet-camera table.k-dltable th:has-text("Features") + td li',
+        getCameraFeatures
+      );
+      const frontCameras: SingleCameraData[] = await page.$$eval(
+        'section.container-sheet-camera h3.k-h4:has-text("Selfie") + .k-column-blocks table',
+        getCameras
+      );
+      const frontCameraFeatures: string[] = await page.$$eval(
+        'section.container-sheet-camera dl.k-dl dt:has-text("Extra") + dd li',
+        getCameraFeatures
+      );
+
+      const nfcText = await extractText(
+        'section.container-sheet-connectivity dl.k-dl dt:has-text("NFC") + dd'
+      );
+      const nfc = nfcText ? nfcText.includes("Yes") : null;
+
+      const bluetoothText = await extractText(
+        'section.container-sheet-connectivity h3.k-h4:has-text("Bluetooth") + .k-dltable tr:has-text("Version") td'
+      );
+      const bluetoothMatch = bluetoothText?.match(/Bluetooth\s([\d.]+)/i);
+      const bluetooth = bluetoothMatch
+        ? `Bluetooth ${bluetoothMatch[1]}`
+        : null;
+
+      const usbText = await extractText(
+        'section.container-sheet-connectivity .k-dltable tr:has-text("Proprietary") td'
+      );
+      const usb = usbText && usbText.includes("Yes") ? "Lightning" : "USB-C";
+
+      const simText = await extractText(
+        'section.container-sheet-connectivity h3.k-h4:has-text("SIM card") + .k-dltable tr:has-text("Type") td'
+      );
+      let sim: Sim[] = [];
+      if (simText) {
+        let trimmedSimText = simText.slice(
+          simText.indexOf("("),
+          simText.indexOf(")") + 1
+        );
+        for (const simType of SIM_TYPES) {
+          const i = trimmedSimText.indexOf(simType);
+          if (i !== -1 && trimmedSimText) {
+            sim.push(simType);
+            trimmedSimText =
+              trimmedSimText.slice(0, i) +
+              trimmedSimText.slice(i + simType.length);
+          }
         }
       }
+
+      const headphoneJackText = await extractText(
+        'section.container-sheet-connectivity .k-dltable tr:has-text("Audio Jack") td'
+      );
+      const headphoneJack = headphoneJackText === "Yes" ? true : false;
+
+      const batteryCapacityText = await extractText(
+        'section.container-sheet-battery .k-dltable tr:has-text("Capacity") td'
+      );
+      const batteryCapacity = batteryCapacityText
+        ? parseInt(batteryCapacityText)
+        : null;
+
+      const fastChargingText = await extractText(
+        'section.container-sheet-battery .k-dltable tr:has-text("Fast charge") td'
+      );
+      const fastCharging = fastChargingText
+        ? fastChargingText.includes("Yes")
+        : null;
+      const batteryWattageMatch = fastChargingText
+        ?.toLowerCase()
+        ?.match(/(\d*(?:\.\d+)?)w/i);
+      const batteryWattage = batteryWattageMatch
+        ? parseFloat(batteryWattageMatch[1])
+        : null;
+
+      const osText = await extractText(
+        'section.container-sheet-software .k-dltable tr:has-text("Operating System") td'
+      );
+      const software = getSoftware(osText);
+
+      const data: PhoneData = {
+        slug,
+        name: name!,
+        brand: brand!,
+        aliases: aliases.join("|"),
+        releaseDate: releaseDate ? new Date(releaseDate) : null,
+        height_mm: height,
+        width_mm: width,
+        thickness_mm: thickness,
+        weight_g: weight,
+        materials: materials.join("|"),
+        ipRating,
+        colors: colors.join("|"),
+        aspectRatio,
+        size_in: displaySize,
+        displayType,
+        resolution: displayResolution,
+        ppi: displayPpi,
+        displayFeatures: displayFeatures.join("|"),
+        skus,
+        cpu,
+        cpuManufacturer,
+        cpuCores: cpuCores?.join("|") ?? null,
+        gpu,
+        sdSlot,
+        fingerprintPosition,
+        benchmarks,
+        nfc,
+        bluetooth,
+        sim: sim.join("|"),
+        simCount: sim.length,
+        usb,
+        headphoneJack,
+        batteryCapacity_mah: batteryCapacity,
+        batteryFastCharging: fastCharging,
+        batteryWattage,
+        cameras: [...rearCameras, ...frontCameras],
+        cameraFeatures: [...rearCameraFeatures, ...frontCameraFeatures].join(
+          "|"
+        ),
+        os: software?.os ?? null,
+        osSkin: software?.osSkin ?? null,
+        raw: raw.slice(
+          // FIXME
+          raw.indexOf(">", raw.indexOf("<main")) + 1,
+          raw.indexOf("</main")
+        ),
+      };
+
+      debugLog(`Trying to adapt data with OpenAI gpt-4o-mini.`);
+      const adaptedData = await adaptScrapedData(data);
+      if (adaptedData) {
+        adaptedData.raw = data.raw;
+      }
+
+      return adaptedData || data;
+    } catch (e) {
+      throw e;
+    } finally {
+      browser?.close();
     }
+  }, "scrapeBySlug")
+);
 
-    const headphoneJackText = await extractText(
-      'section.container-sheet-connectivity .k-dltable tr:has-text("Audio Jack") td'
-    );
-    const headphoneJack = headphoneJackText === "Yes" ? true : false;
-
-    const batteryCapacityText = await extractText(
-      'section.container-sheet-battery .k-dltable tr:has-text("Capacity") td'
-    );
-    const batteryCapacity = batteryCapacityText
-      ? parseInt(batteryCapacityText)
-      : null;
-
-    const fastChargingText = await extractText(
-      'section.container-sheet-battery .k-dltable tr:has-text("Fast charge") td'
-    );
-    const fastCharging = fastChargingText
-      ? fastChargingText.includes("Yes")
-      : null;
-    const batteryWattageMatch = fastChargingText
-      ?.toLowerCase()
-      ?.match(/(\d*(?:\.\d+)?)w/i);
-    const batteryWattage = batteryWattageMatch
-      ? parseFloat(batteryWattageMatch[1])
-      : null;
-
-    const osText = await extractText(
-      'section.container-sheet-software .k-dltable tr:has-text("Operating System") td'
-    );
-    const software = getSoftware(osText);
-
-    const data: PhoneData = {
-      slug,
-      name: name!,
-      brand: brand!,
-      aliases: aliases.join("|"),
-      releaseDate: releaseDate ? new Date(releaseDate) : null,
-      height_mm: height,
-      width_mm: width,
-      thickness_mm: thickness,
-      weight_g: weight,
-      materials: materials.join("|"),
-      ipRating,
-      colors: colors.join("|"),
-      aspectRatio,
-      size_in: displaySize,
-      displayType,
-      resolution: displayResolution,
-      ppi: displayPpi,
-      displayFeatures: displayFeatures.join("|"),
-      skus,
-      cpu,
-      cpuManufacturer,
-      cpuCores: cpuCores?.join("|") ?? null,
-      gpu,
-      sdSlot,
-      fingerprintPosition,
-      benchmarks,
-      nfc,
-      bluetooth,
-      sim: sim.join("|"),
-      simCount: sim.length,
-      usb,
-      headphoneJack,
-      batteryCapacity_mah: batteryCapacity,
-      batteryFastCharging: fastCharging,
-      batteryWattage,
-      cameras: [...rearCameras, ...frontCameras],
-      cameraFeatures: [...rearCameraFeatures, ...frontCameraFeatures].join("|"),
-      os: software?.os ?? null,
-      osSkin: software?.osSkin ?? null,
-      raw: raw.slice(
-        // FIXME
-        raw.indexOf(">", raw.indexOf("<main")) + 1,
-        raw.indexOf("</main")
-      ),
-    };
-
-    debugLog(`Trying to adapt data with OpenAI gpt-4o-mini.`);
-    const adaptedData = await adaptScrapedData(data);
-    debugLog(`Successfully adapted data:`, JSON.stringify(adaptedData));
-    if (adaptedData) {
-      adaptedData.raw = data.raw;
-    }
-
-    return adaptedData || data;
-  } catch (e) {
-    throw e;
-  } finally {
-    browser?.close();
-  }
-});
-
-export const getAutocompleteOptions = withDebugLog(
-  async (name: string): Promise<AutocompleteOption[]> => {
+export const getAutocompleteOptions = withMock(
+  mockGetAutocompleteOptions,
+  withDebugLog(async (name: string): Promise<AutocompleteOption[]> => {
     let browser: Browser | null = null;
     try {
       browser = await createBrightDataBrowser("getAutocompleteOptions");
       const page = await browser.newPage();
-
+      await abortExtraResources(page);
       await page.goto(
         "https://www.kimovil.com/_json/autocomplete_devicemodels_joined.json?device_type=0&name=" +
-          encodeURIComponent(name)
+          encodeURIComponent(name),
+        { waitUntil: "load", timeout: PLAYWRIGHT_TIMEOUT }
       );
 
       const dirtyJson = await page.content();
@@ -409,138 +432,290 @@ export const getAutocompleteOptions = withDebugLog(
         results: { full_name: string; url: string }[];
       };
 
-      return response.results.map(({ full_name: name, url: slug }) => ({
-        name,
-        slug,
-      }));
+      return response.results.length < 8
+        ? response.results.map(({ full_name: name, url: slug }) => ({
+            name,
+            slug,
+          }))
+        : await scrapeMissingSlugs({
+            name,
+          }).then(({ slugs }) =>
+            slugs.map(({ name, slug }) => ({ name, slug }))
+          );
     } catch (e) {
       throw e;
     } finally {
       browser?.close();
     }
-  }
+  }, "getAutocompleteOptions")
 );
 
-const slugMarketIds = [
-  "global",
-  "international",
-  "america", // America
-  "na", // North America
-  "brazil", // Brazil
-  "latam", // Latin America
-  "china", // China
-  "cn",
-  "india", // India
-  "in",
-  "sudasi", // SEA
-  "kr", // Korea
-  "japan", // Japan
-  "jp",
-];
-const extractSlugFromUrl = (url: string): string | null => {
-  if (!url) return null;
+const extractSlugFromUrl = (url: string): string => {
+  if (!url) return "";
   const dirtySegment = url.split("/").pop();
   const dirtySlug = dirtySegment?.replace("where-to-buy-", "");
-  return (
-    dirtySlug
-      ?.split("-")
-      .filter(
-        (part) => !part.match(/\d+[gt]b/) && !slugMarketIds.includes(part)
-      )
-      .join("-") || null
-  );
+  return dirtySlug || "";
 };
+const slugifyName = (name: string): string | null => {
+  if (!name) return null;
+  return name
+    .toLowerCase()
+    .replace(/[\(\)]/g, "")
+    .replace(/\+/g, " plus")
+    .replace(/\s+/g, "-");
+};
+const parseReleaseDate = (relativeDateString: string): string | null => {
+  const now = new Date();
+  const parts = relativeDateString.trim().split(/\s+/);
 
-export const scrapeMissingSlugs = withDebugLog(
-  async (existingSlugs: string[]): Promise<string[]> => {
-    const newSlugs: string[] = [];
-    const processedItems = new Set<string>();
-    let pageNumber = 1;
-    const baseUrl =
-      "https://www.kimovil.com/en/compare-smartphones/order.dm+unveiledDate";
+  let year = now.getUTCFullYear();
+  let month = now.getUTCMonth();
 
-    while (pageNumber < 10) {
-      let browser: Browser | null = null;
-      try {
-        browser = await createBrightDataBrowser("getMissingSlugs");
-        const page = await browser.newPage();
+  if (parts[0] === "New") {
+    const formattedMonth = (month + 1).toString().padStart(2, "0");
+    return `${year}-${formattedMonth}`;
+  }
+  if (["Rumor", "Presell"].includes(parts[0])) {
+    return parts[0];
+  }
 
-        const url = `${baseUrl},page.${pageNumber}?xhr=1`;
-        await page.goto(url, {
-          waitUntil: "load",
-        });
-        debugLog(`Navigated to API endpoint: ${url}.`);
+  const value = parseInt(parts[0]);
+  const unit = parts[1];
 
-        const content = await page.content();
-        const startIndex = content.indexOf("{");
-        const endIndex = content.lastIndexOf("}");
+  if (isNaN(value) || value <= 0) {
+    return null;
+  }
 
-        if (startIndex === -1 || endIndex === -1 || startIndex >= endIndex) {
-          debugLog("Could not find valid JSON in the response. Stopping.");
-          break;
-        }
+  if (unit.startsWith("year")) {
+    year -= value;
+  } else if (unit.startsWith("month")) {
+    month -= value;
+    while (month < 0) {
+      month += 12;
+      year--;
+    }
+  } else {
+    return null;
+  }
 
-        const jsonString = content.substring(startIndex, endIndex + 1);
-        let jsonData;
-        try {
-          jsonData = JSON.parse(jsonString);
-        } catch (error) {
-          debugLog(`Error parsing JSON: ${error}`);
-          break;
-        }
+  // +1 for 0-indexed month
+  const formattedMonth = (month + 1).toString().padStart(2, "0");
+  return `${year}-${formattedMonth}`;
+};
+const parseScores = (html: string): string => {
+  let scoreString = "";
+  const scoreMap: Record<string, string> = {};
 
-        if (!jsonData.content) {
-          debugLog("JSON response does not contain 'content'. Stopping.");
-          break;
-        }
+  const $ = cheerio.load(html);
+  const scores = $("li");
 
-        const contentHtml = jsonData.content;
+  scores.each((i, element) => {
+    const score = $(element).find(".score").first().text().trim();
+    const title = $(element).find(".title").first().text().trim();
 
-        const $ = cheerio.load(contentHtml);
-
-        const items: { href: string; id: string }[] = [];
-        $(".item.smartphone").each((i, element) => {
-          const href = $(element).find(".device-link").attr("href") || "";
-          const id = $(element).attr("id") || "";
-          items.push({ href, id });
-        });
-
-        if (items.length === 0) {
-          debugLog(`No more items found on page ${pageNumber}. Stopping.`);
-          break;
-        }
-
-        for (const item of items) {
-          if (processedItems.has(item.id)) {
-            continue;
-          }
-          processedItems.add(item.id);
-
-          const slug = extractSlugFromUrl(item.href);
-          if (slug) {
-            if (existingSlugs.includes(slug)) {
-              debugLog(`Found existing slug "${slug}". Stopping.`);
-              return newSlugs;
-            }
-            if (!newSlugs.includes(slug)) {
-              newSlugs.push(slug);
-            }
-          }
-        }
-
-        debugLog(
-          `Total ${newSlugs.length} new slugs after processing page ${pageNumber}.`
-        );
-        pageNumber++;
-      } catch (e) {
-        throw e;
-      } finally {
-        await browser?.close();
-      }
+    if (!score) {
+      return;
     }
 
-    return newSlugs;
+    let key = "";
+    if (title.toLowerCase().startsWith("ki cost")) {
+      key = "ki";
+    } else if (title.toLowerCase().startsWith("design")) {
+      key = "design";
+    } else if (title.toLowerCase().startsWith("performance")) {
+      key = "performance";
+    } else if (title.toLowerCase().startsWith("camera")) {
+      key = "camera";
+    } else if (title.toLowerCase().startsWith("connectivity")) {
+      key = "connectivity";
+    } else if (title.toLowerCase().startsWith("battery")) {
+      key = "battery";
+    }
+
+    if (key) {
+      scoreMap[key] = score;
+    }
+  });
+
+  let first = true;
+  for (const key in scoreMap) {
+    if (!first) {
+      scoreString += "&";
+    }
+    scoreString += `${key}=${scoreMap[key]}`;
+    first = false;
   }
+
+  return scoreString;
+};
+
+export const scrapeMissingSlugs = withMock(
+  mockScrapeMissingSlugs,
+  withDebugLog(
+    async ({
+      lastPage = 1,
+      targetCount = 40,
+      brand,
+      name,
+    }: GetMissingSlugsRequestPayload) => {
+      let oldSlugs: string[] = [];
+      // if searching by name, ignore existing slugs
+      if (!name) {
+        oldSlugs = await fetch(
+          process.env.SCHEDULER_URL! +
+            "/api/kimovil/slugs" +
+            (brand ? `?brand=${brand}` : ""),
+          {
+            headers: {
+              Authorization: `Basic ${Buffer.from(
+                ":" + process.env.COD_SECRET!
+              ).toString("base64")}`,
+            },
+          }
+        )
+          .then((r) => r.json())
+          .then((r) => r.map((s: { slug: string }) => s.slug));
+      }
+
+      const newSlugs: {
+        name: string;
+        slug: string;
+        rawSlug: string;
+        releaseMonth: string | null;
+        scores: string;
+        brand?: string;
+      }[] = [];
+      const processedSlugs = new Set<string>();
+
+      // if over target count, only look at page 1; otherwise start at lastPage
+      let pageNumber = oldSlugs.length >= targetCount ? 0 : lastPage - 1;
+      let baseUrl =
+        "https://www.kimovil.com/en/compare-smartphones/order.dm+unveiledDate";
+
+      if (brand) {
+        baseUrl += `,i_b+slug.${brand}`;
+      }
+      if (name) {
+        baseUrl += `,name.${name}`;
+      }
+
+      while (
+        oldSlugs.length >= targetCount ||
+        oldSlugs.length + newSlugs.length < targetCount
+      ) {
+        pageNumber++; // TODO simplify increment
+        let browser: Browser | null = null;
+        try {
+          browser = await createBrightDataBrowser("getMissingSlugs");
+          const page = await browser.newPage();
+          await abortExtraResources(page);
+          const url = `${baseUrl},page.${pageNumber}?xhr=1`;
+          await page.goto(url, {
+            waitUntil: "load",
+            timeout: PLAYWRIGHT_TIMEOUT,
+          });
+          debugLog(`Navigated to API endpoint: ${url}.`);
+
+          const content = await page.content();
+          const startIndex = content.indexOf("{");
+          const endIndex = content.lastIndexOf("}");
+
+          if (startIndex === -1 || endIndex === -1 || startIndex >= endIndex) {
+            debugLog("Could not find valid JSON in the response. Stopping.");
+            break;
+          }
+
+          const jsonString = content.substring(startIndex, endIndex + 1);
+          let jsonData;
+          try {
+            jsonData = JSON.parse(jsonString);
+          } catch (error) {
+            debugLog(`Error parsing JSON: ${error}`);
+            break;
+          }
+          if (!jsonData.content) {
+            debugLog("JSON response does not contain 'content'. Stopping.");
+            break;
+          }
+
+          const contentHtml = jsonData.content;
+          if (contentHtml.indexOf("<") === -1) {
+            debugLog("No items found on page ${pageNumber}. Stopping.");
+            break;
+          }
+
+          const $ = cheerio.load(contentHtml);
+          const elements = $(".item.smartphone");
+          if (elements.length === 0) {
+            debugLog(`No items found on page ${pageNumber}. Stopping.`);
+            break;
+          }
+
+          for (const element of elements) {
+            const name =
+              $(element).find(".device-name .title").first().text().trim() ||
+              "";
+            const slug = slugifyName(name);
+            if (!slug || processedSlugs.has(slug)) {
+              continue;
+            }
+
+            processedSlugs.add(slug);
+            if (oldSlugs.includes(slug)) {
+              continue;
+            }
+
+            const href =
+              $(element).find(".device-link").first().attr("href") || "";
+            const rawSlug = extractSlugFromUrl(href);
+            const relativeReleaseDate =
+              $(element).find(".device-name .status").first().text().trim() ||
+              "";
+            const releaseMonth = parseReleaseDate(relativeReleaseDate);
+            const scoresHtml =
+              $(element)
+                .find(".device-data .miniki")
+                .first()
+                .attr("data-minikiinfo") || "";
+            const scores = parseScores(scoresHtml);
+
+            newSlugs.push({
+              name,
+              slug,
+              rawSlug,
+              releaseMonth,
+              scores,
+              brand,
+            });
+          }
+
+          debugLog(
+            `Total ${newSlugs.length} new slugs after processing page ${pageNumber}.`
+          );
+
+          // if over target count, only get newly added slugs
+          if (
+            oldSlugs.length >= targetCount &&
+            oldSlugs.some((s) => processedSlugs.has(s))
+          ) {
+            debugLog(`Found existing slug. Stopping.`);
+            break;
+          }
+        } catch (e) {
+          throw e;
+        } finally {
+          await browser?.close();
+        }
+      }
+
+      return {
+        slugs: newSlugs,
+        brand,
+        lastPage: oldSlugs.length >= targetCount ? lastPage : pageNumber,
+      };
+    },
+    "scrapeMissingSlugs"
+  )
 );
 
 const getTextExtractor =
@@ -656,4 +831,12 @@ const getSoftware = (input: string | null) => {
 
 const getCameraFeatures = (features: Element[]): string[] => {
   return features.map((el) => el.textContent?.trim() || "").filter(Boolean);
+};
+
+const abortExtraResources = async (page: Page) => {
+  await page.route("**/*", (route) => {
+    return EXCLUDED_RESOURCE_TYPES.has(route.request().resourceType())
+      ? route.abort()
+      : route.continue();
+  });
 };

@@ -14,9 +14,17 @@ export const withDebugLog = <Args extends unknown[], R>(
 ): ((...args: Args) => Promise<R>) => {
   return async (...args: Args) => {
     const result = await fn(...args);
-    const logArguments: Array<string | R> = tag ? [tag] : [];
-    logArguments.push(result);
-    debugLog(JSON.stringify(logArguments));
+    const logArguments: Array<unknown> = tag ? [`[${tag}]`] : [];
+    const results = Array.isArray(result) ? result : [result];
+    for (const result of results) {
+      if (typeof result === "object" && result !== null && "raw" in result) {
+        const { raw, ...cleanResult } = result;
+        logArguments.push(JSON.stringify(cleanResult));
+      } else {
+        logArguments.push(JSON.stringify(result));
+      }
+    }
+    debugLog(...logArguments);
     return result;
   };
 };

@@ -17,3 +17,10 @@ export interface GetMatchingSlugRequestPayload extends BasePayload {
 export interface GetKimovilDataRequestPayload extends BasePayload {
   slug: string;
 }
+
+export interface GetMissingSlugsRequestPayload {
+  lastPage?: number;
+  targetCount?: number;
+  brand?: string;
+  name?: string;
+}

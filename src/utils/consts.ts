@@ -9,4 +9,12 @@ export const SIM_TYPES = [
 
 export const PLAYWRIGHT_TIMEOUT = 2 * 60 * 1000;
 
-export const MESSAGE_RETRIES = 5;
+export const MESSAGE_RETRIES = 3;
+
+export const EXCLUDED_RESOURCE_TYPES = new Set([
+  "image",
+  "stylesheet",
+  "media",
+  "font",
+  "other",
+]);

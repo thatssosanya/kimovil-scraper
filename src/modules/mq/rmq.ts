@@ -39,9 +39,14 @@ export const initRMQ = async () => {
     "getUserConfirmedSlugRequest",
     "getKimovilDataRequest",
     "getKimovilDataResponse",
+    "getMissingSlugsRequest.auto",
+    "getKimovilDataRequest.auto",
+    "errorResponse",
+    "errorResponse.auto",
   ];
 
   for (const queue of queues) {
+    await channel.assertQueue(queue, getQueueConfig(queue));
     const deadQueueName = `${queue}_dead`;
     await channel.assertQueue(deadQueueName, { durable: true });
     await channel.bindQueue(deadQueueName, "dlx", deadQueueName);
@@ -88,16 +93,21 @@ export const onMessage = (
         } else {
           errorLog(
             `Failed to process ${queueName} message after ${MESSAGE_RETRIES} retries. Dropping it. Message was:`,
-            msg
+            msg.content.toString()
           );
 
+          let errorQueueName = "errorResponse";
+          if (queueName.includes("auto")) {
+            errorQueueName += ".auto";
+          }
+
           channel.sendToQueue(
-            "errorResponse",
+            errorQueueName,
             Buffer.from(
               JSON.stringify({
-                requestType: queueName,
-                userId: payload.userId,
-                error,
+                queue: queueName,
+                payload,
+                error: error?.toString() ?? error,
               })
             ),
             { persistent: true }
@@ -199,6 +209,110 @@ const successCallbacks: Record<
           deviceId: payload.deviceId,
         })
       ),
+      { persistent: true }
+    );
+  },
+
+  "getKimovilDataRequest.auto": async (
+    result: PhoneData,
+    payload: GetKimovilDataRequestPayload
+  ) => {
+    const saveResult = await fetch(
+      `${process.env.SCHEDULER_URL!}/api/kimovil/data`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${Buffer.from(
+            ":" + process.env.COD_SECRET!
+          ).toString("base64")}`,
+        },
+        body: JSON.stringify({ ...result, deviceId: payload.deviceId }),
+      }
+    );
+
+    if (!saveResult.ok) {
+      throw new Error(
+        `Scheduler failed to save data to database: ${await saveResult.json()}`
+      );
+    }
+
+    // TODO add response queue
+    // await channel.assertQueue(
+    //   "getKimovilDataResponse",
+    //   getQueueConfig("getKimovilDataResponse")
+    // );
+    // channel.sendToQueue(
+    //   "getKimovilDataResponse",
+    //   Buffer.from(
+    //     JSON.stringify({
+    //       userId: payload.userId,
+    //       deviceId: payload.deviceId,
+    //     })
+    //   ),
+    //   { persistent: true }
+    // );
+  },
+
+  "getMissingSlugsRequest.auto": async (result: {
+    slugs: {
+      name: string;
+      slug: string;
+      rawSlug: string;
+      releaseMonth: string | null;
+      scores: string;
+      brand?: string;
+    }[];
+    brand?: string;
+    lastPage: number;
+  }) => {
+    if (result.slugs.length === 0) {
+      return;
+    }
+
+    const saveResult = await fetch(
+      `${process.env.SCHEDULER_URL!}/api/kimovil/slugs`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${Buffer.from(
+            ":" + process.env.COD_SECRET!
+          ).toString("base64")}`,
+        },
+        body: JSON.stringify(result.slugs),
+      }
+    );
+
+    if (!saveResult.ok) {
+      throw new Error(
+        `Scheduler failed to save slugs to database: ${await saveResult.json()}`
+      );
+    }
+
+    const logLastPageResult = await fetch(
+      `${process.env.SCHEDULER_URL!}/api/kimovil/brand/log-last-page`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${Buffer.from(
+            ":" + process.env.COD_SECRET!
+          ).toString("base64")}`,
+        },
+        body: JSON.stringify({
+          brand: result.brand,
+          lastPage: result.lastPage,
+        }),
+      }
+    );
+
+    if (!logLastPageResult.ok) {
+      throw new Error(
+        `Scheduler failed to log last page: ${await logLastPageResult.json()}`
+      );
+    }
+
+    channel.sendToQueue(
+      "getMissingSlugsResponse.auto",
+      Buffer.from(JSON.stringify(true)),
       { persistent: true }
     );
   },

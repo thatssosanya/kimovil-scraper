@@ -25,8 +25,13 @@ if (!process.env.COD_URL) {
   );
 
   onMessage("getKimovilDataRequest", (payload) => scrapeBySlug(payload.slug));
+  onMessage("getKimovilDataRequest.auto", (payload) =>
+    scrapeBySlug(payload.slug)
+  );
+
+  onMessage("getMissingSlugsRequest.auto", (payload) =>
+    scrapeMissingSlugs(payload)
+  );
 
   console.log("Listening for RMQ messages.");
-
-  await scrapeMissingSlugs([]);
 })();
