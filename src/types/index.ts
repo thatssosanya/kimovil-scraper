@@ -71,7 +71,7 @@ export interface PhoneData {
   bluetooth: string | null;
   sim: string; // |-delimited
   simCount: number;
-  usb: "USB-C" | "Lightning" | null;
+  usb: "USB-A" | "USB-C" | "Lightning" | null;
   headphoneJack: boolean | null;
 
   // battery

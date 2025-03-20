@@ -23,4 +23,5 @@ export interface GetMissingSlugsRequestPayload {
   targetCount?: number;
   brand?: string;
   name?: string;
+  maxDate?: string; // 7 = 3 years; 6 = 2 years; 5 = 1.5 years; 4 = 1 year; 3 = 6 months; 2 = 3 months
 }

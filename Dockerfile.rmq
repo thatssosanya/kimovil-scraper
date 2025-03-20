@@ -1,10 +1,11 @@
 FROM rabbitmq:3-management
 
-# Copy the definitions file into the RabbitMQ configuration directory
 COPY rmq_definitions.json /etc/rabbitmq/definitions.json
-
-# Set ownership of the definitions file (important for RabbitMQ to read it)
 RUN chown rabbitmq:rabbitmq /etc/rabbitmq/definitions.json
+
+RUN mkdir -p /etc/rabbitmq/conf.d
+RUN chown -R rabbitmq:rabbitmq /etc/rabbitmq/conf.d
+COPY rmq-logging.conf /etc/rabbitmq/conf.d
 
 # Add curl for healthcheck
 RUN apt-get update

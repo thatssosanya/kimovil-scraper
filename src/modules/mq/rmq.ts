@@ -1,6 +1,9 @@
 import amqp from "amqplib";
 import { debugLog, errorLog } from "../../utils/logging.js";
-import { MESSAGE_RETRIES } from "../../utils/consts.js";
+import {
+  MAX_CONCURRENT_MESSAGES,
+  MESSAGE_RETRIES,
+} from "../../utils/consts.js";
 import { AutocompleteOption, PhoneData } from "../../types/index.js";
 import {
   GetAutocompleteOptionsRequestPayload,
@@ -55,6 +58,12 @@ export const initRMQ = async () => {
   console.log(`Initialized RMQ channel.`);
 };
 
+// Global counter to track active message processing
+const globalThis = global as unknown as {
+  activeMessageCount: number;
+};
+globalThis.activeMessageCount = 0;
+
 export const onMessage = (
   queueName: string,
   processCallback: (payload: any) => Promise<any>
@@ -65,7 +74,21 @@ export const onMessage = (
   channel.consume(queueName, async (msg) => {
     if (!msg) return;
 
-    debugLog(`Processing ${queueName} message.`);
+    // Check if we're at the concurrency limit
+    if (globalThis.activeMessageCount >= MAX_CONCURRENT_MESSAGES) {
+      // Nack the message to requeue it for later processing
+      channel.nack(msg, false, true);
+      debugLog(
+        `Concurrency limit reached (${MAX_CONCURRENT_MESSAGES}). Requeuing message.`
+      );
+      return;
+    }
+
+    // Increment the active message counter
+    globalThis.activeMessageCount++;
+    debugLog(
+      `Processing ${queueName} message. Active messages: ${globalThis.activeMessageCount}/${MAX_CONCURRENT_MESSAGES}`
+    );
 
     try {
       const payload = JSON.parse(msg.content.toString());
@@ -117,6 +140,8 @@ export const onMessage = (
         errorLog(`Failed to requeue ${queueName} message:`, requeueError);
       }
     } finally {
+      // Decrement the active message counter
+      globalThis.activeMessageCount--;
       channel.ack(msg);
     }
   });

@@ -18,3 +18,5 @@ export const EXCLUDED_RESOURCE_TYPES = new Set([
   "font",
   "other",
 ]);
+
+export const MAX_CONCURRENT_MESSAGES = 30;
