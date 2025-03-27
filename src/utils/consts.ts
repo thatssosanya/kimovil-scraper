@@ -19,4 +19,6 @@ export const EXCLUDED_RESOURCE_TYPES = new Set([
   "other",
 ]);
 
-export const MAX_CONCURRENT_MESSAGES = 30;
+export const MAX_CONCURRENT_MESSAGES = parseInt(
+  process.env.MAX_CONCURRENT_MESSAGES ?? "30"
+);

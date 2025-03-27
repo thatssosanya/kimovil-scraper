@@ -38,6 +38,7 @@ export interface PhoneData {
   aliases: string; // |-delimited
   releaseDate: Date | null;
   raw: string;
+  images: string | null; // |-delimited
 
   // design
   height_mm: number | null;
@@ -86,6 +87,10 @@ export interface PhoneData {
   // software
   os: string | null;
   osSkin: string | null;
+
+  // others
+  scores: string | null; // |-delimited key=value pairs
+  others: string | null; // |-delimited
 }
 
 export { SIM_TYPES as simTypes };

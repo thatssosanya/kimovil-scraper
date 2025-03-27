@@ -3,6 +3,7 @@ import { PhoneData } from "../../types/index.js";
 export const kimovilData = {
   deviceId: "realme-c67",
   slug: "realme-c67",
+  images: null,
   name: "realme C67",
   brand: "realme",
   aliases: "realme C67 4G|RMX3890",
@@ -72,6 +73,8 @@ export const kimovilData = {
   os: "Android 14",
   osSkin: "RealmeUI 5.0",
   raw: "",
+  scores: null,
+  others: null,
 } as PhoneData;
 
 export const kimovilSlugs = [

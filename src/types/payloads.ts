@@ -18,6 +18,10 @@ export interface GetKimovilDataRequestPayload extends BasePayload {
   slug: string;
 }
 
+export interface GetKimovilDatasRequestPayload {
+  slugs: string[];
+}
+
 export interface GetMissingSlugsRequestPayload {
   lastPage?: number;
   targetCount?: number;

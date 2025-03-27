@@ -1,7 +1,13 @@
 import { Page } from "playwright";
 import { Browser } from "playwright";
 import { debugLog, withDebugLog } from "../../../utils/logging.js";
-import { abortExtraResources, getCpuCores } from "./util.js";
+import {
+  abortExtraResources,
+  getCpuCores,
+  slugifyName,
+  parseReleaseDate,
+  scoreTitleToKey,
+} from "./util.js";
 import { withMock } from "../../mocks/util.js";
 import { createBrightDataBrowser } from "./util.js";
 import { PLAYWRIGHT_TIMEOUT } from "../../../utils/consts.js";
@@ -20,9 +26,12 @@ export const scrapeBySlugs = withMock(
       await abortExtraResources(page);
       const url =
         process.env.ENV === "development" && process.env.LOCAL_PLAYWRIGHT
-          ? `http://127.0.0.1:8080/Apple%20iPhone%2016e%20vs%20Google%20Pixel%209%20vs%20OnePlus%2013%20vs%20Samsung%20Galaxy%20S23_%20Comparison`
+          ? `http://127.0.0.1:8080/Honor%2090%205G%20vs%20Honor%20Magic7%20vs%20Honor%20X6a%20Plus_%20Comparison.html`
           : `https://www.kimovil.com/en/compare/${slugs.join(",")}`;
-      await page.goto(url, { waitUntil: "load", timeout: PLAYWRIGHT_TIMEOUT });
+      await page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: PLAYWRIGHT_TIMEOUT,
+      });
       debugLog(`Navigated to ${url}.`);
 
       const raw = await page.content();
@@ -31,29 +40,55 @@ export const scrapeBySlugs = withMock(
       // additionally some slugs may not have a matching column
       const hrefValues = await page.$$eval(
         ".device-intro-images .more",
-        (els) => els.map((e) => e.getAttribute("href")).filter(Boolean)
+        (els) =>
+          els
+            .map(
+              (e) =>
+                // sometimes href or data-kdecode is missing; one should be present
+                e.getAttribute("href") ??
+                atob(e.getAttribute("data-kdecode") ?? "")
+            )
+            .filter(Boolean)
       );
-      let hrefs = [...hrefValues];
+
+      const slugToColumnMap: Record<string, string> = {};
+      let unmatchedColumns = [...hrefValues];
+
       // sort slugs by length to match the longest slugs first
       const sortedSlugsByLength = [...slugs].sort(
         (a, b) => b.length - a.length
       );
-      let includedSlugs = [];
+
+      // match slugs to columns
       for (const slug of sortedSlugsByLength) {
-        const index = hrefs.findIndex((href) => href?.includes(slug));
+        const index = unmatchedColumns.findIndex((href) =>
+          href?.includes(slug)
+        );
         if (index !== -1) {
-          hrefs.splice(index, 1);
-          includedSlugs.push(slug);
+          const columnHref = unmatchedColumns[index];
+          if (!columnHref) {
+            continue;
+          }
+          slugToColumnMap[columnHref] = slug;
+          unmatchedColumns.splice(index, 1);
         }
       }
-      // sorted in the order of columns on the page
-      const sortedSlugs = [...includedSlugs].sort((a, b) => {
-        const aIndex = hrefValues.findIndex((href) => href?.includes(a));
-        const bIndex = hrefValues.findIndex((href) => href?.includes(b));
-        return aIndex - bIndex;
-      });
+
+      // list of found slugs in the order of the columns
+      const sortedSlugs = hrefValues.map(
+        (href) => (href && slugToColumnMap[href]) || null
+      );
 
       const extractMultiText = getMultiTextExtractor(page);
+
+      const imagesTexts = await page.$$eval(
+        ".device-intro-images .main-photo",
+        (els) => els.map((el) => el.getAttribute("src")).filter(Boolean)
+      );
+
+      const images = imagesTexts.map((src) =>
+        src?.replace("//", "https://").replace("small.jpg", "big.jpg")
+      );
 
       const fullNames = await extractMultiText(".device-intro-images .k-h3");
       const namesWithBrands = fullNames.map((fullName) => {
@@ -64,6 +99,35 @@ export const scrapeBySlugs = withMock(
       });
       const names = namesWithBrands.map(({ name }) => name);
       const brands = namesWithBrands.map(({ brand }) => brand);
+
+      const scoresData = await page.$$eval(".ki-score-rows tbody tr", (els) =>
+        els.map((el) => {
+          return {
+            title: el.querySelector("th")?.textContent?.trim() ?? "",
+            values: Array.from(el.querySelectorAll(".score")).map((score) =>
+              score.textContent?.trim()
+            ),
+          };
+        })
+      );
+      let scoreMaps: Record<string, string>[] = [];
+      for (const score of scoresData) {
+        const key = scoreTitleToKey(score.title);
+        if (key) {
+          for (let i = 0; i < score.values.length; i++) {
+            const value = score.values[i];
+            if (scoreMaps[i] === undefined) {
+              scoreMaps[i] = {};
+            }
+            scoreMaps[i][key] = value ?? "";
+          }
+        }
+      }
+      const scores = scoreMaps.map((scoreMap) => {
+        return Object.entries(scoreMap)
+          .map(([key, value]) => `${key}=${value}`)
+          .join("|");
+      });
 
       const aliasesTexts = await extractMultiText(
         'tr:has(th:has-text("Aliases")) td'
@@ -80,7 +144,7 @@ export const scrapeBySlugs = withMock(
       const releaseDateText = await extractMultiText(
         'tr:has(th:has-text("Release date")) td'
       );
-      const releaseDate = releaseDateText
+      const releaseDates = releaseDateText
         ? releaseDateText.map((date) => date.split(",")[0].trim())
         : [];
 
@@ -122,9 +186,12 @@ export const scrapeBySlugs = withMock(
           .filter(Boolean);
       });
 
-      const ipRatings = await extractMultiText(
+      const ipRatingTexts = await extractMultiText(
         'tr:has(th:has-text("Resistance")) td'
       );
+      const ipRatings = ipRatingTexts.map((ipRating) => {
+        return ipRating.split("\n").pop()?.trim() ?? null;
+      });
 
       const colors = await page.$$eval(
         'tr:has(th:has-text("Colors")) td',
@@ -169,7 +236,7 @@ export const scrapeBySlugs = withMock(
       });
 
       const displayFeatures = await page.$$eval(
-        '.device-comparison-table-wrap:has(h4:has-text("Screen")) + .device-comparison-table-wrap:has(h4:has-text("Others")) tr:has(th:has-text("Others")) td ul',
+        '.device-comparison-table-wrap:has(h4:has-text("Screen")) + .device-comparison-table-wrap:has(h4:has-text("Others")) .f-tr:has(.f-th:has-text("Others")) ul',
         (els) =>
           els.map((e) =>
             Array.from(e.querySelectorAll("li"))
@@ -185,7 +252,10 @@ export const scrapeBySlugs = withMock(
         const [cpuManufacturer, ...cpuArr] = !cpu
           ? [null, null]
           : cpu.split(" ");
-        return { cpuManufacturer, cpu: cpuArr?.join(" ") ?? null };
+        return {
+          cpuManufacturer: cpuManufacturer?.trim() ?? null,
+          cpu: cpuArr?.join(" ").trim() ?? null,
+        };
       });
 
       const cpuCoresTexts = await extractMultiText(
@@ -219,35 +289,39 @@ export const scrapeBySlugs = withMock(
       const antutuTexts = await extractMultiText(
         'tr:has(.f-th:has-text("AnTuTu")) td:not(:first-child)'
       );
-      const benchmarks = antutuTexts.map((antutu) => {
-        const [antutuScore, antutuVersion] = antutu
-          .split("\n")
-          .map((part) => part.replace(/[•\.,]/, "").trim());
-        return [
-          {
-            name: antutuVersion,
-            score: parseFloat(antutuScore),
-          },
-        ];
+
+      const dxomarkTexts = await extractMultiText(
+        'tr:has(th:has-text("DxOMark")) td'
+      );
+      const dxomarks = dxomarkTexts.map((dxomark) => {
+        return dxomark === "--" ? null : parseFloat(dxomark);
       });
 
-      const rearCameras = await page.$$eval(
+      const rearCamerasByIndex = await page.$$eval(
         '.big-wrapper:has(h2:has-text("Camera")) ' +
           '.device-comparison-table-wrap:has-text("Camera type"):not(:has-text("SELF"))',
         getMultiCameras
       );
-      const rearCameraFeatures: string[] = await page.$$eval(
-        'section.container-sheet-camera table.k-dltable th:has-text("Features") + td li',
-        getMultiCameraFeatures
+      const rearCameras = transpose(rearCamerasByIndex);
+      const rearCameraFeatures = await page.$$eval(
+        '.big-wrapper:has(h2:has-text("Camera")) ' +
+          '.device-comparison-table-wrap:has(h4:has-text("Features")) tr:has(th:has-text("Others")) ul',
+        (els) =>
+          els.map((e) =>
+            Array.from(e.querySelectorAll("li"))
+              .map((li) => li.textContent?.trim() || "")
+              .filter(Boolean)
+          )
       );
-      const frontCameras = await page.$$eval(
+      const frontCamerasByIndex = await page.$$eval(
         '.big-wrapper:has(h2:has-text("Camera")) ' +
           '.device-comparison-table-wrap:has-text("Camera type"):has-text("SELF")',
         getMultiCameras
       );
+      const frontCameras = transpose(frontCamerasByIndex);
 
       const bluetoothTexts = await extractMultiText(
-        'section.container-sheet-connectivity h3.k-h4:has-text("Bluetooth") + .k-dltable tr:has-text("Version") td'
+        '.device-comparison-table-wrap:has(h4:has-text("Bluetooth")) tr:has(th:has-text("Version")) td'
       );
       const bluetooths = bluetoothTexts.map((bluetooth) => {
         const bluetoothMatch = bluetooth.match(/Bluetooth\s([\d.]+)/i);
@@ -274,6 +348,13 @@ export const scrapeBySlugs = withMock(
       const dualSimTexts = await extractMultiText(
         '.device-comparison-table-wrap:has(h4:has-text("SIM card")) tr:has(th:has-text("Dual SIM")) td'
       );
+      const simCounts = dualSimTexts.map((dualSim) => {
+        return dualSim.includes("Single SIM")
+          ? 1
+          : dualSim.includes("Dual SIM")
+          ? 2
+          : 2;
+      });
       const simTypes = await page.$$eval(
         '.device-comparison-table-wrap:has(h4:has-text("SIM card")) tr:has(th:has-text("Type")) ul',
         (els) =>
@@ -292,7 +373,7 @@ export const scrapeBySlugs = withMock(
       });
 
       const fastChargingTexts = await extractMultiText(
-        '.device-comparison-table-wrap:has(h4:has-text("USB")) tr:has(th:has-text("USB")) ul'
+        '.device-comparison-table-wrap:has(h4:has-text("Battery")) tr:has(th:has-text("Fast charge")) td'
       );
       const fastChargings = fastChargingTexts.map((fastCharging) => {
         return fastCharging.includes("Yes")
@@ -309,7 +390,7 @@ export const scrapeBySlugs = withMock(
       });
 
       const osTexts = await page.$$eval(
-        'tr:has(.f-th:has-text("Operating System")) ul li:first-child',
+        'tr:has(th:has-text("Operating System")) li:first-child',
         (els) => els.map((e) => e.childNodes[0].textContent?.trim() || "")
       );
       const software = osTexts.map(getSoftware);
@@ -323,6 +404,23 @@ export const scrapeBySlugs = withMock(
               .filter(Boolean)
           )
       );
+
+      const benchmarks = transpose([
+        antutuTexts.map((antutu) => {
+          const [antutuScore, antutuVersion] = antutu
+            .split("\n")
+            .map((part) => part.replace(/[•\.,]/g, "").trim())
+            .filter(Boolean);
+          return {
+            name: "AnTuTu " + antutuVersion,
+            score: parseFloat(antutuScore),
+          };
+        }),
+        dxomarks.map((dxomark) => {
+          return dxomark ? { name: "DxOMark", score: dxomark } : null;
+        }),
+      ]);
+
       let others = otherLists.map((otherList) => [...otherList]);
       let nfcs = [];
       let jacks = [];
@@ -330,43 +428,47 @@ export const scrapeBySlugs = withMock(
         const other = others[i];
         const nfcIndex = other.findIndex((o) => o.includes("NFC"));
         const jackIndex = other.findIndex((o) => o.includes("Jack"));
-        nfcs.push(nfcIndex !== -1);
-        jacks.push(jackIndex !== -1);
-        if (nfcIndex !== -1) {
-          others[i] = others[i].splice(nfcIndex, 1);
+        const hasNfc = nfcIndex !== -1;
+        const hasJack = jackIndex !== -1;
+        nfcs.push(hasNfc);
+        jacks.push(hasJack);
+        if (hasNfc) {
+          others[i].splice(nfcIndex, 1);
         }
-        if (jackIndex !== -1) {
-          others[i] = others[i].splice(jackIndex, 1);
+        if (hasJack) {
+          others[i].splice(jackIndex, 1);
         }
       }
-
-      // TODO: skus (in getMissingSlugs?)
-      // scores
-      // other schema
-      // dual sim schema
 
       const datas = [];
       for (let i = 0; i < sortedSlugs.length; i++) {
         const slug = sortedSlugs[i];
+        if (!slug) {
+          continue;
+        }
+        const safeSlug = slug ?? slugifyName(brands[i] + " " + names[i]) ?? "";
         const data: PhoneData = {
-          slug,
+          slug: safeSlug,
+          images: images[i] ?? "",
           name: names[i],
           brand: brands[i],
-          aliases: aliases[i]?.join("|") ?? null,
-          releaseDate: releaseDate[i] ? new Date(releaseDate[i]) : null,
+          aliases: aliases[i]?.join("|") ?? "",
+          releaseDate: releaseDates[i]
+            ? parseReleaseDate(releaseDates[i])
+            : null,
           height_mm: dimensions[i].height,
           width_mm: dimensions[i].width,
           thickness_mm: dimensions[i].thickness,
           weight_g: weights[i],
-          materials: materials[i]?.join("|") ?? null,
+          materials: materials[i]?.join("|") ?? "",
           ipRating: ipRatings[i],
-          colors: colors[i]?.join("|") ?? null,
+          colors: colors[i]?.join("|") ?? "",
           aspectRatio: aspectRatios[i],
           size_in: displaySizes[i],
           displayType: displayTypes[i],
           resolution: displayResolutions[i],
           ppi: displayPpis[i],
-          displayFeatures: displayFeatures[i]?.join("|") ?? null,
+          displayFeatures: displayFeatures[i]?.join("|") ?? "",
           skus: [],
           cpu: cpus[i].cpu,
           cpuManufacturer: cpus[i].cpuManufacturer,
@@ -374,45 +476,37 @@ export const scrapeBySlugs = withMock(
           gpu: gpuTexts[i],
           sdSlot: sdSlots[i],
           fingerprintPosition: fingerprintPositions[i],
-          benchmarks: benchmarks[i],
+          benchmarks: benchmarks[i].filter((b) => b !== null),
           nfc: nfcs[i],
           bluetooth: bluetooths[i],
           sim: simTypes[i]?.join("|") ?? null,
-          simCount: simTypes[i].length,
+          simCount: simCounts[i],
           usb: usbs[i] ?? null,
           headphoneJack: jacks[i],
           batteryCapacity_mah: batteryCapacities[i],
           batteryFastCharging: fastChargings[i],
           batteryWattage: batteryWattages[i],
-          cameras: [...rearCameras[i], ...frontCameras[i]],
-          cameraFeatures: rearCameraFeatures?.join("|") ?? null,
+          cameras: [
+            ...rearCameras[i].filter((c) => c !== null),
+            ...frontCameras[i].filter((c) => c !== null),
+          ],
+          cameraFeatures: rearCameraFeatures[i]?.join("|") ?? null,
           os: software[i]?.os ?? null,
           osSkin: software[i]?.osSkin ?? null,
-          raw: raw.slice(
-            // FIXME
-            raw.indexOf(">", raw.indexOf("<main")) + 1,
-            raw.indexOf("</main")
-          ),
+          scores: scores[i] ?? null,
+          others: others[i]?.join("|") ?? null,
+          raw: "",
         };
-        // TODO
-        // debugLog(`Trying to adapt data with OpenAI gpt-4o-mini.`);
-        // const adaptedData = await adaptScrapedData(data);
-        const adaptedData = data;
-        if (adaptedData) {
-          adaptedData.raw = data.raw;
-          datas.push(adaptedData);
-        } else {
-          datas.push(data);
-        }
+        datas.push(data);
       }
 
-      return datas;
+      return { datas, raw };
     } catch (e) {
       throw e;
     } finally {
       browser?.close();
     }
-  }, "scrapeBySlug")
+  }, "scrapeBySlugs")
 );
 
 const getTrimmedMultiText = (elements: HTMLElement[]): string[] => {
@@ -428,14 +522,16 @@ const getMultiTextExtractor =
     }
   };
 
-const getMultiCameras = (cameraTables: Element[]): SingleCameraData[][] => {
+const getMultiCameras = (
+  cameraTables: Element[]
+): (SingleCameraData | null)[][] => {
   const camerasByIndex = cameraTables.map((cameraTable) => {
     // ith table contains data for the ith camera of each device
     const cameraDatas: (Record<string, string> | null)[] = [];
 
     // x and .f-x are equivalent. only one type is present in any given table
     const rows = cameraTable.querySelectorAll("tr:not(.k-sep), .f-tr");
-    rowLoop: for (let i = 0; i < rows.length; i++) {
+    for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const headerText = row
         .querySelector("th, .f-th")
@@ -450,15 +546,19 @@ const getMultiCameras = (cameraTables: Element[]): SingleCameraData[][] => {
         values = values.map(() => "Selfie");
       }
       const key = headerText.replace("SELF", "").trim();
+      let skipColumns = [];
       for (let j = 0; j < values.length; j++) {
         const value = values[j];
         if (cameraDatas.length <= j) {
           if (key === "Camera type" && value === "--") {
             cameraDatas.push(null);
-            break rowLoop;
+            skipColumns.push(j);
           } else {
             cameraDatas.push({});
           }
+        }
+        if (skipColumns.includes(j)) {
+          continue;
         }
         const cameraData = cameraDatas[j];
         if (cameraData) {
@@ -500,15 +600,7 @@ const getMultiCameras = (cameraTables: Element[]): SingleCameraData[][] => {
     return cameras;
   });
 
-  const camerasByPhone = transpose(camerasByIndex);
-
-  return camerasByPhone.map(
-    (cameras) => cameras.filter(Boolean) as SingleCameraData[]
-  );
-};
-
-const getMultiCameraFeatures = (features: Element[]): string[] => {
-  return features.map((el) => el.textContent?.trim() || "").filter(Boolean);
+  return camerasByIndex;
 };
 
 const getSoftware = (input: string | null) => {

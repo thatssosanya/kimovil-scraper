@@ -5,10 +5,16 @@ import {
   mockScrapeBySlug,
 } from "../../mocks/kimovil.js";
 import { GetMissingSlugsRequestPayload } from "../../../types/payloads.js";
-import { createBrightDataBrowser, abortExtraResources } from "./util.js";
+import {
+  createBrightDataBrowser,
+  abortExtraResources,
+  slugifyName,
+  scoreTitleToKey,
+} from "./util.js";
 import { Browser } from "playwright";
 import * as cheerio from "cheerio";
 import { PLAYWRIGHT_TIMEOUT } from "../../../utils/consts.js";
+import { Sku } from "../../../types/index.js";
 
 export const scrapeMissingSlugs = withMock(
   mockScrapeMissingSlugs,
@@ -46,8 +52,8 @@ export const scrapeMissingSlugs = withMock(
         releaseMonth: string | null;
         scores: string;
         brand?: string;
+        skus: Sku[];
       }[] = [];
-      const processedSlugs = new Set<string>();
 
       // if over target count, only look at page 1; otherwise start at lastPage
       let pageNumber = oldSlugs.length >= targetCount ? 0 : lastPage - 1;
@@ -66,7 +72,9 @@ export const scrapeMissingSlugs = withMock(
 
       while (
         oldSlugs.length >= targetCount ||
-        oldSlugs.length + newSlugs.length < targetCount
+        oldSlugs.length +
+          newSlugs.filter((s) => !oldSlugs.some((os) => os === s.slug)).length <
+          targetCount
       ) {
         pageNumber++; // TODO simplify increment
         let browser: Browser | null = null;
@@ -76,7 +84,7 @@ export const scrapeMissingSlugs = withMock(
           await abortExtraResources(page);
           const url = `${baseUrl},page.${pageNumber}?xhr=1`;
           await page.goto(url, {
-            waitUntil: "load",
+            waitUntil: "domcontentloaded",
             timeout: PLAYWRIGHT_TIMEOUT,
           });
           debugLog(`Navigated to API endpoint: ${url}.`);
@@ -105,7 +113,7 @@ export const scrapeMissingSlugs = withMock(
 
           const contentHtml = jsonData.content;
           if (contentHtml.indexOf("<") === -1) {
-            debugLog("No items found on page ${pageNumber}. Stopping.");
+            debugLog(`No items found on page ${pageNumber}. Stopping.`);
             break;
           }
 
@@ -121,22 +129,19 @@ export const scrapeMissingSlugs = withMock(
               $(element).find(".device-name .title").first().text().trim() ||
               "";
             const slug = slugifyName(name);
-            if (!slug || processedSlugs.has(slug)) {
+            if (!slug) {
               continue;
             }
 
-            processedSlugs.add(slug);
-            if (oldSlugs.includes(slug)) {
-              continue;
-            }
-
-            const href =
-              $(element).find(".device-link").first().attr("href") || "";
+            const encodedHref =
+              $(element).find("[data-kdecode]").first().attr("data-kdecode") ||
+              "";
+            const href = encodedHref ? atob(encodedHref) : "";
             const rawSlug = extractSlugFromUrl(href);
             const relativeReleaseDate =
               $(element).find(".device-name .status").first().text().trim() ||
               "";
-            const releaseMonth = parseReleaseDate(relativeReleaseDate);
+            const releaseMonth = parseRelativeDate(relativeReleaseDate);
             const scoresHtml =
               $(element)
                 .find(".device-data .miniki")
@@ -144,24 +149,57 @@ export const scrapeMissingSlugs = withMock(
                 .attr("data-minikiinfo") || "";
             const scores = parseScores(scoresHtml);
 
-            newSlugs.push({
-              name,
-              slug,
-              rawSlug,
-              releaseMonth,
-              scores,
-              brand,
-            });
+            const marketId = $(element)
+              .find(".device-name .version .market")
+              .first()
+              .text()
+              .trim();
+            const [ram_gb, storage_gb] = $(element)
+              .find(".device-name .version")
+              .first()
+              .text()
+              .split("·")
+              .map((t) => {
+                const text = t.trim().match(/\d+(?:GB|TB)/)?.[0];
+                if (!text) {
+                  return 0;
+                }
+                const value = parseInt(text);
+                return text.includes("TB") ? value * 1024 : value;
+              });
+            const sku: Sku = {
+              marketId,
+              ram_gb,
+              storage_gb,
+            };
+
+            const newSlug = newSlugs.find((s) => s.slug === slug);
+            if (!newSlug) {
+              newSlugs.push({
+                name,
+                slug,
+                rawSlug,
+                releaseMonth,
+                scores,
+                brand,
+                skus: [sku],
+              });
+            } else {
+              newSlug.skus.push(sku);
+            }
           }
 
           debugLog(
-            `Total ${newSlugs.length} new slugs after processing page ${pageNumber}.`
+            `Total ${
+              newSlugs.filter((s) => !oldSlugs.some((os) => os === s.slug))
+                .length
+            } new slugs after processing page ${pageNumber}.`
           );
 
           // if over target count, only get newly added slugs
           if (
             oldSlugs.length >= targetCount &&
-            oldSlugs.some((s) => processedSlugs.has(s))
+            oldSlugs.some((s) => newSlugs.some((ns) => ns.slug === s))
           ) {
             debugLog(`Found existing slug. Stopping.`);
             break;
@@ -186,20 +224,11 @@ export const scrapeMissingSlugs = withMock(
 const extractSlugFromUrl = (url: string): string => {
   if (!url) return "";
   const dirtySegment = url.split("/").pop();
-  const dirtySlug = dirtySegment?.replace("where-to-buy-", "");
+  const dirtySlug = dirtySegment?.replace("where-to-buy-", "").split("#")[0];
   return dirtySlug || "";
 };
 
-const slugifyName = (name: string): string | null => {
-  if (!name) return null;
-  return name
-    .toLowerCase()
-    .replace(/[\(\)]/g, "")
-    .replace(/\+/g, " plus")
-    .replace(/\s+/g, "-");
-};
-
-const parseReleaseDate = (relativeDateString: string): string | null => {
+const parseRelativeDate = (relativeDateString: string): string | null => {
   const now = new Date();
   const parts = relativeDateString.trim().split(/\s+/);
 
@@ -238,7 +267,6 @@ const parseReleaseDate = (relativeDateString: string): string | null => {
 };
 
 const parseScores = (html: string): string => {
-  let scoreString = "";
   const scoreMap: Record<string, string> = {};
 
   const $ = cheerio.load(html);
@@ -252,34 +280,15 @@ const parseScores = (html: string): string => {
       return;
     }
 
-    let key = "";
-    if (title.toLowerCase().startsWith("ki cost")) {
-      key = "ki";
-    } else if (title.toLowerCase().startsWith("design")) {
-      key = "design";
-    } else if (title.toLowerCase().startsWith("performance")) {
-      key = "performance";
-    } else if (title.toLowerCase().startsWith("camera")) {
-      key = "camera";
-    } else if (title.toLowerCase().startsWith("connectivity")) {
-      key = "connectivity";
-    } else if (title.toLowerCase().startsWith("battery")) {
-      key = "battery";
-    }
-
+    const key = scoreTitleToKey(title);
     if (key) {
       scoreMap[key] = score;
     }
   });
 
-  let first = true;
-  for (const key in scoreMap) {
-    if (!first) {
-      scoreString += "&";
-    }
-    scoreString += `${key}=${scoreMap[key]}`;
-    first = false;
-  }
+  const scoreString = Object.entries(scoreMap)
+    .map(([key, value]) => `${key}=${value}`)
+    .join("|");
 
   return scoreString;
 };

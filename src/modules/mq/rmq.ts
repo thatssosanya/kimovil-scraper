@@ -9,6 +9,7 @@ import {
   GetAutocompleteOptionsRequestPayload,
   GetMatchingSlugRequestPayload,
   GetKimovilDataRequestPayload,
+  GetKimovilDatasRequestPayload,
 } from "../../types/payloads.js";
 
 let channel: amqp.Channel;
@@ -78,9 +79,6 @@ export const onMessage = (
     if (globalThis.activeMessageCount >= MAX_CONCURRENT_MESSAGES) {
       // Nack the message to requeue it for later processing
       channel.nack(msg, false, true);
-      debugLog(
-        `Concurrency limit reached (${MAX_CONCURRENT_MESSAGES}). Requeuing message.`
-      );
       return;
     }
 
@@ -239,26 +237,64 @@ const successCallbacks: Record<
   },
 
   "getKimovilDataRequest.auto": async (
-    result: PhoneData,
-    payload: GetKimovilDataRequestPayload
+    result: { datas: PhoneData[]; raw: string },
+    payload: GetKimovilDatasRequestPayload
   ) => {
-    const saveResult = await fetch(
-      `${process.env.SCHEDULER_URL!}/api/kimovil/data`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Basic ${Buffer.from(
-            ":" + process.env.COD_SECRET!
-          ).toString("base64")}`,
-        },
-        body: JSON.stringify({ ...result, deviceId: payload.deviceId }),
-      }
+    const errors: { slug: string; error: string }[] = [];
+
+    const notFoundSlugs = payload.slugs.filter(
+      (slug) => !result.datas.find((data) => data.slug === slug)
+    );
+    errors.push(
+      ...notFoundSlugs.map((slug) => ({
+        slug,
+        error: "Data not found",
+      }))
     );
 
-    if (!saveResult.ok) {
-      throw new Error(
-        `Scheduler failed to save data to database: ${await saveResult.json()}`
-      );
+    for (const data of result.datas) {
+      try {
+        const saveResult = await fetch(
+          `${process.env.SCHEDULER_URL!}/api/kimovil/data`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Basic ${Buffer.from(
+                ":" + process.env.COD_SECRET!
+              ).toString("base64")}`,
+            },
+            body: JSON.stringify({ ...data, raw: result.raw }),
+          }
+        );
+
+        if (!saveResult.ok) {
+          const error = await saveResult.text();
+          errors.push({
+            slug: data.slug,
+            error: `Failed to save data: ${error}`,
+          });
+        }
+      } catch (err) {
+        errors.push({
+          slug: data.slug,
+          error: `Error saving data: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        });
+      }
+    }
+
+    if (errors.length > 0) {
+      for (const { slug, error } of errors) {
+        await sendErrorMessage(
+          {
+            queue: "getKimovilDataRequest.auto",
+            payload: { slug },
+            error,
+          },
+          true
+        );
+      }
     }
 
     // TODO add response queue
@@ -286,6 +322,11 @@ const successCallbacks: Record<
       releaseMonth: string | null;
       scores: string;
       brand?: string;
+      skus: {
+        marketId: string;
+        ram_gb: number;
+        storage_gb: number;
+      }[];
     }[];
     brand?: string;
     lastPage: number;
@@ -342,3 +383,11 @@ const successCallbacks: Record<
     );
   },
 };
+
+async function sendErrorMessage(content: any, auto: boolean) {
+  const queueName = `errorResponse${auto ? ".auto" : ""}`;
+  await channel.assertQueue(queueName, getQueueConfig(queueName));
+  channel.sendToQueue(queueName, Buffer.from(JSON.stringify(content)), {
+    persistent: true,
+  });
+}

@@ -5,6 +5,7 @@ import { initRMQ, onMessage } from "./modules/mq/rmq.js";
 import { scrapeMissingSlugs } from "./modules/scraping/kimovil/getMissingSlugs.js";
 import { getAutocompleteOptions } from "./modules/scraping/kimovil/getAutocompleteOptions.js";
 import { errorLog } from "./utils/logging.js";
+import { scrapeBySlugs } from "./modules/scraping/kimovil/getMultiData.js";
 
 if (!process.env.COD_URL) {
   throw new Error("COD_URL is not available in env.");
@@ -31,7 +32,7 @@ if (!process.env.COD_URL) {
 
     onMessage("getKimovilDataRequest", (payload) => scrapeBySlug(payload.slug));
     onMessage("getKimovilDataRequest.auto", (payload) =>
-      scrapeBySlug(payload.slug)
+      scrapeBySlugs(payload.slugs)
     );
   }
 

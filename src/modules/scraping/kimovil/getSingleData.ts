@@ -17,6 +17,7 @@ import {
   createBrightDataBrowser,
   abortExtraResources,
   getCpuCores,
+  parseReleaseDate,
 } from "./util.js";
 
 export const scrapeBySlug = withMock(
@@ -31,7 +32,10 @@ export const scrapeBySlug = withMock(
         process.env.ENV === "development" && process.env.LOCAL_PLAYWRIGHT
           ? `http://127.0.0.1:8080/Apple%20iPhone%2014_%20Price%20(from%20566.31%24)%20and%20specifications%20%5BDecember%202024%5D.html`
           : `https://www.kimovil.com/en/where-to-buy-${slug}`;
-      await page.goto(url, { waitUntil: "load", timeout: PLAYWRIGHT_TIMEOUT });
+      await page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: PLAYWRIGHT_TIMEOUT,
+      });
       debugLog(`Navigated to ${url}.`);
 
       const raw = await page.content();
@@ -319,10 +323,11 @@ export const scrapeBySlug = withMock(
 
       const data: PhoneData = {
         slug,
+        images: null,
         name: name!,
         brand: brand!,
         aliases: aliases.join("|"),
-        releaseDate: releaseDate ? new Date(releaseDate) : null,
+        releaseDate: releaseDate ? parseReleaseDate(releaseDate) : null,
         height_mm: height,
         width_mm: width,
         thickness_mm: thickness,
@@ -359,6 +364,8 @@ export const scrapeBySlug = withMock(
         ),
         os: software?.os ?? null,
         osSkin: software?.osSkin ?? null,
+        scores: null,
+        others: null,
         raw: raw.slice(
           // FIXME
           raw.indexOf(">", raw.indexOf("<main")) + 1,
