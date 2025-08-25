@@ -1,1 +1,204 @@
-{"rabbit_version":"3.12.10","rabbitmq_version":"3.12.10","product_name":"RabbitMQ","product_version":"3.12.10","users":[{"name":"admin","password_hash":"PxzCix7RmqIqaP87PFqFeLNdbwTfWYfpZOk8DdCQtW+FjBbb","hashing_algorithm":"rabbit_password_hashing_sha256","tags":["administrator"],"limits":{}}],"vhosts":[{"name":"/"}],"permissions":[{"user":"admin","vhost":"/","configure":".*","write":".*","read":".*"}],"topic_permissions":[],"parameters":[],"global_parameters":[{"name":"internal_cluster_id","value":"rabbitmq-cluster-id-Zj4xTK1g-qNe5uIocCEXGw"}],"policies":[],"queues":[{"name":"errorResponse","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-dead-letter-exchange":"dlx","x-dead-letter-routing-key":"errorResponse_dead","x-message-ttl":300000}},{"name":"getKimovilDataResponse_dead","vhost":"/","durable":true,"auto_delete":false,"arguments":{}},{"name":"getMatchingSlugRequest","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-dead-letter-exchange":"dlx","x-dead-letter-routing-key":"getMatchingSlugRequest_dead","x-message-ttl":300000}},{"name":"errorResponse_dead","vhost":"/","durable":true,"auto_delete":false,"arguments":{}},{"name":"getKimovilDataRequest","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-dead-letter-exchange":"dlx","x-dead-letter-routing-key":"getKimovilDataRequest_dead","x-message-ttl":300000}},{"name":"getKimovilDataResponse","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-dead-letter-exchange":"dlx","x-dead-letter-routing-key":"getKimovilDataResponse_dead","x-message-ttl":300000}},{"name":"getAutocompleteOptionsRequest","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-dead-letter-exchange":"dlx","x-dead-letter-routing-key":"getAutocompleteOptionsRequest_dead","x-message-ttl":300000}},{"name":"getMatchingSlugRequest_dead","vhost":"/","durable":true,"auto_delete":false,"arguments":{}},{"name":"getUserConfirmedSlugRequest","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-dead-letter-exchange":"dlx","x-dead-letter-routing-key":"getUserConfirmedSlugRequest_dead","x-message-ttl":300000}},{"name":"getUserConfirmedSlugRequest_dead","vhost":"/","durable":true,"auto_delete":false,"arguments":{}},{"name":"getAutocompleteOptionsRequest_dead","vhost":"/","durable":true,"auto_delete":false,"arguments":{}},{"name":"getKimovilDataRequest_dead","vhost":"/","durable":true,"auto_delete":false,"arguments":{}}],"exchanges":[{"name":"dlx","vhost":"/","type":"direct","durable":true,"auto_delete":false,"internal":false,"arguments":{}}],"bindings":[{"source":"dlx","vhost":"/","destination":"getAutocompleteOptionsRequest_dead","destination_type":"queue","routing_key":"getAutocompleteOptionsRequest_dead","arguments":{}},{"source":"dlx","vhost":"/","destination":"getKimovilDataRequest_dead","destination_type":"queue","routing_key":"getKimovilDataRequest_dead","arguments":{}},{"source":"dlx","vhost":"/","destination":"getKimovilDataResponse_dead","destination_type":"queue","routing_key":"getKimovilDataResponse_dead","arguments":{}},{"source":"dlx","vhost":"/","destination":"getMatchingSlugRequest_dead","destination_type":"queue","routing_key":"getMatchingSlugRequest_dead","arguments":{}},{"source":"dlx","vhost":"/","destination":"getUserConfirmedSlugRequest_dead","destination_type":"queue","routing_key":"getUserConfirmedSlugRequest_dead","arguments":{}}]}
+{
+  "rabbit_version": "3.12.10",
+  "rabbitmq_version": "3.12.10",
+  "product_name": "RabbitMQ",
+  "product_version": "3.12.10",
+  "users": [
+    {
+      "name": "admin",
+      "password_hash": "PxzCix7RmqIqaP87PFqFeLNdbwTfWYfpZOk8DdCQtW+FjBbb",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": ["administrator"],
+      "limits": {}
+    }
+  ],
+  "vhosts": [{ "name": "/" }],
+  "permissions": [
+    {
+      "user": "admin",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "topic_permissions": [],
+  "parameters": [],
+  "global_parameters": [
+    {
+      "name": "internal_cluster_id",
+      "value": "rabbitmq-cluster-id-Zj4xTK1g-qNe5uIocCEXGw"
+    }
+  ],
+  "policies": [],
+  "queues": [
+    {
+      "name": "health-check",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "errorResponse",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dlx",
+        "x-dead-letter-routing-key": "errorResponse_dead",
+        "x-message-ttl": 300000
+      }
+    },
+    {
+      "name": "getKimovilDataResponse_dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "getMatchingSlugRequest",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dlx",
+        "x-dead-letter-routing-key": "getMatchingSlugRequest_dead",
+        "x-message-ttl": 300000
+      }
+    },
+    {
+      "name": "errorResponse_dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "getKimovilDataRequest",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dlx",
+        "x-dead-letter-routing-key": "getKimovilDataRequest_dead",
+        "x-message-ttl": 300000
+      }
+    },
+    {
+      "name": "getKimovilDataResponse",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dlx",
+        "x-dead-letter-routing-key": "getKimovilDataResponse_dead",
+        "x-message-ttl": 300000
+      }
+    },
+    {
+      "name": "getAutocompleteOptionsRequest",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dlx",
+        "x-dead-letter-routing-key": "getAutocompleteOptionsRequest_dead",
+        "x-message-ttl": 300000
+      }
+    },
+    {
+      "name": "getMatchingSlugRequest_dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "getUserConfirmedSlugRequest",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dlx",
+        "x-dead-letter-routing-key": "getUserConfirmedSlugRequest_dead",
+        "x-message-ttl": 300000
+      }
+    },
+    {
+      "name": "getUserConfirmedSlugRequest_dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "getAutocompleteOptionsRequest_dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "getKimovilDataRequest_dead",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "dlx",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "dlx",
+      "vhost": "/",
+      "destination": "getAutocompleteOptionsRequest_dead",
+      "destination_type": "queue",
+      "routing_key": "getAutocompleteOptionsRequest_dead",
+      "arguments": {}
+    },
+    {
+      "source": "dlx",
+      "vhost": "/",
+      "destination": "getKimovilDataRequest_dead",
+      "destination_type": "queue",
+      "routing_key": "getKimovilDataRequest_dead",
+      "arguments": {}
+    },
+    {
+      "source": "dlx",
+      "vhost": "/",
+      "destination": "getKimovilDataResponse_dead",
+      "destination_type": "queue",
+      "routing_key": "getKimovilDataResponse_dead",
+      "arguments": {}
+    },
+    {
+      "source": "dlx",
+      "vhost": "/",
+      "destination": "getMatchingSlugRequest_dead",
+      "destination_type": "queue",
+      "routing_key": "getMatchingSlugRequest_dead",
+      "arguments": {}
+    },
+    {
+      "source": "dlx",
+      "vhost": "/",
+      "destination": "getUserConfirmedSlugRequest_dead",
+      "destination_type": "queue",
+      "routing_key": "getUserConfirmedSlugRequest_dead",
+      "arguments": {}
+    }
+  ]
+}

@@ -7,6 +7,10 @@ RUN mkdir -p /etc/rabbitmq/conf.d
 RUN chown -R rabbitmq:rabbitmq /etc/rabbitmq/conf.d
 COPY rmq-logging.conf /etc/rabbitmq/conf.d
 
+# Ensure definitions are loaded on startup
+COPY rabbitmq.conf /etc/rabbitmq/rabbitmq.conf
+RUN chown rabbitmq:rabbitmq /etc/rabbitmq/rabbitmq.conf
+
 # Add curl for healthcheck
 RUN apt-get update
 RUN apt-get install -y curl

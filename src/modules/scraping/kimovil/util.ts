@@ -6,7 +6,8 @@ import {
 } from "../../../utils/consts.js";
 
 export const createBrightDataBrowser = async (tag?: string) => {
-  if (process.env.LOCAL_PLAYWRIGHT) {
+  const useLocal = (process.env.LOCAL_PLAYWRIGHT ?? "").toLowerCase() === "true";
+  if (useLocal) {
     const browser = await chromium.launch({ headless: false });
     debugLog("Launched local headful Chromium.");
     return browser;

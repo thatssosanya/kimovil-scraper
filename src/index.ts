@@ -17,28 +17,29 @@ if (!process.env.COD_URL) {
   try {
     await initRMQ();
   } catch (error) {
-    errorLog("Failed to connect to RMQ.");
+    console.error(error);
+    errorLog("Failed 2to connect to RMQ. 222", error);
     process.exit(1);
   }
 
   if (process.env.WORKER_TYPE !== "slug-scraper") {
     onMessage("getAutocompleteOptionsRequest", (payload) =>
-      getAutocompleteOptions(payload.searchString)
+      getAutocompleteOptions(payload.searchString),
     );
 
     onMessage("getMatchingSlugRequest", (payload) =>
-      pickMatchingSlug(payload.searchString, payload.options)
+      pickMatchingSlug(payload.searchString, payload.options),
     );
 
     onMessage("getKimovilDataRequest", (payload) => scrapeBySlug(payload.slug));
     onMessage("getKimovilDataRequest.auto", (payload) =>
-      scrapeBySlugs(payload.slugs)
+      scrapeBySlugs(payload.slugs),
     );
   }
 
   if (process.env.WORKER_TYPE !== "data-scraper") {
     onMessage("getMissingSlugsRequest.auto", (payload) =>
-      scrapeMissingSlugs(payload)
+      scrapeMissingSlugs(payload),
     );
   }
 

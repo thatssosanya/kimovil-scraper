@@ -28,8 +28,10 @@ export const scrapeBySlug = withMock(
       browser = await createBrightDataBrowser("scrapeBySlug");
       const page = await browser.newPage();
       await abortExtraResources(page);
+      const isLocalPlaywright =
+        (process.env.LOCAL_PLAYWRIGHT ?? "").toLowerCase() === "true";
       const url =
-        process.env.ENV === "development" && process.env.LOCAL_PLAYWRIGHT
+        process.env.ENV === "development" && isLocalPlaywright
           ? `http://127.0.0.1:8080/Apple%20iPhone%2014_%20Price%20(from%20566.31%24)%20and%20specifications%20%5BDecember%202024%5D.html`
           : `https://www.kimovil.com/en/where-to-buy-${slug}`;
       await page.goto(url, {

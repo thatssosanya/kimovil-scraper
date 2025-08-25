@@ -24,8 +24,10 @@ export const scrapeBySlugs = withMock(
       browser = await createBrightDataBrowser("scrapeBySlugs");
       const page = await browser.newPage();
       await abortExtraResources(page);
+      const isLocalPlaywright =
+        (process.env.LOCAL_PLAYWRIGHT ?? "").toLowerCase() === "true";
       const url =
-        process.env.ENV === "development" && process.env.LOCAL_PLAYWRIGHT
+        process.env.ENV === "development" && isLocalPlaywright
           ? `http://127.0.0.1:8080/Honor%2090%205G%20vs%20Honor%20Magic7%20vs%20Honor%20X6a%20Plus_%20Comparison.html`
           : `https://www.kimovil.com/en/compare/${slugs.join(",")}`;
       await page.goto(url, {
