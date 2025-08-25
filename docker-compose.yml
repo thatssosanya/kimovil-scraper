@@ -42,9 +42,12 @@ services:
       - "5679:5672"
       - "15679:15672"
     volumes:
-      - /var/lib/kimovil-rabbitmq:/var/lib/rabbitmq
+      - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:15672" ]
       interval: 5s
       timeout: 5s
       retries: 5
+
+volumes:
+  rabbitmq_data:
