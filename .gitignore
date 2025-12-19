@@ -36,3 +36,9 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+*.sqlite
+*.sqlite.backup
+session-ses_*.md
+pbcopy
+*.sqlite-shm
+*.sqlite-wal

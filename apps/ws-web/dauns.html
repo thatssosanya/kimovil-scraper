@@ -1,0 +1,863 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rocket Launch Simulation - NASA Dashboard</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      }
+
+      body {
+        background: #0a0a2a;
+        color: #fff;
+        overflow: hidden;
+        height: 100vh;
+      }
+
+      .dashboard-container {
+        display: grid;
+        grid-template-columns: 1fr 400px;
+        grid-template-rows: 80px 1fr;
+        height: 100vh;
+        gap: 10px;
+        padding: 10px;
+      }
+
+      .header {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: rgba(16, 16, 48, 0.8);
+        border-radius: 8px;
+        padding: 0 20px;
+        border: 1px solid #2a2a5a;
+      }
+
+      .nasa-logo {
+        display: flex;
+        align-items: center;
+      }
+
+      .nasa-logo h1 {
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        margin-left: 10px;
+      }
+
+      .nasa-logo .logo-circle {
+        width: 40px;
+        height: 40px;
+        background: #fff;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #0a0a2a;
+        font-weight: 900;
+        font-size: 18px;
+      }
+
+      .mission-info {
+        display: flex;
+        gap: 30px;
+      }
+
+      .mission-info div {
+        text-align: center;
+      }
+
+      .mission-info .label {
+        font-size: 12px;
+        color: #8a8ac4;
+        margin-bottom: 4px;
+      }
+
+      .mission-info .value {
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .simulation-area {
+        position: relative;
+        background: rgba(16, 16, 48, 0.6);
+        border-radius: 8px;
+        border: 1px solid #2a2a5a;
+        overflow: hidden;
+      }
+
+      .controls-panel {
+        background: rgba(16, 16, 48, 0.8);
+        border-radius: 8px;
+        border: 1px solid #2a2a5a;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .panel-section {
+        background: rgba(10, 10, 42, 0.6);
+        border-radius: 6px;
+        padding: 15px;
+        border: 1px solid #2a2a5a;
+      }
+
+      .panel-title {
+        font-size: 16px;
+        font-weight: 600;
+        margin-bottom: 12px;
+        color: #6a6ac4;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .panel-title i {
+        font-size: 18px;
+      }
+
+      .stage-indicator {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .stage {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        border-radius: 4px;
+        background: rgba(20, 20, 60, 0.6);
+        border: 1px solid #3a3a7a;
+        transition: all 0.3s ease;
+      }
+
+      .stage.active {
+        background: rgba(30, 60, 120, 0.6);
+        border-color: #4a8aff;
+        box-shadow: 0 0 10px rgba(74, 138, 255, 0.4);
+      }
+
+      .stage.completed {
+        background: rgba(30, 100, 60, 0.4);
+        border-color: #2aad5a;
+      }
+
+      .stage-icon {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        background: #2a2a5a;
+      }
+
+      .stage.active .stage-icon {
+        background: #4a8aff;
+      }
+
+      .stage.completed .stage-icon {
+        background: #2aad5a;
+      }
+
+      .stage-info {
+        flex: 1;
+      }
+
+      .stage-name {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .stage-desc {
+        font-size: 12px;
+        color: #8a8ac4;
+      }
+
+      .progress-container {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .progress-bar {
+        height: 8px;
+        background: #1a1a3a;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+
+      .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #2a5aff, #4a8aff);
+        border-radius: 4px;
+        width: 0%;
+        transition: width 0.5s ease;
+      }
+
+      .progress-info {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        color: #8a8ac4;
+      }
+
+      .telemetry-data {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .telemetry-item {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .telemetry-label {
+        font-size: 12px;
+        color: #8a8ac4;
+      }
+
+      .telemetry-value {
+        font-size: 18px;
+        font-weight: 600;
+      }
+
+      .control-buttons {
+        display: flex;
+        gap: 10px;
+      }
+
+      button {
+        flex: 1;
+        padding: 10px;
+        border: none;
+        border-radius: 4px;
+        background: #2a5aff;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      button:hover {
+        background: #4a8aff;
+      }
+
+      button:disabled {
+        background: #2a2a5a;
+        color: #6a6a8a;
+        cursor: not-allowed;
+      }
+
+      .status-message {
+        padding: 12px;
+        border-radius: 4px;
+        background: rgba(20, 20, 60, 0.6);
+        border: 1px solid #3a3a7a;
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 60px;
+      }
+
+      canvas {
+        display: block;
+      }
+
+      .earth,
+      .moon {
+        position: absolute;
+        border-radius: 50%;
+      }
+
+      .earth {
+        width: 120px;
+        height: 120px;
+        bottom: 50px;
+        left: 50px;
+        background: radial-gradient(circle at 30% 30%, #1a5a9a, #0a3a6a);
+        box-shadow: 0 0 40px rgba(26, 90, 154, 0.6);
+      }
+
+      .moon {
+        width: 60px;
+        height: 60px;
+        top: 100px;
+        right: 100px;
+        background: radial-gradient(circle at 30% 30%, #cccccc, #8a8a8a);
+        box-shadow: 0 0 20px rgba(204, 204, 204, 0.4);
+      }
+
+      .rocket-trail {
+        position: absolute;
+        width: 4px;
+        height: 80px;
+        background: linear-gradient(
+          to top,
+          rgba(74, 138, 255, 0.8),
+          transparent
+        );
+        border-radius: 2px;
+        transform-origin: bottom center;
+      }
+
+      .stars {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      .star {
+        position: absolute;
+        background: white;
+        border-radius: 50%;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="dashboard-container">
+      <div class="header">
+        <div class="nasa-logo">
+          <div class="logo-circle">NASA</div>
+          <h1>ARTEMIS II LAUNCH SIMULATION</h1>
+        </div>
+        <div class="mission-info">
+          <div>
+            <div class="label">MISSION</div>
+            <div class="value">ARTEMIS II</div>
+          </div>
+          <div>
+            <div class="label">VEHICLE</div>
+            <div class="value">SLS BLOCK 1</div>
+          </div>
+          <div>
+            <div class="label">DESTINATION</div>
+            <div class="value">MOON</div>
+          </div>
+          <div>
+            <div class="label">STATUS</div>
+            <div class="value" id="mission-status">PRE-LAUNCH</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="simulation-area" id="simulation-area">
+        <canvas id="spaceCanvas"></canvas>
+        <div class="earth"></div>
+        <div class="moon"></div>
+        <div class="stars" id="stars"></div>
+      </div>
+
+      <div class="controls-panel">
+        <div class="panel-section">
+          <div class="panel-title"><i>🚀</i> LAUNCH SEQUENCE</div>
+          <div class="stage-indicator">
+            <div class="stage active" id="stage1">
+              <div class="stage-icon">1</div>
+              <div class="stage-info">
+                <div class="stage-name">PRE-LAUNCH</div>
+                <div class="stage-desc">Systems check and countdown</div>
+              </div>
+            </div>
+            <div class="stage" id="stage2">
+              <div class="stage-icon">2</div>
+              <div class="stage-info">
+                <div class="stage-name">LIFTOFF</div>
+                <div class="stage-desc">Main engine ignition and ascent</div>
+              </div>
+            </div>
+            <div class="stage" id="stage3">
+              <div class="stage-icon">3</div>
+              <div class="stage-info">
+                <div class="stage-name">MAX-Q</div>
+                <div class="stage-desc">Maximum dynamic pressure</div>
+              </div>
+            </div>
+            <div class="stage" id="stage4">
+              <div class="stage-icon">4</div>
+              <div class="stage-info">
+                <div class="stage-name">STAGE SEPARATION</div>
+                <div class="stage-desc">Booster separation</div>
+              </div>
+            </div>
+            <div class="stage" id="stage5">
+              <div class="stage-icon">5</div>
+              <div class="stage-info">
+                <div class="stage-name">ORBIT INSERTION</div>
+                <div class="stage-desc">Achieving Earth orbit</div>
+              </div>
+            </div>
+            <div class="stage" id="stage6">
+              <div class="stage-icon">6</div>
+              <div class="stage-info">
+                <div class="stage-name">TLI BURN</div>
+                <div class="stage-desc">Trans-lunar injection</div>
+              </div>
+            </div>
+            <div class="stage" id="stage7">
+              <div class="stage-icon">7</div>
+              <div class="stage-info">
+                <div class="stage-name">LUNAR APPROACH</div>
+                <div class="stage-desc">Course correction maneuvers</div>
+              </div>
+            </div>
+            <div class="stage" id="stage8">
+              <div class="stage-icon">8</div>
+              <div class="stage-info">
+                <div class="stage-name">LUNAR ORBIT</div>
+                <div class="stage-desc">Achieving lunar orbit</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-title"><i>📊</i> MISSION PROGRESS</div>
+          <div class="progress-container">
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div class="progress-info">
+              <span>LAUNCH</span>
+              <span id="progress-percent">0%</span>
+              <span>MOON</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-title"><i>📡</i> TELEMETRY DATA</div>
+          <div class="telemetry-data">
+            <div class="telemetry-item">
+              <div class="telemetry-label">ALTITUDE</div>
+              <div class="telemetry-value" id="altitude">0 km</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="telemetry-label">VELOCITY</div>
+              <div class="telemetry-value" id="velocity">0 km/s</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="telemetry-label">DISTANCE TO MOON</div>
+              <div class="telemetry-value" id="moon-distance">384,400 km</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="telemetry-label">FUEL</div>
+              <div class="telemetry-value" id="fuel">100%</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-title"><i>🛠️</i> MISSION CONTROL</div>
+          <div class="control-buttons">
+            <button id="start-btn">START LAUNCH</button>
+            <button id="reset-btn" disabled>RESET</button>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-title"><i>📝</i> MISSION STATUS</div>
+          <div class="status-message" id="status-message">
+            All systems nominal. Awaiting launch sequence initiation.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Canvas setup
+      const canvas = document.getElementById("spaceCanvas");
+      const ctx = canvas.getContext("2d");
+      const simulationArea = document.getElementById("simulation-area");
+
+      // Set canvas size to match container
+      function resizeCanvas() {
+        canvas.width = simulationArea.clientWidth;
+        canvas.height = simulationArea.clientHeight;
+      }
+
+      resizeCanvas();
+      window.addEventListener("resize", resizeCanvas);
+
+      // Create stars
+      const starsContainer = document.getElementById("stars");
+      for (let i = 0; i < 200; i++) {
+        const star = document.createElement("div");
+        star.className = "star";
+        star.style.width = Math.random() * 2 + "px";
+        star.style.height = star.style.width;
+        star.style.left = Math.random() * 100 + "%";
+        star.style.top = Math.random() * 100 + "%";
+        star.style.opacity = Math.random() * 0.7 + 0.3;
+        starsContainer.appendChild(star);
+      }
+
+      // Rocket properties
+      let rocket = {
+        x: canvas.width / 2,
+        y: canvas.height - 100,
+        width: 20,
+        height: 60,
+        velocity: 0,
+        altitude: 0,
+        stage: 1,
+        launched: false,
+        angle: -Math.PI / 2, // Pointing upward
+        trailParticles: [],
+      };
+
+      // Moon properties
+      const moon = {
+        x: canvas.width - 150,
+        y: 150,
+        radius: 60,
+      };
+
+      // Earth properties
+      const earth = {
+        x: 100,
+        y: canvas.height - 100,
+        radius: 120,
+      };
+
+      // Mission state
+      let missionTime = 0;
+      let missionProgress = 0;
+      let missionActive = false;
+
+      // Stage descriptions
+      const stageDescriptions = [
+        "Pre-launch: Final systems check and countdown sequence initiated.",
+        "Liftoff: Main engines at full thrust. Rocket is ascending through atmosphere.",
+        "Max-Q: Vehicle experiencing maximum dynamic pressure. Structural stress peak.",
+        "Stage Separation: Solid rocket boosters separated. Core stage still firing.",
+        "Orbit Insertion: Achieving low Earth orbit. Preparing for trans-lunar injection.",
+        "TLI Burn: Firing engines to break Earth orbit and set course for the Moon.",
+        "Lunar Approach: Performing course correction maneuvers for precise trajectory.",
+        "Lunar Orbit: Achieving stable orbit around the Moon. Mission success!",
+      ];
+
+      // Update telemetry data
+      function updateTelemetry() {
+        document.getElementById("altitude").textContent =
+          Math.round(rocket.altitude) + " km";
+        document.getElementById("velocity").textContent =
+          rocket.velocity.toFixed(2) + " km/s";
+        document.getElementById("moon-distance").textContent =
+          Math.round(384400 - rocket.altitude * 0.8) + " km";
+        document.getElementById("fuel").textContent =
+          Math.max(0, Math.round(100 - missionProgress * 1.2)) + "%";
+        document.getElementById("progress-percent").textContent =
+          Math.round(missionProgress) + "%";
+        document.getElementById("progress-fill").style.width =
+          missionProgress + "%";
+
+        // Update mission status
+        if (missionProgress < 10) {
+          document.getElementById("mission-status").textContent = "PRE-LAUNCH";
+        } else if (missionProgress < 30) {
+          document.getElementById("mission-status").textContent = "ASCENT";
+        } else if (missionProgress < 60) {
+          document.getElementById("mission-status").textContent = "EARTH ORBIT";
+        } else if (missionProgress < 90) {
+          document.getElementById("mission-status").textContent =
+            "TRANSLUNAR INJECTION";
+        } else {
+          document.getElementById("mission-status").textContent =
+            "LUNAR APPROACH";
+        }
+      }
+
+      // Update stage indicators
+      function updateStages() {
+        for (let i = 1; i <= 8; i++) {
+          const stageElement = document.getElementById("stage" + i);
+          if (i < rocket.stage) {
+            stageElement.classList.add("completed");
+            stageElement.classList.remove("active");
+          } else if (i === rocket.stage) {
+            stageElement.classList.add("active");
+            stageElement.classList.remove("completed");
+          } else {
+            stageElement.classList.remove("active", "completed");
+          }
+        }
+
+        // Update status message
+        if (rocket.stage <= 8) {
+          document.getElementById("status-message").textContent =
+            stageDescriptions[rocket.stage - 1];
+        }
+      }
+
+      // Draw rocket
+      function drawRocket() {
+        ctx.save();
+        ctx.translate(rocket.x, rocket.y);
+        ctx.rotate(rocket.angle);
+
+        // Rocket body
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(
+          -rocket.width / 2,
+          -rocket.height,
+          rocket.width,
+          rocket.height,
+        );
+
+        // Rocket nose
+        ctx.beginPath();
+        ctx.moveTo(-rocket.width / 2, -rocket.height);
+        ctx.lineTo(rocket.width / 2, -rocket.height);
+        ctx.lineTo(0, -rocket.height - 20);
+        ctx.closePath();
+        ctx.fillStyle = "#ff6b6b";
+        ctx.fill();
+
+        // Rocket fins
+        ctx.fillStyle = "#cccccc";
+        ctx.fillRect(-rocket.width / 2 - 5, -rocket.height / 2, 5, 15);
+        ctx.fillRect(rocket.width / 2, -rocket.height / 2, 5, 15);
+
+        // Rocket window
+        ctx.beginPath();
+        ctx.arc(0, -rocket.height + 15, 5, 0, Math.PI * 2);
+        ctx.fillStyle = "#4a8aff";
+        ctx.fill();
+
+        // Engine flame
+        if (rocket.launched && missionProgress < 95) {
+          const flameLength = 30 + Math.random() * 10;
+          ctx.beginPath();
+          ctx.moveTo(-rocket.width / 4, 0);
+          ctx.lineTo(0, flameLength);
+          ctx.lineTo(rocket.width / 4, 0);
+          ctx.closePath();
+
+          const gradient = ctx.createLinearGradient(0, 0, 0, flameLength);
+          gradient.addColorStop(0, "#ffaa00");
+          gradient.addColorStop(0.5, "#ff4400");
+          gradient.addColorStop(1, "transparent");
+
+          ctx.fillStyle = gradient;
+          ctx.fill();
+
+          // Add trail particles
+          if (Math.random() < 0.7) {
+            rocket.trailParticles.push({
+              x: 0,
+              y: flameLength,
+              size: Math.random() * 3 + 1,
+              speed: Math.random() * 2 + 1,
+              life: 1,
+            });
+          }
+        }
+
+        ctx.restore();
+      }
+
+      // Draw trail particles
+      function drawTrail() {
+        for (let i = 0; i < rocket.trailParticles.length; i++) {
+          const p = rocket.trailParticles[i];
+
+          ctx.save();
+          ctx.translate(rocket.x, rocket.y);
+          ctx.rotate(rocket.angle);
+
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255, 100, 0, ${p.life})`;
+          ctx.fill();
+
+          ctx.restore();
+
+          // Update particle
+          p.y += p.speed;
+          p.life -= 0.02;
+
+          // Remove dead particles
+          if (p.life <= 0) {
+            rocket.trailParticles.splice(i, 1);
+            i--;
+          }
+        }
+      }
+
+      // Draw trajectory line
+      function drawTrajectory() {
+        if (!rocket.launched) return;
+
+        ctx.beginPath();
+        ctx.moveTo(rocket.x, rocket.y);
+
+        // Calculate curved trajectory to moon
+        const controlX = (rocket.x + moon.x) / 2;
+        const controlY = rocket.y - 200;
+
+        ctx.quadraticCurveTo(controlX, controlY, moon.x, moon.y);
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Main animation loop
+      function animate() {
+        // Clear canvas with space background
+        ctx.fillStyle = "#0a0a2a";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw trajectory
+        drawTrajectory();
+
+        // Draw Earth and Moon
+        // (These are HTML elements positioned with CSS)
+
+        // Update rocket position if launched
+        if (rocket.launched && missionActive) {
+          missionTime += 0.016; // ~60fps
+
+          // Update rocket position along trajectory
+          const t = Math.min(1, missionProgress / 100);
+          const controlX = (earth.x + moon.x) / 2;
+          const controlY = earth.y - 200;
+
+          // Quadratic Bezier curve calculation
+          rocket.x =
+            (1 - t) * (1 - t) * earth.x +
+            2 * (1 - t) * t * controlX +
+            t * t * moon.x;
+          rocket.y =
+            (1 - t) * (1 - t) * earth.y +
+            2 * (1 - t) * t * controlY +
+            t * t * moon.y;
+
+          // Update rocket angle to follow trajectory
+          const nextT = Math.min(1, (missionProgress + 1) / 100);
+          const nextX =
+            (1 - nextT) * (1 - nextT) * earth.x +
+            2 * (1 - nextT) * nextT * controlX +
+            nextT * nextT * moon.x;
+          const nextY =
+            (1 - nextT) * (1 - nextT) * earth.y +
+            2 * (1 - nextT) * nextT * controlY +
+            nextT * nextT * moon.y;
+
+          rocket.angle = Math.atan2(nextY - rocket.y, nextX - rocket.x);
+
+          // Update altitude and velocity
+          rocket.altitude = missionProgress * 40;
+          rocket.velocity = 2 + missionProgress / 20;
+
+          // Update mission progress
+          if (missionProgress < 100) {
+            missionProgress += 0.1;
+
+            // Update stages based on progress
+            if (missionProgress < 5) {
+              rocket.stage = 1; // Pre-launch
+            } else if (missionProgress < 15) {
+              rocket.stage = 2; // Liftoff
+            } else if (missionProgress < 25) {
+              rocket.stage = 3; // Max-Q
+            } else if (missionProgress < 35) {
+              rocket.stage = 4; // Stage Separation
+            } else if (missionProgress < 50) {
+              rocket.stage = 5; // Orbit Insertion
+            } else if (missionProgress < 65) {
+              rocket.stage = 6; // TLI Burn
+            } else if (missionProgress < 85) {
+              rocket.stage = 7; // Lunar Approach
+            } else {
+              rocket.stage = 8; // Lunar Orbit
+            }
+          } else {
+            // Mission complete
+            missionActive = false;
+            document.getElementById("status-message").textContent =
+              "Mission accomplished! The spacecraft has successfully entered lunar orbit.";
+            document.getElementById("mission-status").textContent =
+              "MISSION SUCCESS";
+            document.getElementById("start-btn").disabled = true;
+          }
+
+          updateTelemetry();
+          updateStages();
+        }
+
+        // Draw rocket and trail
+        drawTrail();
+        drawRocket();
+
+        requestAnimationFrame(animate);
+      }
+
+      // Start the animation
+      animate();
+
+      // Event listeners for buttons
+      document
+        .getElementById("start-btn")
+        .addEventListener("click", function () {
+          if (!rocket.launched) {
+            rocket.launched = true;
+            missionActive = true;
+            this.disabled = true;
+            document.getElementById("reset-btn").disabled = false;
+            document.getElementById("status-message").textContent =
+              "Launch sequence initiated. T-minus 10 seconds to liftoff.";
+
+            // Simulate countdown
+            setTimeout(() => {
+              document.getElementById("status-message").textContent =
+                stageDescriptions[1];
+            }, 3000);
+          }
+        });
+
+      document
+        .getElementById("reset-btn")
+        .addEventListener("click", function () {
+          // Reset rocket state
+          rocket.x = canvas.width / 2;
+          rocket.y = canvas.height - 100;
+          rocket.velocity = 0;
+          rocket.altitude = 0;
+          rocket.stage = 1;
+          rocket.launched = false;
+          rocket.trailParticles = [];
+          rocket.angle = -Math.PI / 2;
+
+          // Reset mission state
+          missionTime = 0;
+          missionProgress = 0;
+          missionActive = false;
+
+          // Reset UI
+          document.getElementById("start-btn").disabled = false;
+          this.disabled = true;
+          updateTelemetry();
+          updateStages();
+          document.getElementById("status-message").textContent =
+            "All systems nominal. Awaiting launch sequence initiation.";
+          document.getElementById("mission-status").textContent = "PRE-LAUNCH";
+        });
+    </script>
+  </body>
+</html>

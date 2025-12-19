@@ -1,0 +1,21 @@
+{
+  "name": "@repo/scraper-protocol",
+  "version": "0.10.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@effect/schema": "^0.75.5",
+    "effect": "^3.18.4"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "typescript": "^5.9.2"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

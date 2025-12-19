@@ -1,0 +1,336 @@
+import { Schema } from "@effect/schema";
+
+export class Request extends Schema.Class<Request>("Request")({
+  id: Schema.String,
+  method: Schema.String,
+  params: Schema.Unknown,
+}) {}
+
+export class Response extends Schema.Class<Response>("Response")({
+  id: Schema.String,
+  result: Schema.Unknown,
+}) {}
+
+export class HealthCheckParams extends Schema.Class<HealthCheckParams>(
+  "HealthCheckParams",
+)({}) {}
+
+export class HealthCheckResult extends Schema.Class<HealthCheckResult>(
+  "HealthCheckResult",
+)({
+  ok: Schema.Boolean,
+  version: Schema.String,
+}) {}
+
+export class SearchParams extends Schema.Class<SearchParams>("SearchParams")({
+  query: Schema.String,
+}) {}
+
+export class SearchOption extends Schema.Class<SearchOption>("SearchOption")({
+  name: Schema.String,
+  slug: Schema.String,
+  url: Schema.String,
+}) {}
+
+export class SearchResult extends Schema.Class<SearchResult>("SearchResult")({
+  options: Schema.Array(SearchOption),
+}) {}
+
+export class ErrorResponse extends Schema.Class<ErrorResponse>("ErrorResponse")(
+  {
+    id: Schema.String,
+    error: Schema.Struct({
+      code: Schema.String,
+      message: Schema.String,
+      details: Schema.optional(Schema.Unknown),
+    }),
+  },
+) {}
+
+export class StreamEvent extends Schema.Class<StreamEvent>("StreamEvent")({
+  id: Schema.String,
+  event: Schema.Union(
+    Schema.Struct({
+      type: Schema.Literal("log"),
+      level: Schema.Literal("info", "warn", "error"),
+      message: Schema.String,
+    }),
+    Schema.Struct({
+      type: Schema.Literal("progress"),
+      stage: Schema.String,
+      percent: Schema.optional(Schema.Number),
+      durationMs: Schema.optional(Schema.Number),
+    }),
+    Schema.Struct({
+      type: Schema.Literal("retry"),
+      attempt: Schema.Number,
+      maxAttempts: Schema.Number,
+      delay: Schema.Number,
+      reason: Schema.String,
+    }),
+    Schema.Struct({
+      type: Schema.Literal("bulk.progress"),
+      jobId: Schema.String,
+      stats: Schema.Struct({
+        total: Schema.Number,
+        pending: Schema.Number,
+        running: Schema.Number,
+        done: Schema.Number,
+        error: Schema.Number,
+        timeout: Schema.optional(
+          Schema.Struct({
+            count: Schema.Number,
+            nextRetryAt: Schema.NullOr(Schema.Number),
+            nextRetrySlug: Schema.NullOr(Schema.String),
+          }),
+        ),
+      }),
+      lastCompleted: Schema.optional(
+        Schema.Struct({
+          slug: Schema.String,
+          success: Schema.Boolean,
+          error: Schema.NullOr(Schema.String),
+        }),
+      ),
+    }),
+    Schema.Struct({
+      type: Schema.Literal("bulk.done"),
+      jobId: Schema.String,
+      status: Schema.Literal("done", "error"),
+      stats: Schema.Struct({
+        total: Schema.Number,
+        pending: Schema.Number,
+        running: Schema.Number,
+        done: Schema.Number,
+        error: Schema.Number,
+        timeout: Schema.optional(
+          Schema.Struct({
+            count: Schema.Number,
+            nextRetryAt: Schema.NullOr(Schema.Number),
+            nextRetrySlug: Schema.NullOr(Schema.String),
+          }),
+        ),
+      }),
+    }),
+    Schema.Struct({
+      type: Schema.Literal("bulk.jobUpdate"),
+      job: Schema.Struct({
+        id: Schema.String,
+        status: Schema.Literal("pending", "running", "paused", "done", "error"),
+        workerCount: Schema.optional(Schema.Number),
+      }),
+      stats: Schema.optional(
+        Schema.Struct({
+          total: Schema.Number,
+          pending: Schema.Number,
+          running: Schema.Number,
+          done: Schema.Number,
+          error: Schema.Number,
+          timeout: Schema.optional(
+            Schema.Struct({
+              count: Schema.Number,
+              nextRetryAt: Schema.NullOr(Schema.Number),
+              nextRetrySlug: Schema.NullOr(Schema.String),
+            }),
+          ),
+        }),
+      ),
+    }),
+  ),
+}) {}
+
+// Phone data scraping schemas
+
+export class SingleCameraData extends Schema.Class<SingleCameraData>(
+  "SingleCameraData",
+)({
+  resolution_mp: Schema.Number,
+  aperture_fstop: Schema.NullOr(Schema.String),
+  sensor: Schema.NullOr(Schema.String),
+  type: Schema.String,
+  features: Schema.String, // |-delimited
+}) {}
+
+export class Sku extends Schema.Class<Sku>("Sku")({
+  marketId: Schema.String, // |-delimited
+  ram_gb: Schema.Number,
+  storage_gb: Schema.Number,
+}) {}
+
+export class Benchmark extends Schema.Class<Benchmark>("Benchmark")({
+  name: Schema.String,
+  score: Schema.Number,
+}) {}
+
+export class PhoneData extends Schema.Class<PhoneData>("PhoneData")({
+  // essentials
+  slug: Schema.String,
+  name: Schema.String,
+  brand: Schema.String,
+  aliases: Schema.String, // |-delimited
+  releaseDate: Schema.NullOr(Schema.String), // ISO date string
+  images: Schema.NullOr(Schema.String), // |-delimited URLs
+
+  // design
+  height_mm: Schema.NullOr(Schema.Number),
+  width_mm: Schema.NullOr(Schema.Number),
+  thickness_mm: Schema.NullOr(Schema.Number),
+  weight_g: Schema.NullOr(Schema.Number),
+  materials: Schema.String, // |-delimited
+  ipRating: Schema.NullOr(Schema.String),
+  colors: Schema.String, // |-delimited
+
+  // display
+  size_in: Schema.NullOr(Schema.Number),
+  displayType: Schema.NullOr(Schema.String),
+  resolution: Schema.NullOr(Schema.String),
+  aspectRatio: Schema.NullOr(Schema.String),
+  ppi: Schema.NullOr(Schema.Number),
+  displayFeatures: Schema.String, // |-delimited
+
+  // hardware
+  cpu: Schema.NullOr(Schema.String),
+  cpuManufacturer: Schema.NullOr(Schema.String),
+  cpuCores: Schema.NullOr(Schema.String), // |-delimited
+  gpu: Schema.NullOr(Schema.String),
+  sdSlot: Schema.NullOr(Schema.Boolean),
+  skus: Schema.Array(Sku),
+  fingerprintPosition: Schema.NullOr(Schema.Literal("screen", "side", "back")),
+  benchmarks: Schema.Array(Benchmark),
+
+  // connectivity
+  nfc: Schema.NullOr(Schema.Boolean),
+  bluetooth: Schema.NullOr(Schema.String),
+  sim: Schema.String, // |-delimited
+  simCount: Schema.Number,
+  usb: Schema.NullOr(Schema.Literal("USB-A", "USB-C", "Lightning")),
+  headphoneJack: Schema.NullOr(Schema.Boolean),
+
+  // battery
+  batteryCapacity_mah: Schema.NullOr(Schema.Number),
+  batteryFastCharging: Schema.NullOr(Schema.Boolean),
+  batteryWattage: Schema.NullOr(Schema.Number),
+
+  // cameras
+  cameras: Schema.Array(SingleCameraData),
+  cameraFeatures: Schema.String, // |-delimited
+
+  // software
+  os: Schema.NullOr(Schema.String),
+  osSkin: Schema.NullOr(Schema.String),
+
+  // extras
+  scores: Schema.NullOr(Schema.String), // |-delimited key=value
+  others: Schema.NullOr(Schema.String), // |-delimited
+}) {}
+
+export class ScrapeParams extends Schema.Class<ScrapeParams>("ScrapeParams")({
+  slug: Schema.String,
+}) {}
+
+export class ScrapeResult extends Schema.Class<ScrapeResult>("ScrapeResult")({
+  data: PhoneData,
+}) {}
+
+// Bulk scraping schemas
+
+export class BulkStartParams extends Schema.Class<BulkStartParams>(
+  "BulkStartParams",
+)({
+  mode: Schema.Literal("fast"),
+  filter: Schema.optional(Schema.Literal("all", "unscraped")),
+  slugs: Schema.optional(Schema.Array(Schema.String)),
+}) {}
+
+export class BulkSubscribeParams extends Schema.Class<BulkSubscribeParams>(
+  "BulkSubscribeParams",
+)({
+  jobId: Schema.String,
+}) {}
+
+export class BulkTimeoutStats extends Schema.Class<BulkTimeoutStats>(
+  "BulkTimeoutStats",
+)({
+  count: Schema.Number,
+  nextRetryAt: Schema.NullOr(Schema.Number),
+  nextRetrySlug: Schema.NullOr(Schema.String),
+}) {}
+
+export class BulkJobStats extends Schema.Class<BulkJobStats>("BulkJobStats")({
+  total: Schema.Number,
+  pending: Schema.Number,
+  running: Schema.Number,
+  done: Schema.Number,
+  error: Schema.Number,
+  timeout: Schema.optional(BulkTimeoutStats),
+}) {}
+
+export class BulkJobInfo extends Schema.Class<BulkJobInfo>("BulkJobInfo")({
+  id: Schema.String,
+  mode: Schema.Literal("fast", "complex"),
+  status: Schema.Literal("pending", "running", "paused", "done", "error"),
+  filter: Schema.NullOr(Schema.String),
+  createdAt: Schema.Number,
+  startedAt: Schema.NullOr(Schema.Number),
+  completedAt: Schema.NullOr(Schema.Number),
+  errorMessage: Schema.NullOr(Schema.String),
+  totalCount: Schema.NullOr(Schema.Number),
+  queuedCount: Schema.NullOr(Schema.Number),
+  workerCount: Schema.optional(Schema.Number),
+}) {}
+
+export class BulkResult extends Schema.Class<BulkResult>("BulkResult")({
+  job: BulkJobInfo,
+  stats: BulkJobStats,
+}) {}
+
+export class BulkItemCompleted extends Schema.Class<BulkItemCompleted>(
+  "BulkItemCompleted",
+)({
+  slug: Schema.String,
+  success: Schema.Boolean,
+  error: Schema.NullOr(Schema.String),
+}) {}
+
+export class BulkListParams extends Schema.Class<BulkListParams>(
+  "BulkListParams",
+)({}) {}
+
+export class BulkJobWithStats extends Schema.Class<BulkJobWithStats>(
+  "BulkJobWithStats",
+)({
+  job: BulkJobInfo,
+  stats: BulkJobStats,
+}) {}
+
+export class BulkListResult extends Schema.Class<BulkListResult>(
+  "BulkListResult",
+)({
+  jobs: Schema.Array(BulkJobWithStats),
+}) {}
+
+export class BulkPauseParams extends Schema.Class<BulkPauseParams>(
+  "BulkPauseParams",
+)({
+  jobId: Schema.String,
+}) {}
+
+export class BulkResumeParams extends Schema.Class<BulkResumeParams>(
+  "BulkResumeParams",
+)({
+  jobId: Schema.String,
+}) {}
+
+export class BulkSetWorkersParams extends Schema.Class<BulkSetWorkersParams>(
+  "BulkSetWorkersParams",
+)({
+  jobId: Schema.String,
+  workerCount: Schema.Number,
+}) {}
+
+export class BulkControlResult extends Schema.Class<BulkControlResult>(
+  "BulkControlResult",
+)({
+  success: Schema.Boolean,
+  job: Schema.optional(BulkJobInfo),
+}) {}
