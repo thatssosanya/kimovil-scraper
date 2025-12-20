@@ -18,9 +18,11 @@ const ScrapeServiceLayer = ScrapeServiceKimovil.pipe(
   Layer.provide(OpenAIServiceLive),
 );
 
-// Compose all service layers - include StorageServiceLive at top level for API access
+// Compose all service layers - include all services at top level for direct access
 export const LiveLayer = Layer.mergeAll(
   SearchServiceLayer,
   ScrapeServiceLayer,
   StorageServiceLive,
+  BrowserServiceLive,
+  OpenAIServiceLive,
 );

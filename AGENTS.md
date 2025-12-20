@@ -1,27 +1,27 @@
 # Development Guide
 
 ## Commands
-- **Build**: `bun run build` (all apps) or `bun run build --filter=<app-name>`
-- **Dev**: `bun run dev` (all apps) or `bun run dev --filter=ws-web` / `bun run dev --filter=scraper`
-- **Lint**: `bun run lint`
-- **Type Check**: `bun run check-types`
-- **Format**: `bun run format` (Prettier on ts/tsx/md files)
+- **Build**: `npm run build` (all apps) or `npm run build --filter=<app-name>`
+- **Dev**: `npm run dev` (all apps) or `npm run dev --filter=ws-web` / `npm run dev --filter=scraper`
+- **Lint**: `npm run lint`
+- **Type Check**: `npm run check-types`
+- **Format**: `npm run format` (Prettier on ts/tsx/md files)
 - **Test**: `cd apps/scraper && bun test` (single test: `bun test <file>`)
 
 ## Running Locally
 ```bash
 # Terminal 1 — Scraper backend (logs appear here)
-cd apps/scraper && bun run dev
+cd apps/scraper && npm run dev
 
 # Terminal 2 — Web UI
-cd apps/ws-web && bun run dev
+cd apps/ws-web && npm run dev
 ```
 - Scraper WebSocket: `ws://localhost:1488/ws`
 - Web UI: `http://localhost:5173`
 
 ## Architecture
-- **Monorepo**: Turborepo with Bun (v1.2.0+), workspaces in `apps/*` and `packages/*`
-- **Apps**: `scraper` (Elysia/Bun + Effect backend), `ws-web` (SolidJS + Vite + Tailwind v4 frontend)
+- **Monorepo**: Turborepo, workspaces in `apps/*` and `packages/*`
+- **Apps**: `scraper` (Elysia + Node adapter + Effect backend), `ws-web` (SolidJS + Vite + Tailwind v4 frontend)
 - **Packages**: `@repo/scraper-protocol` (Effect Schema msgs), `@repo/scraper-domain` (services), `@repo/typescript-config`
 - **Stack**: TypeScript 5.9, Effect 3.x, ESLint v9, Prettier
 
@@ -71,10 +71,43 @@ BULK_RETRY_BASE_MS=2000
 BULK_RETRY_MAX_MS=900000
 ```
 
+## Phone Data API
+- `GET /api/phone-data/raw/:slug` — Raw extracted data (before AI)
+- `GET /api/phone-data/:slug` — AI-processed/normalized data
+- `GET /api/scrape/status?slugs=...` — Returns `hasHtml`, `hasRawData`, `hasAiData`, corruption status
+- Stats endpoint includes `rawData` and `aiData` counts
+
+## Phone Data Storage
+- **Tables**: `phone_data_raw` (extracted), `phone_data` (AI-normalized)
+- **Format**: JSON stored as TEXT, parsed on read
+- **Methods**: `savePhoneDataRaw`, `getPhoneDataRaw`, `hasPhoneDataRaw`, `getPhoneDataRawCount` (same for AI data)
+
 ## Web UI Features
 - Real-time progress streaming via WebSocket
 - Animated progress bar during AI processing (simulates 20%→95% over ~25s)
 - Timing breakdown shown on completion (browser, scrape, AI, total)
+
+## Phone Data Modal (PhoneDataModal.tsx)
+- **Tabs**: HTML | Raw Data | AI Data | Compare (side-by-side)
+- **Lazy loading**: Data fetched only when tab clicked, cached in signals
+- **JsonViewer**: Shiki syntax highlighting (`github-dark` theme), copy button
+- **TabBar**: Color-coded tabs with availability dots (gray=missing, colored=available)
+
+## DevicesTable
+- **Columns**: Checkbox | Device (name+slug) | Brand | Data | Queue | Actions
+- **DataStatusIcons**: HTML (slate), Raw (cyan), AI (violet), Verified (green/red)
+- **Dense layout**: Reduced padding, smaller fonts, hover-reveal actions
+
+## StatsPanel
+- 6 stat cards: Devices, HTML, Raw Data, AI Data, Valid, Corrupted
+- **Clickable filters**: Each card filters the table (all, scraped, has_raw, has_ai, valid, corrupted)
+- Active filter shows ring highlight and glow effect
+- Responsive grid: 2 cols → 3 cols → 6 cols
+
+## DevicesTable Limit Selector
+- Dropdown button to control table limit: 10, 100, 500, 1000, 10000
+- Amber color when filtered count exceeds limit
+- Backend `/api/slugs?limit=N` supports dynamic limits (max 10000)
 
 ## Code Style
 - **TypeScript**: Strict mode, explicit types preferred

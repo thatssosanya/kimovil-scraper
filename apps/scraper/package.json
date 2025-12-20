@@ -2,24 +2,25 @@
   "name": "@repo/scraper",
   "version": "1.0.50",
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
-    "start": "bun run src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun",
-    "test": "bun test",
-    "test:watch": "bun test --watch",
-    "test:coverage": "bun test --coverage",
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.49",
     "@effect/opentelemetry": "^0.58.0",
     "@effect/platform": "^0.92.1",
-    "@effect/platform-bun": "^0.81.1",
     "@effect/schema": "^0.75.5",
     "@elysiajs/cors": "^1.4.0",
+    "@elysiajs/node": "^1.4.0",
     "@repo/scraper-domain": "workspace:*",
     "@repo/scraper-protocol": "workspace:*",
     "ai": "^5.0.115",
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^17.2.3",
     "effect": "^3.18.4",
     "elysia": "^1.4.0",
     "openai": "^4.77.0",
@@ -27,7 +28,9 @@
     "zod": "^4.2.1"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "bun-types": "latest"
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "vitest": "^2.1.8"
   }
 }

@@ -1,5 +1,6 @@
 import { Effect, Layer, Context } from "effect";
 import { chromium, Page, Browser, BrowserContext } from "playwright";
+import { createHash } from "crypto";
 import { StorageService, StorageError } from "./storage";
 
 const MAX_PREFIX_LENGTH = 12;
@@ -209,9 +210,7 @@ export const SlugCrawlerServiceLive = Layer.effect(
             knownSlugs.add(slug);
             newDevices++;
             // Generate same hash as storage uses
-            const hasher = new Bun.CryptoHasher("sha256");
-            hasher.update(slug);
-            const id = hasher.digest("hex").slice(0, 16);
+            const id = createHash("sha256").update(slug).digest("hex").slice(0, 16);
             newlyAdded.push({ id, name });
           }
 

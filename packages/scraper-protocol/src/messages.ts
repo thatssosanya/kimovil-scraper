@@ -116,8 +116,10 @@ export class StreamEvent extends Schema.Class<StreamEvent>("StreamEvent")({
       type: Schema.Literal("bulk.jobUpdate"),
       job: Schema.Struct({
         id: Schema.String,
+        jobType: Schema.optional(Schema.Literal("scrape", "process_raw", "process_ai")),
         status: Schema.Literal("pending", "running", "paused", "done", "error"),
         workerCount: Schema.optional(Schema.Number),
+        batchStatus: Schema.optional(Schema.NullOr(Schema.String)),
       }),
       stats: Schema.optional(
         Schema.Struct({
@@ -135,6 +137,27 @@ export class StreamEvent extends Schema.Class<StreamEvent>("StreamEvent")({
           ),
         }),
       ),
+    }),
+    // Batch AI processing events
+    Schema.Struct({
+      type: Schema.Literal("batch.submitted"),
+      jobId: Schema.String,
+      batchRequestId: Schema.String,
+      itemCount: Schema.Number,
+    }),
+    Schema.Struct({
+      type: Schema.Literal("batch.progress"),
+      jobId: Schema.String,
+      batchRequestId: Schema.String,
+      status: Schema.String,
+      processedCount: Schema.optional(Schema.Number),
+    }),
+    Schema.Struct({
+      type: Schema.Literal("batch.completed"),
+      jobId: Schema.String,
+      batchRequestId: Schema.String,
+      successCount: Schema.Number,
+      errorCount: Schema.Number,
     }),
   ),
 }) {}
@@ -232,13 +255,22 @@ export class ScrapeResult extends Schema.Class<ScrapeResult>("ScrapeResult")({
   data: PhoneData,
 }) {}
 
-// Bulk scraping schemas
+// Job type schemas
+export const JobTypeSchema = Schema.Literal("scrape", "process_raw", "process_ai");
+export type JobType = typeof JobTypeSchema.Type;
+
+export const AiModeSchema = Schema.Literal("realtime", "batch");
+export type AiMode = typeof AiModeSchema.Type;
+
+// Bulk/Job schemas
 
 export class BulkStartParams extends Schema.Class<BulkStartParams>(
   "BulkStartParams",
 )({
-  mode: Schema.Literal("fast"),
-  filter: Schema.optional(Schema.Literal("all", "unscraped")),
+  jobType: Schema.optional(JobTypeSchema), // defaults to 'scrape' for backwards compat
+  mode: Schema.optional(Schema.Literal("fast")), // for scrape jobs
+  aiMode: Schema.optional(AiModeSchema), // for process_ai jobs
+  filter: Schema.optional(Schema.String), // 'all', 'unscraped', 'needs_extraction', 'needs_ai'
   slugs: Schema.optional(Schema.Array(Schema.String)),
 }) {}
 
@@ -267,7 +299,9 @@ export class BulkJobStats extends Schema.Class<BulkJobStats>("BulkJobStats")({
 
 export class BulkJobInfo extends Schema.Class<BulkJobInfo>("BulkJobInfo")({
   id: Schema.String,
-  mode: Schema.Literal("fast", "complex"),
+  jobType: Schema.optional(JobTypeSchema), // defaults to 'scrape' for backwards compat
+  mode: Schema.NullOr(Schema.Literal("fast", "complex")),
+  aiMode: Schema.optional(Schema.NullOr(AiModeSchema)),
   status: Schema.Literal("pending", "running", "paused", "done", "error"),
   filter: Schema.NullOr(Schema.String),
   createdAt: Schema.Number,
@@ -277,6 +311,8 @@ export class BulkJobInfo extends Schema.Class<BulkJobInfo>("BulkJobInfo")({
   totalCount: Schema.NullOr(Schema.Number),
   queuedCount: Schema.NullOr(Schema.Number),
   workerCount: Schema.optional(Schema.Number),
+  batchRequestId: Schema.optional(Schema.NullOr(Schema.String)),
+  batchStatus: Schema.optional(Schema.NullOr(Schema.String)),
 }) {}
 
 export class BulkResult extends Schema.Class<BulkResult>("BulkResult")({

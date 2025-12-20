@@ -8,16 +8,29 @@ import { BulkStartPanel } from "./components/BulkStartPanel";
 import { JobsSection } from "./components/JobsSection";
 import { DevicesTable } from "./components/DevicesTable";
 import { SelectionBar } from "./components/SelectionBar";
-import { HtmlPreviewModal } from "./components/HtmlPreviewModal";
+import { PhoneDataModal } from "./components/PhoneDataModal";
+import { ErrorItemsModal } from "./components/ErrorItemsModal";
+
+interface ErrorItem {
+  slug: string;
+  error: string | null;
+  errorCode: string | null;
+  attempt: number;
+  updatedAt: number;
+}
+
+type LimitOption = 10 | 100 | 500 | 1000 | 10000;
 
 export default function Slugs() {
   const [search, setSearch] = createSignal("");
   const [filter, setFilter] = createSignal<FilterType>("all");
+  const [limit, setLimit] = createSignal<LimitOption>(500);
   const [selected, setSelected] = createSignal<Set<string>>(new Set<string>());
   const [jobsExpanded, setJobsExpanded] = createSignal(false);
-  const [previewSlug, setPreviewSlug] = createSignal<string | null>(null);
-  const [previewHtml, setPreviewHtml] = createSignal<string | null>(null);
-  const [previewLoading, setPreviewLoading] = createSignal(false);
+  const [modalSlug, setModalSlug] = createSignal<string | null>(null);
+  const [errorItems, setErrorItems] = createSignal<ErrorItem[]>([]);
+  const [errorItemsJobId, setErrorItemsJobId] = createSignal<string | null>(null);
+  const [errorItemsLoading, setErrorItemsLoading] = createSignal(false);
 
   const api = useSlugsApi();
   const bulkJobs = useBulkJobs({
@@ -28,22 +41,26 @@ export default function Slugs() {
       }));
     },
     onJobComplete: () => {
-      api.fetchDevices(search(), filter());
+      api.fetchDevices(search(), filter(), limit());
     },
   });
 
   let intervalId: ReturnType<typeof setInterval>;
 
   onMount(() => {
-    api.fetchDevices();
+    api.fetchDevices("", "all", limit());
     api.fetchStats();
     api.fetchQueueStatuses();
     bulkJobs.init();
     intervalId = setInterval(() => {
       api.fetchQueueStatuses();
       const devs = api.devices();
-      if (devs.length > 0) {
-        api.fetchScrapeStatus(devs.map((d) => d.slug));
+      const sel = selected();
+      // Fetch status for both displayed devices and selected ones
+      const slugsToFetch = new Set(devs.map((d) => d.slug));
+      for (const slug of sel) slugsToFetch.add(slug);
+      if (slugsToFetch.size > 0) {
+        api.fetchScrapeStatus(Array.from(slugsToFetch));
       }
     }, 2000);
   });
@@ -78,21 +95,51 @@ export default function Slugs() {
     return count;
   });
 
+  // Devices with HTML but no raw data
+  const needsExtractionCount = createMemo(() => {
+    const sel = selected();
+    const status = api.scrapeStatus();
+    let count = 0;
+    for (const slug of sel) {
+      const s = status[slug];
+      if (s?.hasHtml && !s?.hasRawData) count++;
+    }
+    return count;
+  });
+
+  // Devices with raw data but no AI data
+  const needsAiCount = createMemo(() => {
+    const sel = selected();
+    const status = api.scrapeStatus();
+    let count = 0;
+    for (const slug of sel) {
+      const s = status[slug];
+      if (s?.hasRawData && !s?.hasAiData) count++;
+    }
+    return count;
+  });
+
   const handleSearch = () => {
-    api.fetchDevices(search(), filter());
+    api.fetchDevices(search(), filter(), limit());
     setSelected(new Set<string>());
   };
 
   const handleFilterChange = (newFilter: FilterType) => {
     setFilter(newFilter);
-    api.fetchDevices(search(), newFilter);
+    api.fetchDevices(search(), newFilter, limit());
+    setSelected(new Set<string>());
+  };
+
+  const handleLimitChange = (newLimit: LimitOption) => {
+    setLimit(newLimit);
+    api.fetchDevices(search(), filter(), newLimit);
     setSelected(new Set<string>());
   };
 
   const handleClear = () => {
     setSearch("");
     setFilter("all");
-    api.fetchDevices();
+    api.fetchDevices("", "all", limit());
     setSelected(new Set<string>());
   };
 
@@ -109,22 +156,43 @@ export default function Slugs() {
     if (allSelected()) {
       setSelected(new Set<string>());
     } else {
-      setSelected(new Set<string>(api.devices().map((d) => d.slug)));
+      const newSelected = new Set<string>(api.devices().map((d) => d.slug));
+      setSelected(newSelected);
+      // Fetch scrape status for all newly selected
+      api.fetchScrapeStatus(Array.from(newSelected));
     }
   };
 
-  const handleQueueBulk = async () => {
+  const handleQueueScrape = async () => {
     const status = api.scrapeStatus();
     const slugsToQueue = Array.from(selected()).filter(
       (slug) => !status[slug]?.hasHtml,
     );
-    await bulkJobs.queueBulk(slugsToQueue);
+    await bulkJobs.queueBulk(slugsToQueue, "scrape");
+    setSelected(new Set<string>());
+  };
+
+  const handleQueueExtract = async () => {
+    const status = api.scrapeStatus();
+    const slugsToQueue = Array.from(selected()).filter(
+      (slug) => status[slug]?.hasHtml && !status[slug]?.hasRawData,
+    );
+    await bulkJobs.queueBulk(slugsToQueue, "process_raw");
+    setSelected(new Set<string>());
+  };
+
+  const handleQueueAi = async () => {
+    const status = api.scrapeStatus();
+    const slugsToQueue = Array.from(selected()).filter(
+      (slug) => status[slug]?.hasRawData && !status[slug]?.hasAiData,
+    );
+    await bulkJobs.queueBulk(slugsToQueue, "process_ai");
     setSelected(new Set<string>());
   };
 
   const handleVerifyBulk = async () => {
     await api.verifyBulk(Array.from(selected()));
-    api.fetchDevices(search(), filter());
+    api.fetchDevices(search(), filter(), limit());
   };
 
   const handleClearBulk = async () => {
@@ -132,18 +200,32 @@ export default function Slugs() {
     if (cleared) setSelected(new Set<string>());
   };
 
-  const openPreview = async (slug: string) => {
-    setPreviewSlug(slug);
-    setPreviewLoading(true);
-    setPreviewHtml(null);
-    const result = await api.openPreview(slug);
-    setPreviewHtml(result.html);
-    setPreviewLoading(false);
+  const openModal = (slug: string) => {
+    setModalSlug(slug);
   };
 
-  const closePreview = () => {
-    setPreviewSlug(null);
-    setPreviewHtml(null);
+  const closeModal = () => {
+    setModalSlug(null);
+  };
+
+  const showErrorItems = async (jobId: string) => {
+    setErrorItemsJobId(jobId);
+    setErrorItemsLoading(true);
+    setErrorItems([]);
+    try {
+      const res = await fetch(`http://localhost:1488/api/bulk/${jobId}/errors?limit=200`);
+      const data = await res.json();
+      setErrorItems(data.items || []);
+    } catch (e) {
+      console.error("Failed to fetch error items:", e);
+    } finally {
+      setErrorItemsLoading(false);
+    }
+  };
+
+  const closeErrorItems = () => {
+    setErrorItemsJobId(null);
+    setErrorItems([]);
   };
 
   return (
@@ -179,7 +261,12 @@ export default function Slugs() {
           </a>
         </div>
 
-        <StatsPanel stats={api.stats()} scrapeStats={api.scrapeStats()} />
+        <StatsPanel
+          stats={api.stats()}
+          scrapeStats={api.scrapeStats()}
+          activeFilter={filter()}
+          onFilterChange={handleFilterChange}
+        />
 
         <SearchBar
           search={search()}
@@ -210,6 +297,7 @@ export default function Slugs() {
           onPause={bulkJobs.pauseJob}
           onResume={bulkJobs.resumeJob}
           onSetWorkers={bulkJobs.setJobWorkers}
+          onShowErrors={showErrorItems}
           formatTimeRemaining={bulkJobs.formatTimeRemaining}
         />
 
@@ -223,31 +311,58 @@ export default function Slugs() {
           onToggleSelect={toggleSelect}
           onToggleSelectAll={toggleSelectAll}
           onQueueScrape={api.queueScrape}
-          onOpenPreview={openPreview}
+          onOpenModal={openModal}
           onClearData={api.clearScrapeData}
           allSelected={allSelected()}
           filtered={api.filtered()}
           total={api.total()}
+          limit={limit()}
+          onLimitChange={handleLimitChange}
         />
 
         <SelectionBar
           selectedCount={selectedCount()}
           scrapedCount={scrapedSelectedCount()}
           unscrapedCount={unscrapedSelectedCount()}
+          needsExtractionCount={needsExtractionCount()}
+          needsAiCount={needsAiCount()}
           bulkLoading={bulkJobs.bulkLoading()}
           verifyLoading={api.verifyLoading()}
           clearLoading={api.clearLoading()}
-          onQueueBulk={handleQueueBulk}
+          onQueueScrape={handleQueueScrape}
+          onQueueExtract={handleQueueExtract}
+          onQueueAi={handleQueueAi}
           onVerify={handleVerifyBulk}
           onClear={handleClearBulk}
           onCancel={() => setSelected(new Set<string>())}
         />
 
-        <HtmlPreviewModal
-          slug={previewSlug()}
-          html={previewHtml()}
-          loading={previewLoading()}
-          onClose={closePreview}
+        <PhoneDataModal
+          slug={modalSlug()}
+          status={modalSlug() ? api.scrapeStatus()[modalSlug()!] ?? null : null}
+          onClose={closeModal}
+          fetchHtml={api.openPreview}
+          fetchRawData={api.fetchPhoneDataRaw}
+          fetchAiData={api.fetchPhoneDataAi}
+          onProcessRaw={api.processRaw}
+          onProcessAi={api.processAi}
+          onStatusChange={() => {
+            const slug = modalSlug();
+            if (slug) {
+              api.fetchScrapeStatus([slug]);
+            }
+          }}
+        />
+
+        <ErrorItemsModal
+          jobId={errorItemsJobId()}
+          items={errorItems()}
+          loading={errorItemsLoading()}
+          onClose={closeErrorItems}
+          onRetry={(jobId) => {
+            closeErrorItems();
+            bulkJobs.resumeJob(jobId);
+          }}
         />
       </div>
     </div>

@@ -271,7 +271,10 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
     );
   };
 
-  const startBulkJob = async (filterType: "all" | "unscraped") => {
+  const startBulkJob = async (
+    filterType: "all" | "unscraped" | "needs_extraction" | "needs_ai",
+    jobType: "scrape" | "process_raw" | "process_ai" = "scrape",
+  ) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       alert("WebSocket not connected");
       return;
@@ -286,16 +289,19 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
       JSON.stringify({
         id: reqId,
         method: "bulk.start",
-        params: { mode: "fast", filter: filterType },
+        params: { mode: "fast", filter: filterType, jobType },
       }),
     );
 
     setTimeout(() => setBulkJobLoading(false), 2000);
   };
 
-  const queueBulk = async (slugsToQueue: string[]) => {
+  const queueBulk = async (
+    slugsToQueue: string[],
+    jobType: "scrape" | "process_raw" | "process_ai" = "scrape",
+  ) => {
     if (slugsToQueue.length === 0) {
-      alert("All selected items already have scraped data");
+      alert("No items to process");
       return;
     }
 
@@ -314,7 +320,7 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
       JSON.stringify({
         id: reqId,
         method: "bulk.start",
-        params: { mode: "fast", slugs: slugsToQueue },
+        params: { mode: "fast", slugs: slugsToQueue, jobType },
       }),
     );
 

@@ -12,6 +12,7 @@
     "@repo/scraper-protocol": "workspace:*",
     "@solidjs/router": "^0.15.4",
     "@tailwindcss/vite": "^4.1.16",
+    "shiki": "^3.20.0",
     "solid-js": "^1.9.9",
     "tailwindcss": "^4.1.16"
   },

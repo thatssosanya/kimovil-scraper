@@ -1,5 +1,6 @@
 import { Effect, Layer, Context } from "effect";
-import { Database } from "bun:sqlite";
+import Database from "better-sqlite3";
+import { createHash } from "crypto";
 
 export class StorageError extends Error {
   readonly _tag = "StorageError";
@@ -27,11 +28,14 @@ export interface KimovilPrefixState {
 export type ScrapeMode = "fast" | "complex";
 export type ScrapeStatus = "pending" | "running" | "done" | "error";
 export type BulkJobStatus = "pending" | "running" | "paused" | "done" | "error";
+export type JobType = "scrape" | "process_raw" | "process_ai";
+export type AiMode = "realtime" | "batch";
 
-export interface ScrapeQueueItem {
+export interface JobQueueItem {
   id: number;
   slug: string;
   jobId: string | null;
+  jobType: JobType;
   mode: ScrapeMode;
   status: ScrapeStatus;
   attempt: number;
@@ -45,9 +49,14 @@ export interface ScrapeQueueItem {
   lastErrorCode: string | null;
 }
 
-export interface BulkJob {
+/** @deprecated Use JobQueueItem instead */
+export type ScrapeQueueItem = JobQueueItem;
+
+export interface Job {
   id: string;
+  jobType: JobType;
   mode: ScrapeMode;
+  aiMode: AiMode | null;
   status: BulkJobStatus;
   filter: string | null;
   createdAt: number;
@@ -56,7 +65,12 @@ export interface BulkJob {
   errorMessage: string | null;
   totalCount: number | null;
   queuedCount: number | null;
+  batchRequestId: string | null;
+  batchStatus: string | null;
 }
+
+/** @deprecated Use Job instead */
+export type BulkJob = Job;
 
 export interface RawHtmlCacheHit {
   html: string;
@@ -169,6 +183,8 @@ export interface StorageService {
   readonly getCorruptedSlugs: () => Effect.Effect<string[], StorageError>;
   readonly getValidSlugs: () => Effect.Effect<string[], StorageError>;
   readonly getScrapedSlugs: () => Effect.Effect<string[], StorageError>;
+  readonly getRawDataSlugs: () => Effect.Effect<string[], StorageError>;
+  readonly getAiDataSlugs: () => Effect.Effect<string[], StorageError>;
 
   readonly createBulkJob: (input: {
     id: string;
@@ -210,6 +226,13 @@ export interface StorageService {
   readonly resetStuckQueueItems: (
     jobId: string,
   ) => Effect.Effect<number, StorageError>;
+  readonly resetErrorQueueItems: (
+    jobId: string,
+  ) => Effect.Effect<number, StorageError>;
+  readonly getErrorQueueItems: (
+    jobId: string,
+    limit?: number,
+  ) => Effect.Effect<ScrapeQueueItem[], StorageError>;
   readonly unclaimRunningItems: (
     jobId: string,
   ) => Effect.Effect<number, StorageError>;
@@ -221,6 +244,90 @@ export interface StorageService {
     },
     StorageError
   >;
+
+  // Phone data storage (raw = selector only, no AI)
+  readonly savePhoneDataRaw: (
+    slug: string,
+    data: Record<string, unknown>,
+  ) => Effect.Effect<void, StorageError>;
+  readonly getPhoneDataRaw: (
+    slug: string,
+  ) => Effect.Effect<Record<string, unknown> | null, StorageError>;
+  readonly hasPhoneDataRaw: (
+    slug: string,
+  ) => Effect.Effect<boolean, StorageError>;
+  readonly getPhoneDataRawCount: () => Effect.Effect<number, StorageError>;
+
+  // Phone data storage (AI normalized)
+  readonly savePhoneData: (
+    slug: string,
+    data: Record<string, unknown>,
+  ) => Effect.Effect<void, StorageError>;
+  readonly getPhoneData: (
+    slug: string,
+  ) => Effect.Effect<Record<string, unknown> | null, StorageError>;
+  readonly hasPhoneData: (slug: string) => Effect.Effect<boolean, StorageError>;
+  readonly getPhoneDataCount: () => Effect.Effect<number, StorageError>;
+
+  // New job type queries
+  readonly getSlugsNeedingExtraction: () => Effect.Effect<
+    string[],
+    StorageError
+  >;
+  readonly getSlugsNeedingAi: () => Effect.Effect<string[], StorageError>;
+  readonly getPhoneDataRawBulk: (
+    slugs: string[],
+  ) => Effect.Effect<
+    Array<{ slug: string; data: Record<string, unknown> }>,
+    StorageError
+  >;
+  readonly updateJobBatchStatus: (
+    jobId: string,
+    batchRequestId: string,
+    batchStatus: string,
+  ) => Effect.Effect<void, StorageError>;
+  readonly getRunningBatchJobs: () => Effect.Effect<Job[], StorageError>;
+
+  // Job queue with job type
+  readonly enqueueJobSlugs: (
+    jobId: string,
+    jobType: JobType,
+    mode: ScrapeMode,
+    slugs: string[],
+    maxAttempts?: number,
+  ) => Effect.Effect<{ queued: number }, StorageError>;
+  readonly claimNextJobQueueItem: (
+    jobId: string,
+    jobType?: JobType,
+  ) => Effect.Effect<JobQueueItem | null, StorageError>;
+
+  // Job CRUD with new fields
+  readonly createJob: (input: {
+    id: string;
+    jobType: JobType;
+    mode: ScrapeMode;
+    aiMode?: AiMode | null;
+    filter?: string | null;
+    totalCount?: number | null;
+    queuedCount?: number | null;
+  }) => Effect.Effect<Job, StorageError>;
+  readonly getJob: (id: string) => Effect.Effect<Job | null, StorageError>;
+  readonly getAllJobs: () => Effect.Effect<Job[], StorageError>;
+  readonly updateJobStatus: (
+    id: string,
+    status: BulkJobStatus,
+    error?: string,
+  ) => Effect.Effect<void, StorageError>;
+  readonly getJobStats: (id: string) => Effect.Effect<
+    {
+      total: number;
+      pending: number;
+      running: number;
+      done: number;
+      error: number;
+    },
+    StorageError
+  >;
 }
 
 export const StorageService =
@@ -229,38 +336,90 @@ export const StorageService =
 const DB_PATH = "./scraper-cache.sqlite";
 
 const hashSlug = (slug: string): string => {
-  const hasher = new Bun.CryptoHasher("sha256");
-  hasher.update(slug);
-  return hasher.digest("hex").slice(0, 16);
+  return createHash("sha256").update(slug).digest("hex").slice(0, 16);
 };
 
-let dbInstance: Database | null = null;
+let dbInstance: Database.Database | null = null;
 
 const ensureColumn = (
-  db: Database,
+  db: Database.Database,
   table: string,
   column: string,
   definition: string,
 ) => {
-  const columns = db
-    .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
-    .all();
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as {
+    name: string;
+  }[];
   const hasColumn = columns.some((c) => c.name === column);
   if (!hasColumn) {
-    db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 };
 
-const getDb = (): Database => {
+const tableExists = (db: Database.Database, table: string): boolean => {
+  const row = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`)
+    .get(table) as { name: string } | undefined;
+  return row !== undefined;
+};
+
+const migrateTableRename = (
+  db: Database.Database,
+  oldName: string,
+  newName: string,
+) => {
+  if (tableExists(db, oldName) && !tableExists(db, newName)) {
+    db.exec(`ALTER TABLE ${oldName} RENAME TO ${newName}`);
+    console.log(`[Storage] Migrated table ${oldName} → ${newName}`);
+  }
+};
+
+const getRowCount = (db: Database.Database, table: string): number => {
+  if (!tableExists(db, table)) return 0;
+  const row = db.prepare(`SELECT COUNT(*) as count FROM ${table}`).get() as {
+    count: number;
+  };
+  return row.count;
+};
+
+const migrateJobsData = (db: Database.Database) => {
+  const oldJobsCount = getRowCount(db, "bulk_jobs");
+  const newJobsCount = getRowCount(db, "jobs");
+  if (oldJobsCount > 0 && newJobsCount === 0) {
+    db.exec(`
+      INSERT INTO jobs (id, mode, status, filter, created_at, started_at, completed_at, error_message, total_count, queued_count)
+      SELECT id, mode, status, filter, created_at, started_at, completed_at, error_message, total_count, queued_count
+      FROM bulk_jobs
+    `);
+    console.log(
+      `[Storage] Migrated ${oldJobsCount} rows from bulk_jobs → jobs`,
+    );
+  }
+
+  const oldQueueCount = getRowCount(db, "scrape_queue");
+  const newQueueCount = getRowCount(db, "job_queue");
+  if (oldQueueCount > 0 && newQueueCount === 0) {
+    db.exec(`
+      INSERT INTO job_queue (id, slug, job_id, job_type, mode, status, attempt, max_attempts, next_attempt_at, created_at, updated_at, started_at, completed_at, error_message, last_error_code)
+      SELECT id, slug, job_id, 'scrape', mode, status, attempt, max_attempts, next_attempt_at, created_at, updated_at, started_at, completed_at, error_message, last_error_code
+      FROM scrape_queue
+    `);
+    console.log(
+      `[Storage] Migrated ${oldQueueCount} rows from scrape_queue → job_queue`,
+    );
+  }
+};
+
+const getDb = (): Database.Database => {
   if (dbInstance) return dbInstance;
 
-  const db = new Database(DB_PATH, { create: true });
+  const db = new Database(DB_PATH);
 
   // Enable WAL mode for better concurrent access and set busy timeout
-  db.run("PRAGMA journal_mode = WAL");
-  db.run("PRAGMA busy_timeout = 5000");
+  db.pragma("journal_mode = WAL");
+  db.pragma("busy_timeout = 5000");
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS raw_html (
       slug TEXT PRIMARY KEY,
       html TEXT NOT NULL,
@@ -268,7 +427,7 @@ const getDb = (): Database => {
     )
   `);
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS kimovil_devices (
       id TEXT PRIMARY KEY,
       slug TEXT UNIQUE NOT NULL,
@@ -281,11 +440,11 @@ const getDb = (): Database => {
     )
   `);
 
-  db.run(`
+  db.exec(`
     CREATE INDEX IF NOT EXISTS idx_kimovil_devices_slug ON kimovil_devices(slug)
   `);
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS kimovil_prefix_state (
       prefix TEXT PRIMARY KEY,
       depth INTEGER NOT NULL,
@@ -295,11 +454,15 @@ const getDb = (): Database => {
     )
   `);
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS scrape_queue (
+  migrateTableRename(db, "scrape_queue", "job_queue");
+  migrateTableRename(db, "bulk_jobs", "jobs");
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS job_queue (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       slug TEXT NOT NULL,
       job_id TEXT,
+      job_type TEXT NOT NULL DEFAULT 'scrape' CHECK (job_type IN ('scrape', 'process_raw', 'process_ai')),
       mode TEXT NOT NULL CHECK (mode IN ('fast', 'complex')),
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'done', 'error')),
       attempt INTEGER NOT NULL DEFAULT 0,
@@ -314,10 +477,12 @@ const getDb = (): Database => {
     )
   `);
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS bulk_jobs (
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
+      job_type TEXT NOT NULL DEFAULT 'scrape' CHECK (job_type IN ('scrape', 'process_raw', 'process_ai')),
       mode TEXT NOT NULL CHECK (mode IN ('fast', 'complex')),
+      ai_mode TEXT CHECK (ai_mode IS NULL OR ai_mode IN ('realtime', 'batch')),
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'paused', 'done', 'error')),
       filter TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -325,11 +490,13 @@ const getDb = (): Database => {
       completed_at INTEGER,
       error_message TEXT,
       total_count INTEGER,
-      queued_count INTEGER
+      queued_count INTEGER,
+      batch_request_id TEXT,
+      batch_status TEXT
     )
   `);
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS scrape_verification (
       slug TEXT PRIMARY KEY,
       is_corrupted INTEGER NOT NULL DEFAULT 0,
@@ -338,36 +505,64 @@ const getDb = (): Database => {
     )
   `);
 
-  ensureColumn(db, "scrape_queue", "job_id", "TEXT");
-  ensureColumn(db, "scrape_queue", "attempt", "INTEGER NOT NULL DEFAULT 0");
-  ensureColumn(
-    db,
-    "scrape_queue",
-    "max_attempts",
-    "INTEGER NOT NULL DEFAULT 5",
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS phone_data_raw (
+      slug TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS phone_data (
+      slug TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `);
+
+  // Ensure columns exist (for migrations from older versions)
+  ensureColumn(db, "job_queue", "job_id", "TEXT");
+  ensureColumn(db, "job_queue", "job_type", "TEXT NOT NULL DEFAULT 'scrape'");
+  ensureColumn(db, "job_queue", "attempt", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "job_queue", "max_attempts", "INTEGER NOT NULL DEFAULT 5");
+  ensureColumn(db, "job_queue", "next_attempt_at", "INTEGER");
+  ensureColumn(db, "job_queue", "updated_at", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "job_queue", "last_error_code", "TEXT");
+  db.exec(`UPDATE job_queue SET updated_at = created_at WHERE updated_at = 0`);
+
+  // Ensure columns exist for jobs table
+  ensureColumn(db, "jobs", "job_type", "TEXT NOT NULL DEFAULT 'scrape'");
+  ensureColumn(db, "jobs", "ai_mode", "TEXT");
+  ensureColumn(db, "jobs", "batch_request_id", "TEXT");
+  ensureColumn(db, "jobs", "batch_status", "TEXT");
+
+  // Create indexes for job_queue
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_job_queue_status ON job_queue(status)`,
   );
-  ensureColumn(db, "scrape_queue", "next_attempt_at", "INTEGER");
-  ensureColumn(db, "scrape_queue", "updated_at", "INTEGER NOT NULL DEFAULT 0");
-  ensureColumn(db, "scrape_queue", "last_error_code", "TEXT");
-  db.run(
-    `UPDATE scrape_queue SET updated_at = created_at WHERE updated_at = 0`,
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_job_queue_slug ON job_queue(slug)`);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_job_queue_job_id ON job_queue(job_id)`,
+  );
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_job_queue_next_attempt ON job_queue(next_attempt_at)`,
+  );
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_job_queue_job_slug ON job_queue(job_id, slug)`,
+  );
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_job_queue_job_type ON job_queue(job_type)`,
   );
 
-  db.run(
-    `CREATE INDEX IF NOT EXISTS idx_scrape_queue_status ON scrape_queue(status)`,
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_jobs_job_type ON jobs(job_type)`);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_jobs_batch_request ON jobs(batch_request_id)`,
   );
-  db.run(
-    `CREATE INDEX IF NOT EXISTS idx_scrape_queue_slug ON scrape_queue(slug)`,
-  );
-  db.run(
-    `CREATE INDEX IF NOT EXISTS idx_scrape_queue_job_id ON scrape_queue(job_id)`,
-  );
-  db.run(
-    `CREATE INDEX IF NOT EXISTS idx_scrape_queue_next_attempt ON scrape_queue(next_attempt_at)`,
-  );
-  db.run(
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_scrape_queue_job_slug ON scrape_queue(job_id, slug)`,
-  );
+
+  migrateJobsData(db);
 
   console.log("[Storage] SQLite database initialized at", DB_PATH);
   dbInstance = db;
@@ -378,6 +573,7 @@ type QueueRow = {
   id: number;
   slug: string;
   job_id: string | null;
+  job_type: JobType;
   mode: ScrapeMode;
   status: ScrapeStatus;
   attempt: number;
@@ -391,10 +587,11 @@ type QueueRow = {
   last_error_code: string | null;
 };
 
-const mapQueueRow = (row: QueueRow): ScrapeQueueItem => ({
+const mapQueueRow = (row: QueueRow): JobQueueItem => ({
   id: row.id,
   slug: row.slug,
   jobId: row.job_id ?? null,
+  jobType: row.job_type ?? "scrape",
   mode: row.mode,
   status: row.status,
   attempt: row.attempt ?? 0,
@@ -408,9 +605,11 @@ const mapQueueRow = (row: QueueRow): ScrapeQueueItem => ({
   lastErrorCode: row.last_error_code ?? null,
 });
 
-type BulkJobRow = {
+type JobRow = {
   id: string;
+  job_type: JobType;
   mode: ScrapeMode;
+  ai_mode: AiMode | null;
   status: BulkJobStatus;
   filter: string | null;
   created_at: number;
@@ -419,11 +618,18 @@ type BulkJobRow = {
   error_message: string | null;
   total_count: number | null;
   queued_count: number | null;
+  batch_request_id: string | null;
+  batch_status: string | null;
 };
 
-const mapBulkJobRow = (row: BulkJobRow): BulkJob => ({
+/** @deprecated Use JobRow instead */
+type BulkJobRow = JobRow;
+
+const mapJobRow = (row: JobRow): Job => ({
   id: row.id,
+  jobType: row.job_type ?? "scrape",
   mode: row.mode,
+  aiMode: row.ai_mode ?? null,
   status: row.status,
   filter: row.filter,
   createdAt: row.created_at,
@@ -432,7 +638,12 @@ const mapBulkJobRow = (row: BulkJobRow): BulkJob => ({
   errorMessage: row.error_message,
   totalCount: row.total_count,
   queuedCount: row.queued_count,
+  batchRequestId: row.batch_request_id ?? null,
+  batchStatus: row.batch_status ?? null,
 });
+
+/** @deprecated Use mapJobRow instead */
+const mapBulkJobRow = mapJobRow;
 
 export const StorageServiceLive = Layer.effect(
   StorageService,
@@ -443,10 +654,9 @@ export const StorageServiceLive = Layer.effect(
       saveRawHtml: (slug: string, html: string) =>
         Effect.try({
           try: () => {
-            db.run(
+            db.prepare(
               `INSERT OR REPLACE INTO raw_html (slug, html, created_at) VALUES (?, ?, unixepoch())`,
-              [slug, html],
-            );
+            ).run(slug, html);
             console.log(`[Storage] Saved raw HTML for slug: ${slug}`);
           },
           catch: (error) =>
@@ -459,11 +669,8 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const row = db
-              .query<
-                { html: string },
-                [string]
-              >(`SELECT html FROM raw_html WHERE slug = ?`)
-              .get(slug);
+              .prepare(`SELECT html FROM raw_html WHERE slug = ?`)
+              .get(slug) as { html: string } | undefined;
             return row?.html ?? null;
           },
           catch: (error) =>
@@ -477,11 +684,8 @@ export const StorageServiceLive = Layer.effect(
           try: () => {
             const now = Math.floor(Date.now() / 1000);
             const row = db
-              .query<
-                { html: string; created_at: number },
-                [string]
-              >(`SELECT html, created_at FROM raw_html WHERE slug = ?`)
-              .get(slug);
+              .prepare(`SELECT html, created_at FROM raw_html WHERE slug = ?`)
+              .get(slug) as { html: string; created_at: number } | undefined;
             if (!row) return null;
             const ageSeconds = now - row.created_at;
             if (ageSeconds > maxAgeSeconds) return null;
@@ -498,11 +702,8 @@ export const StorageServiceLive = Layer.effect(
           try: () => {
             const now = Math.floor(Date.now() / 1000);
             const row = db
-              .query<
-                { html: string; created_at: number },
-                [string]
-              >(`SELECT html, created_at FROM raw_html WHERE slug = ?`)
-              .get(slug);
+              .prepare(`SELECT html, created_at FROM raw_html WHERE slug = ?`)
+              .get(slug) as { html: string; created_at: number } | undefined;
             if (!row) return null;
             const ageSeconds = now - row.created_at;
             return { html: row.html, createdAt: row.created_at, ageSeconds };
@@ -517,7 +718,7 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const id = hashSlug(device.slug);
-            db.run(
+            db.prepare(
               `INSERT INTO kimovil_devices (id, slug, name, brand, is_rumor, raw, first_seen, last_seen)
                VALUES (?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
                ON CONFLICT(slug) DO UPDATE SET
@@ -526,14 +727,13 @@ export const StorageServiceLive = Layer.effect(
                  is_rumor = excluded.is_rumor,
                  raw = excluded.raw,
                  last_seen = unixepoch()`,
-              [
-                id,
-                device.slug,
-                device.name,
-                device.brand,
-                device.isRumor ? 1 : 0,
-                device.raw,
-              ],
+            ).run(
+              id,
+              device.slug,
+              device.name,
+              device.brand,
+              device.isRumor ? 1 : 0,
+              device.raw,
             );
           },
           catch: (error) =>
@@ -546,8 +746,9 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const row = db
-              .query<
-                {
+              .prepare(`SELECT * FROM kimovil_devices WHERE slug = ?`)
+              .get(slug) as
+              | {
                   id: string;
                   slug: string;
                   name: string;
@@ -556,10 +757,8 @@ export const StorageServiceLive = Layer.effect(
                   raw: string;
                   first_seen: number;
                   last_seen: number;
-                },
-                [string]
-              >(`SELECT * FROM kimovil_devices WHERE slug = ?`)
-              .get(slug);
+                }
+              | undefined;
             if (!row) return null;
             return {
               id: row.id,
@@ -582,11 +781,8 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const row = db
-              .query<
-                { count: number },
-                []
-              >(`SELECT COUNT(*) as count FROM kimovil_devices`)
-              .get();
+              .prepare(`SELECT COUNT(*) as count FROM kimovil_devices`)
+              .get() as { count: number } | undefined;
             return row?.count ?? 0;
           },
           catch: (error) =>
@@ -599,20 +795,17 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const rows = db
-              .query<
-                {
-                  id: string;
-                  slug: string;
-                  name: string;
-                  brand: string | null;
-                  is_rumor: number;
-                  raw: string;
-                  first_seen: number;
-                  last_seen: number;
-                },
-                []
-              >(`SELECT * FROM kimovil_devices ORDER BY name`)
-              .all();
+              .prepare(`SELECT * FROM kimovil_devices ORDER BY name`)
+              .all() as {
+              id: string;
+              slug: string;
+              name: string;
+              brand: string | null;
+              is_rumor: number;
+              raw: string;
+              first_seen: number;
+              last_seen: number;
+            }[];
             return rows.map((row) => ({
               id: row.id,
               slug: row.slug,
@@ -633,10 +826,9 @@ export const StorageServiceLive = Layer.effect(
       enqueuePrefix: (prefix: string, depth: number) =>
         Effect.try({
           try: () => {
-            db.run(
+            db.prepare(
               `INSERT OR IGNORE INTO kimovil_prefix_state (prefix, depth, status) VALUES (?, ?, 'pending')`,
-              [prefix, depth],
-            );
+            ).run(prefix, depth);
           },
           catch: (error) =>
             new StorageError(
@@ -648,19 +840,18 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const row = db
-              .query<
-                {
+              .prepare(
+                `SELECT * FROM kimovil_prefix_state WHERE status = 'pending' ORDER BY depth, prefix LIMIT 1`,
+              )
+              .get() as
+              | {
                   prefix: string;
                   depth: number;
                   status: "pending" | "done";
                   last_result_count: number | null;
                   last_run_at: number | null;
-                },
-                []
-              >(
-                `SELECT * FROM kimovil_prefix_state WHERE status = 'pending' ORDER BY depth, prefix LIMIT 1`,
-              )
-              .get();
+                }
+              | undefined;
             if (!row) return null;
             return {
               prefix: row.prefix,
@@ -679,10 +870,9 @@ export const StorageServiceLive = Layer.effect(
       markPrefixDone: (prefix: string, resultCount: number) =>
         Effect.try({
           try: () => {
-            db.run(
+            db.prepare(
               `UPDATE kimovil_prefix_state SET status = 'done', last_result_count = ?, last_run_at = unixepoch() WHERE prefix = ?`,
-              [resultCount, prefix],
-            );
+            ).run(resultCount, prefix);
           },
           catch: (error) =>
             new StorageError(
@@ -694,11 +884,10 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const row = db
-              .query<
-                { count: number },
-                []
-              >(`SELECT COUNT(*) as count FROM kimovil_prefix_state WHERE status = 'pending'`)
-              .get();
+              .prepare(
+                `SELECT COUNT(*) as count FROM kimovil_prefix_state WHERE status = 'pending'`,
+              )
+              .get() as { count: number } | undefined;
             return row?.count ?? 0;
           },
           catch: (error) =>
@@ -711,14 +900,14 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const chars = "abcdefghijklmnopqrstuvwxyz0123456789".split("");
+            const stmt = db.prepare(
+              `INSERT OR IGNORE INTO kimovil_prefix_state (prefix, depth, status) VALUES (?, 2, 'pending')`,
+            );
             let count = 0;
             for (const c1 of chars) {
               for (const c2 of chars) {
                 const prefix = c1 + c2;
-                db.run(
-                  `INSERT OR IGNORE INTO kimovil_prefix_state (prefix, depth, status) VALUES (?, 2, 'pending')`,
-                  [prefix],
-                );
+                stmt.run(prefix);
                 count++;
               }
             }
@@ -735,7 +924,7 @@ export const StorageServiceLive = Layer.effect(
       resetAllPrefixes: () =>
         Effect.try({
           try: () => {
-            db.run(`DELETE FROM kimovil_prefix_state`);
+            db.exec(`DELETE FROM kimovil_prefix_state`);
             console.log("[Storage] Reset all prefixes");
           },
           catch: (error) =>
@@ -759,32 +948,29 @@ export const StorageServiceLive = Layer.effect(
             const maxAttempts = options?.maxAttempts ?? 5;
             const nextAttemptAt = options?.nextAttemptAt ?? null;
 
-            let row: QueueRow | null = null;
+            let row: QueueRow | undefined;
 
             if (jobId) {
               row = db
-                .query<
-                  QueueRow,
-                  [string, string, ScrapeMode, number, number | null]
-                >(
-                  `INSERT INTO scrape_queue (slug, job_id, mode, status, max_attempts, next_attempt_at, created_at, updated_at)
+                .prepare(
+                  `INSERT INTO job_queue (slug, job_id, mode, status, max_attempts, next_attempt_at, created_at, updated_at)
                    VALUES (?, ?, ?, 'pending', ?, ?, unixepoch(), unixepoch())
                    ON CONFLICT(job_id, slug) DO UPDATE SET updated_at = updated_at
                    RETURNING *`,
                 )
-                .get(slug, jobId, mode, maxAttempts, nextAttemptAt);
+                .get(slug, jobId, mode, maxAttempts, nextAttemptAt) as
+                | QueueRow
+                | undefined;
             } else {
-              db.run(
-                `INSERT INTO scrape_queue (slug, mode, status, max_attempts, next_attempt_at, created_at, updated_at)
+              db.prepare(
+                `INSERT INTO job_queue (slug, mode, status, max_attempts, next_attempt_at, created_at, updated_at)
                  VALUES (?, ?, 'pending', ?, ?, unixepoch(), unixepoch())`,
-                [slug, mode, maxAttempts, nextAttemptAt],
-              );
+              ).run(slug, mode, maxAttempts, nextAttemptAt);
               row = db
-                .query<
-                  QueueRow,
-                  []
-                >(`SELECT * FROM scrape_queue WHERE rowid = last_insert_rowid()`)
-                .get();
+                .prepare(
+                  `SELECT * FROM job_queue WHERE rowid = last_insert_rowid()`,
+                )
+                .get() as QueueRow | undefined;
             }
             if (!row) throw new Error("Failed to get inserted queue item");
             return mapQueueRow(row);
@@ -799,11 +985,8 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const row = db
-              .query<
-                QueueRow,
-                [number]
-              >(`SELECT * FROM scrape_queue WHERE id = ?`)
-              .get(id);
+              .prepare(`SELECT * FROM job_queue WHERE id = ?`)
+              .get(id) as QueueRow | undefined;
             if (!row) return null;
             return mapQueueRow(row);
           },
@@ -817,11 +1000,10 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const row = db
-              .query<
-                QueueRow,
-                [string]
-              >(`SELECT * FROM scrape_queue WHERE slug = ? ORDER BY created_at DESC LIMIT 1`)
-              .get(slug);
+              .prepare(
+                `SELECT * FROM job_queue WHERE slug = ? ORDER BY created_at DESC LIMIT 1`,
+              )
+              .get(slug) as QueueRow | undefined;
             if (!row) return null;
             return mapQueueRow(row);
           },
@@ -834,12 +1016,15 @@ export const StorageServiceLive = Layer.effect(
       getQueueItems: (status?: ScrapeStatus) =>
         Effect.try({
           try: () => {
-            const query = status
-              ? `SELECT * FROM scrape_queue WHERE status = ? ORDER BY created_at DESC`
-              : `SELECT * FROM scrape_queue ORDER BY created_at DESC`;
             const rows = status
-              ? db.query<QueueRow, [string]>(query).all(status)
-              : db.query<QueueRow, []>(query).all();
+              ? (db
+                  .prepare(
+                    `SELECT * FROM job_queue WHERE status = ? ORDER BY created_at DESC`,
+                  )
+                  .all(status) as QueueRow[])
+              : (db
+                  .prepare(`SELECT * FROM job_queue ORDER BY created_at DESC`)
+                  .all() as QueueRow[]);
             return rows.map(mapQueueRow);
           },
           catch: (error) =>
@@ -852,13 +1037,13 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const baseQuery = `
-              UPDATE scrape_queue
+              UPDATE job_queue
               SET status = 'running',
                   started_at = unixepoch(),
                   updated_at = unixepoch(),
                   next_attempt_at = NULL
               WHERE id = (
-                SELECT id FROM scrape_queue
+                SELECT id FROM job_queue
                 WHERE status = 'pending'
                   AND (next_attempt_at IS NULL OR next_attempt_at <= unixepoch())
                   ${jobId ? "AND job_id = ?" : ""}
@@ -868,8 +1053,8 @@ export const StorageServiceLive = Layer.effect(
               RETURNING *
             `;
             const row = jobId
-              ? db.query<QueueRow, [string]>(baseQuery).get(jobId)
-              : db.query<QueueRow, []>(baseQuery).get();
+              ? (db.prepare(baseQuery).get(jobId) as QueueRow | undefined)
+              : (db.prepare(baseQuery).get() as QueueRow | undefined);
             if (!row) return null;
             return mapQueueRow(row);
           },
@@ -882,15 +1067,14 @@ export const StorageServiceLive = Layer.effect(
       startQueueItem: (id: number) =>
         Effect.try({
           try: () => {
-            db.run(
-              `UPDATE scrape_queue
+            db.prepare(
+              `UPDATE job_queue
                SET status = 'running',
                    started_at = unixepoch(),
                    updated_at = unixepoch(),
                    next_attempt_at = NULL
                WHERE id = ?`,
-              [id],
-            );
+            ).run(id);
           },
           catch: (error) =>
             new StorageError(
@@ -902,24 +1086,22 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             if (error) {
-              db.run(
-                `UPDATE scrape_queue
+              db.prepare(
+                `UPDATE job_queue
                  SET status = 'error',
                      completed_at = unixepoch(),
                      updated_at = unixepoch(),
                      error_message = ?
                  WHERE id = ?`,
-                [error, id],
-              );
+              ).run(error, id);
             } else {
-              db.run(
-                `UPDATE scrape_queue
+              db.prepare(
+                `UPDATE job_queue
                  SET status = 'done',
                      completed_at = unixepoch(),
                      updated_at = unixepoch()
                  WHERE id = ?`,
-                [id],
-              );
+              ).run(id);
             }
           },
           catch: (error) =>
@@ -936,8 +1118,8 @@ export const StorageServiceLive = Layer.effect(
       ) =>
         Effect.try({
           try: () => {
-            db.run(
-              `UPDATE scrape_queue
+            db.prepare(
+              `UPDATE job_queue
                SET status = 'pending',
                    attempt = attempt + 1,
                    next_attempt_at = ?,
@@ -945,8 +1127,7 @@ export const StorageServiceLive = Layer.effect(
                    error_message = ?,
                    last_error_code = ?
                WHERE id = ?`,
-              [nextAttemptAt, error, errorCode ?? null, id],
-            );
+            ).run(nextAttemptAt, error, errorCode ?? null, id);
           },
           catch: (error) =>
             new StorageError(
@@ -958,14 +1139,14 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const row = db
-              .query<QueueRow, []>(
-                `SELECT * FROM scrape_queue
+              .prepare(
+                `SELECT * FROM job_queue
                  WHERE status = 'pending'
                    AND (next_attempt_at IS NULL OR next_attempt_at <= unixepoch())
                  ORDER BY created_at ASC
                  LIMIT 1`,
               )
-              .get();
+              .get() as QueueRow | undefined;
             if (!row) return null;
             return mapQueueRow(row);
           },
@@ -978,8 +1159,13 @@ export const StorageServiceLive = Layer.effect(
       clearScrapeData: (slug: string) =>
         Effect.try({
           try: () => {
-            db.run(`DELETE FROM raw_html WHERE slug = ?`, [slug]);
-            db.run(`DELETE FROM scrape_queue WHERE slug = ?`, [slug]);
+            db.prepare(`DELETE FROM raw_html WHERE slug = ?`).run(slug);
+            db.prepare(`DELETE FROM job_queue WHERE slug = ?`).run(slug);
+            db.prepare(`DELETE FROM phone_data_raw WHERE slug = ?`).run(slug);
+            db.prepare(`DELETE FROM phone_data WHERE slug = ?`).run(slug);
+            db.prepare(`DELETE FROM scrape_verification WHERE slug = ?`).run(
+              slug,
+            );
             console.log(`[Storage] Cleared scrape data for slug: ${slug}`);
           },
           catch: (error) =>
@@ -992,11 +1178,8 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const row = db
-              .query<
-                { count: number },
-                [string]
-              >(`SELECT COUNT(*) as count FROM raw_html WHERE slug = ?`)
-              .get(slug);
+              .prepare(`SELECT COUNT(*) as count FROM raw_html WHERE slug = ?`)
+              .get(slug) as { count: number } | undefined;
             return (row?.count ?? 0) > 0;
           },
           catch: (error) =>
@@ -1012,15 +1195,14 @@ export const StorageServiceLive = Layer.effect(
       ) =>
         Effect.try({
           try: () => {
-            db.run(
+            db.prepare(
               `INSERT INTO scrape_verification (slug, is_corrupted, verified_at, corruption_reason)
                VALUES (?, ?, unixepoch(), ?)
                ON CONFLICT(slug) DO UPDATE SET
                  is_corrupted = excluded.is_corrupted,
                  verified_at = excluded.verified_at,
                  corruption_reason = excluded.corruption_reason`,
-              [slug, isCorrupted ? 1 : 0, reason],
-            );
+            ).run(slug, isCorrupted ? 1 : 0, reason);
           },
           catch: (error) =>
             new StorageError(
@@ -1032,11 +1214,8 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const row = db
-              .query<
-                { html: string },
-                [string]
-              >(`SELECT html FROM raw_html WHERE slug = ?`)
-              .get(slug);
+              .prepare(`SELECT html FROM raw_html WHERE slug = ?`)
+              .get(slug) as { html: string } | undefined;
 
             if (!row?.html) {
               return { isCorrupted: false, reason: null };
@@ -1051,6 +1230,8 @@ export const StorageServiceLive = Layer.effect(
               reason = "Bot protection: Human verification required";
             } else if (html.includes("Access denied")) {
               reason = "Bot protection: Access denied";
+            } else if (!html.includes("<main")) {
+              reason = "Missing main content element";
             } else if (
               !html.includes("k-dltable") &&
               !html.includes("container-sheet")
@@ -1060,15 +1241,14 @@ export const StorageServiceLive = Layer.effect(
 
             const isCorrupted = reason !== null;
 
-            db.run(
+            db.prepare(
               `INSERT INTO scrape_verification (slug, is_corrupted, verified_at, corruption_reason)
                VALUES (?, ?, unixepoch(), ?)
                ON CONFLICT(slug) DO UPDATE SET
                  is_corrupted = excluded.is_corrupted,
                  verified_at = excluded.verified_at,
                  corruption_reason = excluded.corruption_reason`,
-              [slug, isCorrupted ? 1 : 0, reason],
-            );
+            ).run(slug, isCorrupted ? 1 : 0, reason);
 
             return { isCorrupted, reason };
           },
@@ -1082,11 +1262,12 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const row = db
-              .query<
-                { is_corrupted: number; corruption_reason: string | null },
-                [string]
-              >(`SELECT is_corrupted, corruption_reason FROM scrape_verification WHERE slug = ?`)
-              .get(slug);
+              .prepare(
+                `SELECT is_corrupted, corruption_reason FROM scrape_verification WHERE slug = ?`,
+              )
+              .get(slug) as
+              | { is_corrupted: number; corruption_reason: string | null }
+              | undefined;
 
             if (!row) return null;
 
@@ -1105,11 +1286,10 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const rows = db
-              .query<
-                { slug: string },
-                []
-              >(`SELECT slug FROM scrape_verification WHERE is_corrupted = 1`)
-              .all();
+              .prepare(
+                `SELECT slug FROM scrape_verification WHERE is_corrupted = 1`,
+              )
+              .all() as { slug: string }[];
             return rows.map((r) => r.slug);
           },
           catch: (error) =>
@@ -1122,11 +1302,10 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const rows = db
-              .query<
-                { slug: string },
-                []
-              >(`SELECT slug FROM scrape_verification WHERE is_corrupted = 0`)
-              .all();
+              .prepare(
+                `SELECT slug FROM scrape_verification WHERE is_corrupted = 0`,
+              )
+              .all() as { slug: string }[];
             return rows.map((r) => r.slug);
           },
           catch: (error) =>
@@ -1138,9 +1317,9 @@ export const StorageServiceLive = Layer.effect(
       getScrapedSlugs: () =>
         Effect.try({
           try: () => {
-            const rows = db
-              .query<{ slug: string }, []>(`SELECT slug FROM raw_html`)
-              .all();
+            const rows = db.prepare(`SELECT slug FROM raw_html`).all() as {
+              slug: string;
+            }[];
             return rows.map((r) => r.slug);
           },
           catch: (error) =>
@@ -1149,26 +1328,50 @@ export const StorageServiceLive = Layer.effect(
             ),
         }),
 
+      getRawDataSlugs: () =>
+        Effect.try({
+          try: () => {
+            const rows = db.prepare(`SELECT slug FROM phone_data_raw`).all() as {
+              slug: string;
+            }[];
+            return rows.map((r) => r.slug);
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to get raw data slugs: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      getAiDataSlugs: () =>
+        Effect.try({
+          try: () => {
+            const rows = db.prepare(`SELECT slug FROM phone_data`).all() as {
+              slug: string;
+            }[];
+            return rows.map((r) => r.slug);
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to get AI data slugs: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
       createBulkJob: (input) =>
         Effect.try({
           try: () => {
-            db.run(
-              `INSERT INTO bulk_jobs (id, mode, status, filter, created_at, total_count, queued_count)
+            db.prepare(
+              `INSERT INTO jobs (id, mode, status, filter, created_at, total_count, queued_count)
                VALUES (?, ?, 'pending', ?, unixepoch(), ?, ?)`,
-              [
-                input.id,
-                input.mode,
-                input.filter ?? null,
-                input.totalCount ?? null,
-                input.queuedCount ?? null,
-              ],
+            ).run(
+              input.id,
+              input.mode,
+              input.filter ?? null,
+              input.totalCount ?? null,
+              input.queuedCount ?? null,
             );
             const row = db
-              .query<
-                BulkJobRow,
-                [string]
-              >(`SELECT * FROM bulk_jobs WHERE id = ?`)
-              .get(input.id);
+              .prepare(`SELECT * FROM jobs WHERE id = ?`)
+              .get(input.id) as BulkJobRow | undefined;
             if (!row) throw new Error("Failed to get inserted bulk job");
             return mapBulkJobRow(row);
           },
@@ -1187,28 +1390,23 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const stmt = db.prepare(
-              `INSERT OR IGNORE INTO scrape_queue (slug, job_id, mode, status, max_attempts, created_at, updated_at)
+              `INSERT OR IGNORE INTO job_queue (slug, job_id, mode, status, max_attempts, created_at, updated_at)
                VALUES (?, ?, ?, 'pending', ?, unixepoch(), unixepoch())`,
             );
-            db.run("BEGIN");
-            for (const slug of slugs) {
-              stmt.run(slug, jobId, mode, maxAttempts);
-            }
-            db.run("COMMIT");
+            const insertMany = db.transaction(() => {
+              for (const slug of slugs) {
+                stmt.run(slug, jobId, mode, maxAttempts);
+              }
+            });
+            insertMany();
             const row = db
-              .query<
-                { count: number },
-                [string]
-              >(`SELECT COUNT(*) as count FROM scrape_queue WHERE job_id = ?`)
-              .get(jobId);
+              .prepare(
+                `SELECT COUNT(*) as count FROM job_queue WHERE job_id = ?`,
+              )
+              .get(jobId) as { count: number } | undefined;
             return { queued: row?.count ?? 0 };
           },
           catch: (error) => {
-            try {
-              db.run("ROLLBACK");
-            } catch {
-              // Ignore rollback errors from failed transactions
-            }
             return new StorageError(
               `Failed to enqueue bulk slugs: ${error instanceof Error ? error.message : String(error)}`,
             );
@@ -1219,11 +1417,8 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const row = db
-              .query<
-                BulkJobRow,
-                [string]
-              >(`SELECT * FROM bulk_jobs WHERE id = ?`)
-              .get(id);
+              .prepare(`SELECT * FROM jobs WHERE id = ?`)
+              .get(id) as BulkJobRow | undefined;
             if (!row) return null;
             return mapBulkJobRow(row);
           },
@@ -1241,42 +1436,39 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             if (status === "running") {
-              db.run(
-                `UPDATE bulk_jobs
+              db.prepare(
+                `UPDATE jobs
                  SET status = ?,
                      started_at = COALESCE(started_at, unixepoch()),
                      error_message = NULL
                  WHERE id = ?`,
-                [status, id],
-              );
+              ).run(status, id);
               return;
             }
             if (status === "error") {
-              db.run(
-                `UPDATE bulk_jobs
+              db.prepare(
+                `UPDATE jobs
                  SET status = ?,
                      completed_at = unixepoch(),
                      error_message = ?
                  WHERE id = ?`,
-                [status, error ?? "Unknown error", id],
-              );
+              ).run(status, error ?? "Unknown error", id);
               return;
             }
             if (status === "done") {
-              db.run(
-                `UPDATE bulk_jobs
+              db.prepare(
+                `UPDATE jobs
                  SET status = ?,
                      completed_at = unixepoch(),
                      error_message = NULL
                  WHERE id = ?`,
-                [status, id],
-              );
+              ).run(status, id);
               return;
             }
-            db.run(`UPDATE bulk_jobs SET status = ? WHERE id = ?`, [
+            db.prepare(`UPDATE jobs SET status = ? WHERE id = ?`).run(
               status,
               id,
-            ]);
+            );
           },
           catch: (error) =>
             new StorageError(
@@ -1291,10 +1483,9 @@ export const StorageServiceLive = Layer.effect(
       ) =>
         Effect.try({
           try: () => {
-            db.run(
-              `UPDATE bulk_jobs SET total_count = ?, queued_count = ? WHERE id = ?`,
-              [totalCount, queuedCount, id],
-            );
+            db.prepare(
+              `UPDATE jobs SET total_count = ?, queued_count = ? WHERE id = ?`,
+            ).run(totalCount, queuedCount, id);
           },
           catch: (error) =>
             new StorageError(
@@ -1306,13 +1497,13 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const rows = db
-              .query<{ status: ScrapeStatus; count: number }, [string]>(
+              .prepare(
                 `SELECT status, COUNT(*) as count
-                 FROM scrape_queue
+                 FROM job_queue
                  WHERE job_id = ?
                  GROUP BY status`,
               )
-              .all(id);
+              .all(id) as { status: ScrapeStatus; count: number }[];
             const counts = {
               pending: 0,
               running: 0,
@@ -1339,11 +1530,8 @@ export const StorageServiceLive = Layer.effect(
         Effect.try({
           try: () => {
             const rows = db
-              .query<
-                BulkJobRow,
-                []
-              >(`SELECT * FROM bulk_jobs ORDER BY created_at DESC`)
-              .all();
+              .prepare(`SELECT * FROM jobs ORDER BY created_at DESC`)
+              .all() as BulkJobRow[];
             return rows.map(mapBulkJobRow);
           },
           catch: (error) =>
@@ -1355,12 +1543,13 @@ export const StorageServiceLive = Layer.effect(
       resetStuckQueueItems: (jobId: string) =>
         Effect.try({
           try: () => {
-            const result = db.run(
-              `UPDATE scrape_queue
+            const result = db
+              .prepare(
+                `UPDATE job_queue
                SET status = 'pending', started_at = NULL
                WHERE job_id = ? AND status = 'running'`,
-              [jobId],
-            );
+              )
+              .run(jobId);
             return result.changes;
           },
           catch: (error) =>
@@ -1369,15 +1558,60 @@ export const StorageServiceLive = Layer.effect(
             ),
         }),
 
+      resetErrorQueueItems: (jobId: string) =>
+        Effect.try({
+          try: () => {
+            const result = db
+              .prepare(
+                `UPDATE job_queue
+               SET status = 'pending',
+                   started_at = NULL,
+                   completed_at = NULL,
+                   attempt = 0,
+                   next_attempt_at = NULL,
+                   error_message = NULL,
+                   last_error_code = NULL,
+                   updated_at = unixepoch()
+               WHERE job_id = ? AND status = 'error'`,
+              )
+              .run(jobId);
+            return result.changes;
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to reset error queue items: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      getErrorQueueItems: (jobId: string, limit = 100) =>
+        Effect.try({
+          try: () => {
+            const rows = db
+              .prepare(
+                `SELECT * FROM job_queue
+                 WHERE job_id = ? AND status = 'error'
+                 ORDER BY updated_at DESC
+                 LIMIT ?`,
+              )
+              .all(jobId, limit) as QueueRow[];
+            return rows.map(mapQueueRow);
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to get error queue items: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
       unclaimRunningItems: (jobId: string) =>
         Effect.try({
           try: () => {
-            const result = db.run(
-              `UPDATE scrape_queue
+            const result = db
+              .prepare(
+                `UPDATE job_queue
                SET status = 'pending', started_at = NULL, attempt = attempt
                WHERE job_id = ? AND status = 'running'`,
-              [jobId],
-            );
+              )
+              .run(jobId);
             return result.changes;
           },
           catch: (error) =>
@@ -1391,25 +1625,24 @@ export const StorageServiceLive = Layer.effect(
           try: () => {
             const now = Math.floor(Date.now() / 1000);
             const countRow = db
-              .query<{ count: number }, [string, number]>(
+              .prepare(
                 `SELECT COUNT(*) as count
-                 FROM scrape_queue
-                 WHERE job_id = ? AND status = 'pending' 
+                 FROM job_queue
+                 WHERE job_id = ? AND status = 'pending'
                    AND next_attempt_at IS NOT NULL AND next_attempt_at > ?`,
               )
-              .get(jobId, now);
+              .get(jobId, now) as { count: number } | undefined;
             const nextRow = db
-              .query<
-                { slug: string; next_attempt_at: number },
-                [string, number]
-              >(
+              .prepare(
                 `SELECT slug, next_attempt_at
-                 FROM scrape_queue
-                 WHERE job_id = ? AND status = 'pending' 
+                 FROM job_queue
+                 WHERE job_id = ? AND status = 'pending'
                    AND next_attempt_at IS NOT NULL AND next_attempt_at > ?
                  ORDER BY next_attempt_at ASC LIMIT 1`,
               )
-              .get(jobId, now);
+              .get(jobId, now) as
+              | { slug: string; next_attempt_at: number }
+              | undefined;
             return {
               count: countRow?.count ?? 0,
               nextRetryAt: nextRow?.next_attempt_at ?? null,
@@ -1419,6 +1652,422 @@ export const StorageServiceLive = Layer.effect(
           catch: (error) =>
             new StorageError(
               `Failed to get timeout stats: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      // Raw phone data (selector only, no AI)
+      savePhoneDataRaw: (slug: string, data: Record<string, unknown>) =>
+        Effect.try({
+          try: () => {
+            db.prepare(
+              `INSERT INTO phone_data_raw (slug, data, created_at, updated_at)
+               VALUES (?, ?, unixepoch(), unixepoch())
+               ON CONFLICT(slug) DO UPDATE SET
+                 data = excluded.data,
+                 updated_at = unixepoch()`,
+            ).run(slug, JSON.stringify(data));
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to save raw phone data: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      getPhoneDataRaw: (slug: string) =>
+        Effect.try({
+          try: () => {
+            const row = db
+              .prepare(`SELECT data FROM phone_data_raw WHERE slug = ?`)
+              .get(slug) as { data: string } | undefined;
+            if (!row) return null;
+            return JSON.parse(row.data) as Record<string, unknown>;
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to get raw phone data: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      hasPhoneDataRaw: (slug: string) =>
+        Effect.try({
+          try: () => {
+            const row = db
+              .prepare(`SELECT 1 FROM phone_data_raw WHERE slug = ? LIMIT 1`)
+              .get(slug);
+            return row !== undefined;
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to check raw phone data: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      getPhoneDataRawCount: () =>
+        Effect.try({
+          try: () => {
+            const row = db
+              .prepare(`SELECT COUNT(*) as count FROM phone_data_raw`)
+              .get() as { count: number } | undefined;
+            return row?.count ?? 0;
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to get raw phone data count: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      // AI normalized phone data
+      savePhoneData: (slug: string, data: Record<string, unknown>) =>
+        Effect.try({
+          try: () => {
+            db.prepare(
+              `INSERT INTO phone_data (slug, data, created_at, updated_at)
+               VALUES (?, ?, unixepoch(), unixepoch())
+               ON CONFLICT(slug) DO UPDATE SET
+                 data = excluded.data,
+                 updated_at = unixepoch()`,
+            ).run(slug, JSON.stringify(data));
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to save phone data: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      getPhoneData: (slug: string) =>
+        Effect.try({
+          try: () => {
+            const row = db
+              .prepare(`SELECT data FROM phone_data WHERE slug = ?`)
+              .get(slug) as { data: string } | undefined;
+            if (!row) return null;
+            return JSON.parse(row.data) as Record<string, unknown>;
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to get phone data: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      hasPhoneData: (slug: string) =>
+        Effect.try({
+          try: () => {
+            const row = db
+              .prepare(`SELECT 1 FROM phone_data WHERE slug = ? LIMIT 1`)
+              .get(slug);
+            return row !== undefined;
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to check phone data: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      getPhoneDataCount: () =>
+        Effect.try({
+          try: () => {
+            const row = db
+              .prepare(`SELECT COUNT(*) as count FROM phone_data`)
+              .get() as { count: number } | undefined;
+            return row?.count ?? 0;
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to get phone data count: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      // New job type queries
+      getSlugsNeedingExtraction: () =>
+        Effect.try({
+          try: () => {
+            // Slugs that have HTML but no raw data
+            const rows = db
+              .prepare(
+                `SELECT r.slug FROM raw_html r
+                 LEFT JOIN phone_data_raw p ON r.slug = p.slug
+                 WHERE p.slug IS NULL`,
+              )
+              .all() as { slug: string }[];
+            return rows.map((r) => r.slug);
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to get slugs needing extraction: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      getSlugsNeedingAi: () =>
+        Effect.try({
+          try: () => {
+            // Slugs that have raw data but no AI data
+            const rows = db
+              .prepare(
+                `SELECT r.slug FROM phone_data_raw r
+                 LEFT JOIN phone_data p ON r.slug = p.slug
+                 WHERE p.slug IS NULL`,
+              )
+              .all() as { slug: string }[];
+            return rows.map((r) => r.slug);
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to get slugs needing AI: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      getPhoneDataRawBulk: (slugs: string[]) =>
+        Effect.try({
+          try: () => {
+            if (slugs.length === 0) return [];
+            const placeholders = slugs.map(() => "?").join(",");
+            const rows = db
+              .prepare(
+                `SELECT slug, data FROM phone_data_raw WHERE slug IN (${placeholders})`,
+              )
+              .all(...slugs) as { slug: string; data: string }[];
+            return rows.map((r) => ({
+              slug: r.slug,
+              data: JSON.parse(r.data) as Record<string, unknown>,
+            }));
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to get bulk raw phone data: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      updateJobBatchStatus: (
+        jobId: string,
+        batchRequestId: string,
+        batchStatus: string,
+      ) =>
+        Effect.try({
+          try: () => {
+            db.prepare(
+              `UPDATE jobs SET batch_request_id = ?, batch_status = ? WHERE id = ?`,
+            ).run(batchRequestId, batchStatus, jobId);
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to update job batch status: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      getRunningBatchJobs: () =>
+        Effect.try({
+          try: () => {
+            const rows = db
+              .prepare(
+                `SELECT * FROM jobs
+                 WHERE job_type = 'process_ai'
+                   AND ai_mode = 'batch'
+                   AND status = 'running'
+                   AND batch_request_id IS NOT NULL`,
+              )
+              .all() as JobRow[];
+            return rows.map(mapJobRow);
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to get running batch jobs: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      enqueueJobSlugs: (
+        jobId: string,
+        jobType: JobType,
+        mode: ScrapeMode,
+        slugs: string[],
+        maxAttempts = 5,
+      ) =>
+        Effect.try({
+          try: () => {
+            const stmt = db.prepare(
+              `INSERT OR IGNORE INTO job_queue (slug, job_id, job_type, mode, status, max_attempts, created_at, updated_at)
+               VALUES (?, ?, ?, ?, 'pending', ?, unixepoch(), unixepoch())`,
+            );
+            const insertMany = db.transaction(() => {
+              for (const slug of slugs) {
+                stmt.run(slug, jobId, jobType, mode, maxAttempts);
+              }
+            });
+            insertMany();
+            const row = db
+              .prepare(
+                `SELECT COUNT(*) as count FROM job_queue WHERE job_id = ?`,
+              )
+              .get(jobId) as { count: number } | undefined;
+            return { queued: row?.count ?? 0 };
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to enqueue job slugs: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      claimNextJobQueueItem: (jobId: string, jobType?: JobType) =>
+        Effect.try({
+          try: () => {
+            const query = `
+              UPDATE job_queue
+              SET status = 'running',
+                  started_at = unixepoch(),
+                  updated_at = unixepoch(),
+                  next_attempt_at = NULL
+              WHERE id = (
+                SELECT id FROM job_queue
+                WHERE status = 'pending'
+                  AND job_id = ?
+                  ${jobType ? "AND job_type = ?" : ""}
+                  AND (next_attempt_at IS NULL OR next_attempt_at <= unixepoch())
+                ORDER BY created_at ASC
+                LIMIT 1
+              )
+              RETURNING *
+            `;
+            const row = jobType
+              ? (db.prepare(query).get(jobId, jobType) as QueueRow | undefined)
+              : (db.prepare(query).get(jobId) as QueueRow | undefined);
+            if (!row) return null;
+            return mapQueueRow(row);
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to claim next job queue item: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      createJob: (input) =>
+        Effect.try({
+          try: () => {
+            db.prepare(
+              `INSERT INTO jobs (id, job_type, mode, ai_mode, status, filter, created_at, total_count, queued_count)
+               VALUES (?, ?, ?, ?, 'pending', ?, unixepoch(), ?, ?)`,
+            ).run(
+              input.id,
+              input.jobType,
+              input.mode,
+              input.aiMode ?? null,
+              input.filter ?? null,
+              input.totalCount ?? null,
+              input.queuedCount ?? null,
+            );
+            const row = db
+              .prepare(`SELECT * FROM jobs WHERE id = ?`)
+              .get(input.id) as JobRow | undefined;
+            if (!row) throw new Error("Failed to get inserted job");
+            return mapJobRow(row);
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to create job: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      getJob: (id: string) =>
+        Effect.try({
+          try: () => {
+            const row = db
+              .prepare(`SELECT * FROM jobs WHERE id = ?`)
+              .get(id) as JobRow | undefined;
+            if (!row) return null;
+            return mapJobRow(row);
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to get job: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      getAllJobs: () =>
+        Effect.try({
+          try: () => {
+            const rows = db
+              .prepare(`SELECT * FROM jobs ORDER BY created_at DESC`)
+              .all() as JobRow[];
+            return rows.map(mapJobRow);
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to get all jobs: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      updateJobStatus: (id: string, status: BulkJobStatus, error?: string) =>
+        Effect.try({
+          try: () => {
+            if (status === "running") {
+              db.prepare(
+                `UPDATE jobs
+                 SET status = ?,
+                     started_at = COALESCE(started_at, unixepoch()),
+                     error_message = NULL
+                 WHERE id = ?`,
+              ).run(status, id);
+              return;
+            }
+            if (status === "error") {
+              db.prepare(
+                `UPDATE jobs
+                 SET status = ?,
+                     completed_at = unixepoch(),
+                     error_message = ?
+                 WHERE id = ?`,
+              ).run(status, error ?? "Unknown error", id);
+              return;
+            }
+            if (status === "done") {
+              db.prepare(
+                `UPDATE jobs
+                 SET status = ?,
+                     completed_at = unixepoch(),
+                     error_message = NULL
+                 WHERE id = ?`,
+              ).run(status, id);
+              return;
+            }
+            db.prepare(`UPDATE jobs SET status = ? WHERE id = ?`).run(
+              status,
+              id,
+            );
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to update job status: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+
+      getJobStats: (id: string) =>
+        Effect.try({
+          try: () => {
+            const rows = db
+              .prepare(
+                `SELECT status, COUNT(*) as count
+                 FROM job_queue
+                 WHERE job_id = ?
+                 GROUP BY status`,
+              )
+              .all(id) as { status: ScrapeStatus; count: number }[];
+            const counts = {
+              pending: 0,
+              running: 0,
+              done: 0,
+              error: 0,
+            };
+            for (const row of rows) {
+              if (row.status === "pending") counts.pending = row.count;
+              if (row.status === "running") counts.running = row.count;
+              if (row.status === "done") counts.done = row.count;
+              if (row.status === "error") counts.error = row.count;
+            }
+            const total =
+              counts.pending + counts.running + counts.done + counts.error;
+            return { total, ...counts };
+          },
+          catch: (error) =>
+            new StorageError(
+              `Failed to get job stats: ${error instanceof Error ? error.message : String(error)}`,
             ),
         }),
     });

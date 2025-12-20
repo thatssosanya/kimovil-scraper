@@ -1,6 +1,9 @@
-import { Show, For } from "solid-js";
+import { Show, For, createSignal } from "solid-js";
 import type { Device, QueueItem, ScrapeStatus } from "../types";
-import { StatusBadge } from "./StatusBadge";
+import { DataStatusIcons } from "./DataStatusIcons";
+
+const LIMIT_OPTIONS = [10, 100, 500, 1000, 10000] as const;
+type LimitOption = (typeof LIMIT_OPTIONS)[number];
 
 interface DevicesTableProps {
   devices: Device[];
@@ -12,190 +15,314 @@ interface DevicesTableProps {
   onToggleSelect: (slug: string) => void;
   onToggleSelectAll: () => void;
   onQueueScrape: (slug: string, mode: "fast" | "complex") => void;
-  onOpenPreview: (slug: string) => void;
+  onOpenModal: (slug: string) => void;
   onClearData: (slug: string) => void;
   allSelected: boolean;
   filtered: number;
   total: number;
+  limit: LimitOption;
+  onLimitChange: (limit: LimitOption) => void;
+}
+
+function QueueStatusBadge(props: { status: string }) {
+  const config: Record<string, { class: string; label: string }> = {
+    pending: { class: "bg-amber-500/10 text-amber-400 ring-amber-500/20", label: "Pending" },
+    running: { class: "bg-indigo-500/10 text-indigo-400 ring-indigo-500/20 animate-pulse", label: "Running" },
+    done: { class: "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20", label: "Done" },
+    error: { class: "bg-rose-500/10 text-rose-400 ring-rose-500/20", label: "Error" },
+  };
+
+  const cfg = config[props.status] || config.pending;
+
+  return (
+    <span class={`inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded ring-1 ${cfg.class}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+function ActionButton(props: {
+  onClick: () => void;
+  disabled?: boolean;
+  variant: "fast" | "full" | "view" | "delete";
+  title: string;
+}) {
+  const variants = {
+    fast: {
+      class: "text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10",
+      icon: (
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+      ),
+    },
+    full: {
+      class: "text-violet-400 hover:text-violet-300 hover:bg-violet-500/10",
+      icon: (
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+        </svg>
+      ),
+    },
+    view: {
+      class: "text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10",
+      icon: (
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      ),
+    },
+    delete: {
+      class: "text-slate-500 hover:text-rose-400 hover:bg-rose-500/10",
+      icon: (
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+        </svg>
+      ),
+    },
+  };
+
+  const v = variants[props.variant];
+
+  return (
+    <button
+      onClick={props.onClick}
+      disabled={props.disabled}
+      title={props.title}
+      class={`
+        p-1.5 rounded-md transition-all duration-150 cursor-pointer
+        disabled:opacity-30 disabled:cursor-not-allowed
+        ${v.class}
+      `}
+    >
+      {v.icon}
+    </button>
+  );
 }
 
 export function DevicesTable(props: DevicesTableProps) {
-  const canPreview = (slug: string) => props.scrapeStatus[slug]?.hasHtml;
-  const hasData = (slug: string) =>
-    props.scrapeStatus[slug]?.hasHtml || props.queueStatus[slug];
+  const canViewData = (slug: string) => {
+    const status = props.scrapeStatus[slug];
+    return status?.hasHtml || status?.hasRawData || status?.hasAiData;
+  };
+
+  const hasAnyData = (slug: string) => {
+    const status = props.scrapeStatus[slug];
+    return status?.hasHtml || status?.hasRawData || status?.hasAiData || props.queueStatus[slug];
+  };
+
+  const isQueued = (slug: string) => {
+    const q = props.queueStatus[slug];
+    return q && (q.status === "pending" || q.status === "running");
+  };
+
+  const needsScrape = (slug: string) => {
+    return !props.scrapeStatus[slug]?.hasHtml && !isQueued(slug);
+  };
+
+  const [showLimitMenu, setShowLimitMenu] = createSignal(false);
 
   return (
     <>
-      <div class="text-sm text-slate-400 flex items-center justify-between">
-        <span>
-          Showing{" "}
-          <span class="text-slate-200 font-semibold">
-            {props.filtered.toLocaleString()}
-          </span>{" "}
-          of {props.total.toLocaleString()} devices
-        </span>
-        <Show when={props.filtered > 500}>
-          <span class="text-amber-500 text-xs bg-amber-500/10 px-2 py-1 rounded border border-amber-500/20">
-            Limited to 500 results
+      {/* Header row */}
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-3">
+          <span class="text-sm text-slate-400">
+            Showing <span class="text-slate-200 font-semibold tabular-nums">{Math.min(props.filtered, props.limit).toLocaleString()}</span>
+            {" "}of {props.filtered.toLocaleString()}
+            {props.filtered !== props.total && <span> (filtered from {props.total.toLocaleString()})</span>}
           </span>
-        </Show>
+          <div class="relative">
+            <button
+              onClick={() => setShowLimitMenu(!showLimitMenu())}
+              class={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded ring-1 cursor-pointer transition-colors ${
+                props.filtered > props.limit
+                  ? "text-amber-400 bg-amber-500/10 ring-amber-500/20 hover:bg-amber-500/20"
+                  : "text-slate-400 bg-slate-800 ring-slate-700 hover:bg-slate-700"
+              }`}
+            >
+              Limit: {props.limit.toLocaleString()}
+              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <Show when={showLimitMenu()}>
+              <div class="absolute top-full left-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 py-1 min-w-[100px]">
+                <For each={LIMIT_OPTIONS}>
+                  {(option) => (
+                    <button
+                      onClick={() => {
+                        props.onLimitChange(option);
+                        setShowLimitMenu(false);
+                      }}
+                      class={`w-full text-left px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                        option === props.limit
+                          ? "text-indigo-400 bg-indigo-500/10"
+                          : "text-slate-300 hover:bg-slate-700"
+                      }`}
+                    >
+                      {option.toLocaleString()}
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
+        </div>
       </div>
 
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+      {/* Table container */}
+      <div class="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
         <Show when={props.loading}>
-          <div class="flex flex-col items-center justify-center py-24 space-y-4">
-            <div class="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            <p class="text-slate-500 animate-pulse">Loading devices...</p>
+          <div class="flex flex-col items-center justify-center py-20 space-y-3">
+            <div class="w-8 h-8 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+            <p class="text-sm text-slate-500">Loading devices...</p>
           </div>
         </Show>
 
         <Show when={!props.loading}>
           <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse">
+            <table class="w-full text-left">
               <thead>
-                <tr class="bg-slate-800/50 border-b border-slate-800 text-xs uppercase tracking-wider text-slate-400">
-                  <th class="w-10 p-4">
+                <tr class="border-b border-slate-800/50">
+                  <th class="w-12 px-4 py-3">
                     <input
                       type="checkbox"
                       checked={props.allSelected}
                       onChange={props.onToggleSelectAll}
-                      class="w-4 h-4 rounded border-slate-600 bg-slate-800 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      class="w-4 h-4 rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500/50 focus:ring-offset-0 cursor-pointer"
                     />
                   </th>
-                  <th class="p-4 font-semibold">Name</th>
-                  <th class="p-4 font-semibold">Slug</th>
-                  <th class="p-4 font-semibold">Brand</th>
-                  <th class="p-4 font-semibold">Status</th>
-                  <th class="p-4 font-semibold text-right">Actions</th>
+                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                    Device
+                  </th>
+                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400 w-28">
+                    Brand
+                  </th>
+                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400 w-36">
+                    Data
+                  </th>
+                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400 w-24">
+                    Queue
+                  </th>
+                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400 w-32 text-right">
+                    Actions
+                  </th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-800">
+              <tbody class="divide-y divide-slate-800/30">
                 <For each={props.devices}>
-                  {(device) => (
-                    <tr
-                      class={`group transition-colors ${
-                        props.selected.has(device.slug)
-                          ? "bg-indigo-900/10 hover:bg-indigo-900/20"
-                          : "hover:bg-slate-800/30"
-                      } ${props.scrapeStatus[device.slug]?.isCorrupted ? "bg-rose-950/10" : ""}`}
-                    >
-                      <td class="p-4">
-                        <input
-                          type="checkbox"
-                          checked={props.selected.has(device.slug)}
-                          onChange={() => props.onToggleSelect(device.slug)}
-                          class="w-4 h-4 rounded border-slate-600 bg-slate-800 text-indigo-600 focus:ring-indigo-500 cursor-pointer opacity-50 group-hover:opacity-100 transition-opacity"
-                        />
-                      </td>
-                      <td class="p-4">
-                        <div class="font-medium text-slate-200">
-                          {device.name}
-                        </div>
-                      </td>
-                      <td class="p-4">
-                        <div class="font-mono text-xs text-slate-500 bg-slate-950/30 px-2 py-1 rounded inline-block border border-slate-800/50">
-                          {device.slug}
-                        </div>
-                      </td>
-                      <td class="p-4 text-slate-400">{device.brand || "—"}</td>
-                      <td class="p-4">
-                        <StatusBadge
-                          queueItem={props.queueStatus[device.slug]}
-                          scrapeStatus={props.scrapeStatus[device.slug]}
-                        />
-                      </td>
-                      <td class="p-4 text-right">
-                        <div class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                          <Show when={!props.scrapeStatus[device.slug]?.hasHtml}>
-                            <button
-                              class="cursor-pointer px-2 py-1 text-xs font-medium text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded transition-colors disabled:opacity-50"
-                              onClick={() =>
-                                props.onQueueScrape(device.slug, "fast")
-                              }
-                              disabled={
-                                props.queueLoading[device.slug] ||
-                                props.queueStatus[device.slug]?.status ===
-                                  "running"
-                              }
-                            >
-                              Fast
-                            </button>
-                            <button
-                              class="cursor-pointer px-2 py-1 text-xs font-medium text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 rounded transition-colors disabled:opacity-50"
-                              onClick={() =>
-                                props.onQueueScrape(device.slug, "complex")
-                              }
-                              disabled={
-                                props.queueLoading[device.slug] ||
-                                props.queueStatus[device.slug]?.status ===
-                                  "running"
-                              }
-                            >
-                              Full
-                            </button>
+                  {(device) => {
+                    const isSelected = () => props.selected.has(device.slug);
+                    const status = () => props.scrapeStatus[device.slug];
+                    const isCorrupted = () => status()?.isCorrupted === true;
+
+                    return (
+                      <tr
+                        class={`
+                          group transition-colors duration-150
+                          ${isSelected() ? "bg-indigo-500/5" : "hover:bg-slate-800/30"}
+                          ${isCorrupted() ? "bg-rose-500/5" : ""}
+                        `}
+                      >
+                        {/* Checkbox */}
+                        <td class="px-4 py-2">
+                          <input
+                            type="checkbox"
+                            checked={isSelected()}
+                            onChange={() => props.onToggleSelect(device.slug)}
+                            class="w-4 h-4 rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500/50 focus:ring-offset-0 cursor-pointer opacity-50 group-hover:opacity-100 transition-opacity"
+                          />
+                        </td>
+
+                        {/* Device */}
+                        <td class="px-4 py-2">
+                          <div class="flex flex-col min-w-0">
+                            <span class="text-sm font-medium text-slate-200 truncate" title={device.name}>
+                              {device.name}
+                            </span>
+                            <span class="text-[11px] font-mono text-slate-500 truncate" title={device.slug}>
+                              {device.slug}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Brand */}
+                        <td class="px-4 py-2">
+                          <span class="text-sm text-slate-400">
+                            {device.brand || "—"}
+                          </span>
+                        </td>
+
+                        {/* Data Status */}
+                        <td class="px-4 py-2">
+                          <DataStatusIcons status={status()} />
+                        </td>
+
+                        {/* Queue Status */}
+                        <td class="px-4 py-2">
+                          <Show when={props.queueStatus[device.slug]}>
+                            <QueueStatusBadge status={props.queueStatus[device.slug].status} />
                           </Show>
-                          <Show when={canPreview(device.slug)}>
-                            <button
-                              class="cursor-pointer px-2 py-1 text-xs font-medium text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 rounded transition-colors"
-                              onClick={() => props.onOpenPreview(device.slug)}
-                            >
-                              View
-                            </button>
-                          </Show>
-                          <Show when={hasData(device.slug)}>
-                            <button
-                              class="cursor-pointer p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
-                              title="Clear Data"
-                              onClick={() => props.onClearData(device.slug)}
-                            >
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                class="h-4 w-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                              >
-                                <path
-                                  stroke-linecap="round"
-                                  stroke-linejoin="round"
-                                  stroke-width="2"
-                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                />
-                              </svg>
-                            </button>
-                          </Show>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
+                        </td>
+
+                        {/* Actions */}
+                        <td class="px-4 py-2">
+                          <div class="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
+                            {/* Scrape buttons */}
+                            <Show when={needsScrape(device.slug)}>
+                              <ActionButton
+                                variant="fast"
+                                title="Fast scrape (HTML + Raw)"
+                                onClick={() => props.onQueueScrape(device.slug, "fast")}
+                                disabled={props.queueLoading[device.slug]}
+                              />
+                              <ActionButton
+                                variant="full"
+                                title="Full scrape (+ AI processing)"
+                                onClick={() => props.onQueueScrape(device.slug, "complex")}
+                                disabled={props.queueLoading[device.slug]}
+                              />
+                            </Show>
+
+                            {/* View button */}
+                            <Show when={canViewData(device.slug)}>
+                              <ActionButton
+                                variant="view"
+                                title="View data"
+                                onClick={() => props.onOpenModal(device.slug)}
+                              />
+                            </Show>
+
+                            {/* Delete button */}
+                            <Show when={hasAnyData(device.slug)}>
+                              <ActionButton
+                                variant="delete"
+                                title="Clear all data"
+                                onClick={() => props.onClearData(device.slug)}
+                              />
+                            </Show>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }}
                 </For>
               </tbody>
             </table>
 
+            {/* Empty state */}
             <Show when={props.devices.length === 0}>
-              <div class="p-12 text-center">
-                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-slate-800 mb-4">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    class="h-8 w-8 text-slate-500"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                    />
+              <div class="flex flex-col items-center justify-center py-16">
+                <div class="w-16 h-16 rounded-2xl bg-slate-800/50 flex items-center justify-center mb-4">
+                  <svg class="h-8 w-8 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                   </svg>
                 </div>
-                <h3 class="text-lg font-medium text-slate-300">
-                  No devices found
-                </h3>
-                <p class="text-slate-500 mt-2 max-w-sm mx-auto">
-                  Try adjusting your search filters or run the crawler to
-                  collect more slugs.
+                <h3 class="text-base font-medium text-slate-300 mb-1">No devices found</h3>
+                <p class="text-sm text-slate-500 max-w-xs text-center">
+                  Try adjusting your search or filters
                 </p>
               </div>
             </Show>

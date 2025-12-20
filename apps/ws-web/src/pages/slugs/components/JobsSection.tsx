@@ -12,6 +12,7 @@ interface JobsSectionProps {
   onPause: (jobId: string) => void;
   onResume: (jobId: string) => void;
   onSetWorkers: (jobId: string, count: number) => void;
+  onShowErrors: (jobId: string) => void;
   formatTimeRemaining: (timestamp: number | null) => string;
 }
 
@@ -67,6 +68,7 @@ export function JobsSection(props: JobsSectionProps) {
               <thead>
                 <tr class="bg-slate-800/50 border-b border-slate-800 text-xs uppercase tracking-wider text-slate-400">
                   <th class="p-4 font-semibold">Job ID</th>
+                  <th class="p-4 font-semibold">Type</th>
                   <th class="p-4 font-semibold">Status</th>
                   <th class="p-4 font-semibold">Progress</th>
                   <th class="p-4 font-semibold">Workers</th>
@@ -86,45 +88,85 @@ export function JobsSection(props: JobsSectionProps) {
                     >
                       <td class="p-4">
                         <div class="flex flex-col">
-                          <span class="font-mono text-sm text-slate-300">
-                            {item.job.id.slice(0, 8)}...
+                          <span class="font-mono text-[10px] text-slate-300">
+                            {item.job.id}
                           </span>
                           <span class="text-xs text-slate-500">
-                            {new Date(item.job.createdAt).toLocaleString()}
+                            {new Date(
+                              item.job.createdAt * 1000,
+                            ).toLocaleString()}
                           </span>
                         </div>
                       </td>
                       <td class="p-4">
                         <span
-                          class={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide border inline-flex items-center gap-1.5 ${
-                            item.job.status === "running"
-                              ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20 animate-pulse"
-                              : item.job.status === "paused"
-                                ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                                : item.job.status === "done"
-                                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                                  : item.job.status === "error"
-                                    ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                                    : "bg-slate-800 text-slate-400 border-slate-700"
+                          class={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide border inline-flex items-center gap-1.5 w-fit ${
+                            (item.job.jobType ?? "scrape") === "scrape"
+                              ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"
+                              : (item.job.jobType ?? "scrape") === "process_raw"
+                                ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
+                                : "bg-violet-500/10 text-violet-400 border-violet-500/20"
                           }`}
                         >
-                          <span
-                            class={`w-1.5 h-1.5 rounded-full ${
-                              item.job.status === "running"
-                                ? "bg-indigo-400"
-                                : "bg-current"
-                            }`}
-                          ></span>
-                          {item.job.status}
+                          {(item.job.jobType ?? "scrape") === "scrape"
+                            ? "Scrape"
+                            : (item.job.jobType ?? "scrape") === "process_raw"
+                              ? "Extract"
+                              : item.job.batchStatus
+                                ? `AI (${item.job.batchStatus})`
+                                : "AI"}
                         </span>
-                        <Show when={item.job.errorMessage}>
-                          <div
-                            class="text-rose-400 text-xs mt-1 max-w-[200px] truncate"
-                            title={item.job.errorMessage!}
+                      </td>
+                      <td class="p-4">
+                        <div class="flex flex-col gap-1">
+                          <span
+                            class={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide border inline-flex items-center gap-1.5 w-fit ${
+                              item.job.status === "running"
+                                ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20 animate-pulse"
+                                : item.job.status === "paused"
+                                  ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                                  : item.job.status === "done" &&
+                                      item.stats.error > 0
+                                    ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                                    : item.job.status === "done"
+                                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                      : item.job.status === "error"
+                                        ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                                        : "bg-slate-800 text-slate-400 border-slate-700"
+                            }`}
                           >
-                            {item.job.errorMessage}
-                          </div>
-                        </Show>
+                            <span
+                              class={`w-1.5 h-1.5 rounded-full ${
+                                item.job.status === "running"
+                                  ? "bg-indigo-400"
+                                  : "bg-current"
+                              }`}
+                            ></span>
+                            {item.job.status === "done" && item.stats.error > 0
+                              ? "done w/ errors"
+                              : item.job.status}
+                          </span>
+                          <Show when={item.stats.error > 0}>
+                            <button
+                              class="text-[10px] text-rose-400 font-medium hover:text-rose-300 hover:underline text-left"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                props.onShowErrors(item.job.id);
+                              }}
+                            >
+                              {item.stats.error} failed items
+                              {item.job.status === "done" ? " (retryable)" : ""}
+                            </button>
+                          </Show>
+                          <Show when={item.job.errorMessage}>
+                            <div
+                              class="text-rose-400 text-xs max-w-[200px] truncate"
+                              title={item.job.errorMessage!}
+                            >
+                              {item.job.errorMessage}
+                            </div>
+                          </Show>
+                        </div>
                       </td>
                       <td class="p-4">
                         <div class="w-full max-w-[200px]">
@@ -202,7 +244,9 @@ export function JobsSection(props: JobsSectionProps) {
                             )
                           }
                         >
-                          <For each={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]}>
+                          <For
+                            each={[1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 30, 40, 50]}
+                          >
                             {(num) => <option value={num}>{num}</option>}
                           </For>
                         </select>
@@ -232,6 +276,18 @@ export function JobsSection(props: JobsSectionProps) {
                             {item.job.status === "error" ? "Retry" : "Resume"}
                           </button>
                         </Show>
+                        <Show
+                          when={
+                            item.job.status === "done" && item.stats.error > 0
+                          }
+                        >
+                          <button
+                            class="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-rose-500/20"
+                            onClick={() => props.onResume(item.job.id)}
+                          >
+                            Retry {item.stats.error} Failed
+                          </button>
+                        </Show>
                       </td>
                     </tr>
                   )}
@@ -239,7 +295,7 @@ export function JobsSection(props: JobsSectionProps) {
                 <Show when={props.allJobs.length === 0}>
                   <tr>
                     <td
-                      colspan="5"
+                      colspan="6"
                       class="p-8 text-center text-slate-500 italic"
                     >
                       No jobs found. Start a bulk scrape to see it here.
@@ -278,12 +334,14 @@ export function JobsSection(props: JobsSectionProps) {
                 </div>
                 <div class="text-xs text-slate-500 mt-1">
                   Created:{" "}
-                  {new Date(props.selectedJob!.job.createdAt).toLocaleString()}
+                  {new Date(
+                    props.selectedJob!.job.createdAt * 1000,
+                  ).toLocaleString()}
                   <Show when={props.selectedJob!.job.startedAt}>
                     {" "}
                     · Started:{" "}
                     {new Date(
-                      props.selectedJob!.job.startedAt!,
+                      props.selectedJob!.job.startedAt! * 1000,
                     ).toLocaleTimeString()}
                   </Show>
                 </div>
@@ -371,14 +429,31 @@ export function JobsSection(props: JobsSectionProps) {
                   {props.selectedJob!.stats.done}
                 </div>
               </div>
-              <div class="bg-rose-500/10 p-2 rounded-lg">
+              <button
+                class={`bg-rose-500/10 p-2 rounded-lg text-center w-full ${
+                  props.selectedJob!.stats.error > 0
+                    ? "hover:bg-rose-500/20 cursor-pointer transition-colors"
+                    : ""
+                }`}
+                onClick={() => {
+                  if (props.selectedJob!.stats.error > 0) {
+                    props.onShowErrors(props.selectedJob!.job.id);
+                  }
+                }}
+                disabled={props.selectedJob!.stats.error === 0}
+              >
                 <div class="text-[10px] uppercase tracking-wider text-rose-400 font-bold">
                   Errors
                 </div>
                 <div class="text-lg font-mono text-rose-300">
                   {props.selectedJob!.stats.error}
                 </div>
-              </div>
+                <Show when={props.selectedJob!.stats.error > 0}>
+                  <div class="text-[9px] text-rose-400/70 mt-0.5">
+                    click to view
+                  </div>
+                </Show>
+              </button>
               <Show when={props.selectedJob!.stats.timeout?.count}>
                 <div class="bg-amber-500/10 p-2 rounded-lg">
                   <div class="text-[10px] uppercase tracking-wider text-amber-400 font-bold">
@@ -395,6 +470,46 @@ export function JobsSection(props: JobsSectionProps) {
                 </div>
               </Show>
             </div>
+
+            {/* Error banner for done jobs with failures */}
+            <Show
+              when={
+                props.selectedJob!.job.status === "done" &&
+                props.selectedJob!.stats.error > 0
+              }
+            >
+              <div class="mt-4 bg-rose-500/10 border border-rose-500/20 rounded-lg p-3 flex items-center justify-between">
+                <button
+                  class="flex items-center gap-2 hover:opacity-80 transition-opacity"
+                  onClick={() => props.onShowErrors(props.selectedJob!.job.id)}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="h-5 w-5 text-rose-400"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path
+                      fill-rule="evenodd"
+                      d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                      clip-rule="evenodd"
+                    />
+                  </svg>
+                  <span class="text-sm text-rose-300">
+                    <span class="font-bold underline">
+                      {props.selectedJob!.stats.error} items
+                    </span>{" "}
+                    failed during scraping
+                  </span>
+                </button>
+                <button
+                  class="bg-rose-500 hover:bg-rose-400 text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                  onClick={() => props.onResume(props.selectedJob!.job.id)}
+                >
+                  Retry Failed
+                </button>
+              </div>
+            </Show>
 
             <div class="flex items-center justify-between mt-4 pt-3 border-t border-slate-700">
               <div class="flex items-center gap-2">
@@ -414,7 +529,7 @@ export function JobsSection(props: JobsSectionProps) {
                     )
                   }
                 >
-                  <For each={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]}>
+                  <For each={[1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 30, 40, 50]}>
                     {(n) => <option value={n}>{n}</option>}
                   </For>
                 </select>
@@ -439,8 +554,21 @@ export function JobsSection(props: JobsSectionProps) {
                     onClick={() => props.onResume(props.selectedJob!.job.id)}
                   >
                     {props.selectedJob!.job.status === "error"
-                      ? "Retry"
+                      ? "Retry All"
                       : "Resume"}
+                  </button>
+                </Show>
+                <Show
+                  when={
+                    props.selectedJob!.job.status === "done" &&
+                    props.selectedJob!.stats.error > 0
+                  }
+                >
+                  <button
+                    class="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-rose-500/20"
+                    onClick={() => props.onResume(props.selectedJob!.job.id)}
+                  >
+                    Retry {props.selectedJob!.stats.error} Failed
                   </button>
                 </Show>
               </div>

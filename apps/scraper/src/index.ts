@@ -1,4 +1,6 @@
+import "dotenv/config";
 import { Elysia } from "elysia";
+import { node } from "@elysiajs/node";
 import { cors } from "@elysiajs/cors";
 import {
   Request,
@@ -22,6 +24,8 @@ import {
   BulkResumeParams,
   BulkSetWorkersParams,
   BulkControlResult,
+  type JobType,
+  type AiMode,
 } from "@repo/scraper-protocol";
 import { Schema } from "@effect/schema";
 import { Effect, Stream } from "effect";
@@ -38,8 +42,16 @@ import {
   StorageService,
   type StorageService as StorageServiceType,
   type ScrapeMode,
-  type ScrapeQueueItem,
+  type JobQueueItem,
+  type JobType as StorageJobType,
 } from "./services/storage";
+import {
+  extractPhoneData,
+  getHtmlValidationError,
+  type RawPhoneData,
+} from "./services/scrape-kimovil";
+import { BrowserService } from "./services/browser";
+import { OpenAIService } from "./services/openai";
 
 type Services = {
   storage: StorageServiceType;
@@ -84,6 +96,19 @@ const BULK_RETRY_MAX_MS = Math.max(
 );
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const getDefaultFilter = (jobType: StorageJobType): string => {
+  switch (jobType) {
+    case "scrape":
+      return "unscraped";
+    case "process_raw":
+      return "needs_extraction";
+    case "process_ai":
+      return "needs_ai";
+    default:
+      return "all";
+  }
+};
 
 const formatDuration = (ms: number): string => {
   if (ms < 1000) return `${ms}ms`;
@@ -139,7 +164,8 @@ const classifyScrapeError = (error: unknown) => {
   const isInvalid =
     message.includes("Page invalid") ||
     message.includes("Cached page invalid") ||
-    message.includes("Missing expected content structure");
+    message.includes("Missing expected content structure") ||
+    message.includes("Missing main content element");
   const isTimeout =
     lower.includes("timeout") ||
     lower.includes("timed out") ||
@@ -149,7 +175,8 @@ const classifyScrapeError = (error: unknown) => {
     lower.includes("network") ||
     lower.includes("connection");
 
-  const retryable = isBot || isInvalid || isTimeout || isNetwork;
+  // Invalid HTML is NOT retryable - the cached HTML is corrupted and needs re-scraping
+  const retryable = isBot || isTimeout || isNetwork;
   let code = "unknown";
   if (isBot) code = "bot";
   else if (isInvalid) code = "invalid_html";
@@ -465,33 +492,68 @@ const handlers: Record<string, StreamHandler> = {
         request.params,
       );
       const storage = yield* StorageService;
+      const jobType: StorageJobType =
+        (params.jobType as StorageJobType) ?? "scrape";
 
-      const allDevices = yield* storage.getAllDevices();
-      const allSlugs = allDevices.map((d) => d.slug);
-
-      let targetSlugs = allSlugs;
+      // Get target slugs based on job type and filter
+      let targetSlugs: string[] = [];
       if (Array.isArray(params.slugs) && params.slugs.length > 0) {
         targetSlugs = Array.from(new Set(params.slugs));
-      } else if (params.filter === "all") {
-        targetSlugs = allSlugs;
-      } else {
-        const scraped = yield* storage.getScrapedSlugs();
-        const scrapedSet = new Set(scraped);
-        targetSlugs = allSlugs.filter((slug) => !scrapedSet.has(slug));
+      } else if (jobType === "scrape") {
+        const allDevices = yield* storage.getAllDevices();
+        const allSlugs = allDevices.map((d) => d.slug);
+        if (params.filter === "all") {
+          targetSlugs = allSlugs;
+        } else {
+          const scraped = yield* storage.getScrapedSlugs();
+          const scrapedSet = new Set(scraped);
+          targetSlugs = allSlugs.filter((slug) => !scrapedSet.has(slug));
+        }
+      } else if (jobType === "process_raw") {
+        if (params.filter === "all") {
+          targetSlugs = yield* storage.getScrapedSlugs();
+        } else {
+          // Default: needs_extraction (has HTML but no raw data)
+          targetSlugs = yield* storage.getSlugsNeedingExtraction();
+        }
+      } else if (jobType === "process_ai") {
+        if (params.filter === "all") {
+          // All slugs that have raw data
+          const allDevices = yield* storage.getAllDevices();
+          const rawSlugs = new Set(
+            (yield* storage.getSlugsNeedingAi()).concat(
+              // Include already processed too for "all"
+              (yield* storage.getScrapedSlugs()).filter(async () => {
+                // This is a simplification - get all with raw data
+                return true;
+              }),
+            ),
+          );
+          targetSlugs = allDevices
+            .map((d) => d.slug)
+            .filter((s) => rawSlugs.has(s));
+        } else {
+          // Default: needs_ai (has raw but no AI data)
+          targetSlugs = yield* storage.getSlugsNeedingAi();
+        }
       }
 
       const jobId = globalThis.crypto.randomUUID();
-      const job = yield* storage.createBulkJob({
+      const mode: ScrapeMode = params.mode ?? "fast";
+      const job = yield* storage.createJob({
         id: jobId,
-        mode: params.mode,
-        filter: params.filter ?? "unscraped",
+        jobType,
+        mode,
+        aiMode: params.aiMode ?? null,
+        filter: params.filter ?? getDefaultFilter(jobType),
         totalCount: targetSlugs.length,
         queuedCount: 0,
       });
 
-      const enqueueResult = yield* storage.enqueueBulkSlugs(
+      const enqueueResult = yield* storage.enqueueJobSlugs(
         jobId,
-        params.mode,
+        jobType,
+        mode,
         targetSlugs,
       );
 
@@ -503,11 +565,13 @@ const handlers: Record<string, StreamHandler> = {
 
       subscribeToBulkJob(jobId, ws);
 
-      const stats = yield* storage.getBulkJobStats(jobId);
+      const stats = yield* storage.getJobStats(jobId);
       const result = new BulkResult({
         job: new BulkJobInfo({
           id: job.id,
+          jobType: job.jobType,
           mode: job.mode,
+          aiMode: job.aiMode,
           status: job.status,
           filter: job.filter,
           createdAt: job.createdAt,
@@ -516,6 +580,8 @@ const handlers: Record<string, StreamHandler> = {
           errorMessage: job.errorMessage,
           totalCount: targetSlugs.length,
           queuedCount: enqueueResult.queued,
+          batchRequestId: job.batchRequestId,
+          batchStatus: job.batchStatus,
         }),
         stats: new BulkJobStats(stats),
       });
@@ -535,7 +601,7 @@ const handlers: Record<string, StreamHandler> = {
       );
       const storage = yield* StorageService;
 
-      const job = yield* storage.getBulkJob(params.jobId);
+      const job = yield* storage.getJob(params.jobId);
       if (!job) {
         const errorResponse = new ErrorResponse({
           id: request.id,
@@ -550,11 +616,13 @@ const handlers: Record<string, StreamHandler> = {
 
       subscribeToBulkJob(params.jobId, ws);
 
-      const stats = yield* storage.getBulkJobStats(params.jobId);
+      const stats = yield* storage.getJobStats(params.jobId);
       const result = new BulkResult({
         job: new BulkJobInfo({
           id: job.id,
+          jobType: job.jobType,
           mode: job.mode,
+          aiMode: job.aiMode,
           status: job.status,
           filter: job.filter,
           createdAt: job.createdAt,
@@ -563,6 +631,8 @@ const handlers: Record<string, StreamHandler> = {
           errorMessage: job.errorMessage,
           totalCount: job.totalCount,
           queuedCount: job.queuedCount,
+          batchRequestId: job.batchRequestId,
+          batchStatus: job.batchStatus,
         }),
         stats: new BulkJobStats(stats),
       });
@@ -574,18 +644,20 @@ const handlers: Record<string, StreamHandler> = {
   "bulk.list": (request, ws) =>
     Effect.gen(function* () {
       const storage = yield* StorageService;
-      const allJobs = yield* storage.getAllBulkJobs();
+      const allJobs = yield* storage.getAllJobs();
 
       const jobsWithStats: Array<{ job: BulkJobInfo; stats: BulkJobStats }> =
         [];
       for (const job of allJobs) {
-        const stats = yield* storage.getBulkJobStats(job.id);
+        const stats = yield* storage.getJobStats(job.id);
         const timeout = yield* storage.getTimeoutStats(job.id);
         const state = jobControlState.get(job.id);
         jobsWithStats.push({
           job: new BulkJobInfo({
             id: job.id,
+            jobType: job.jobType,
             mode: job.mode,
+            aiMode: job.aiMode,
             status: job.status,
             filter: job.filter,
             createdAt: job.createdAt,
@@ -595,6 +667,8 @@ const handlers: Record<string, StreamHandler> = {
             totalCount: job.totalCount,
             queuedCount: job.queuedCount,
             workerCount: state?.workerCount ?? BULK_CONCURRENCY,
+            batchRequestId: job.batchRequestId,
+            batchStatus: job.batchStatus,
           }),
           stats: new BulkJobStats({
             ...stats,
@@ -621,7 +695,7 @@ const handlers: Record<string, StreamHandler> = {
       );
       const storage = yield* StorageService;
 
-      const job = yield* storage.getBulkJob(params.jobId);
+      const job = yield* storage.getJob(params.jobId);
       if (!job || job.status !== "running") {
         const result = new BulkControlResult({ success: false });
         const response = new Response({ id: request.id, result });
@@ -640,15 +714,17 @@ const handlers: Record<string, StreamHandler> = {
         );
       });
 
-      yield* storage.updateBulkJobStatus(params.jobId, "paused");
+      yield* storage.updateJobStatus(params.jobId, "paused");
 
-      const updatedJob = yield* storage.getBulkJob(params.jobId);
+      const updatedJob = yield* storage.getJob(params.jobId);
       const result = new BulkControlResult({
         success: true,
         job: updatedJob
           ? new BulkJobInfo({
               id: updatedJob.id,
+              jobType: updatedJob.jobType,
               mode: updatedJob.mode,
+              aiMode: updatedJob.aiMode,
               status: updatedJob.status,
               filter: updatedJob.filter,
               createdAt: updatedJob.createdAt,
@@ -658,6 +734,8 @@ const handlers: Record<string, StreamHandler> = {
               totalCount: updatedJob.totalCount,
               queuedCount: updatedJob.queuedCount,
               workerCount: state.workerCount,
+              batchRequestId: updatedJob.batchRequestId,
+              batchStatus: updatedJob.batchStatus,
             })
           : undefined,
       });
@@ -674,7 +752,7 @@ const handlers: Record<string, StreamHandler> = {
       );
       const storage = yield* StorageService;
 
-      const job = yield* storage.getBulkJob(params.jobId);
+      const job = yield* storage.getJob(params.jobId);
       if (!job) {
         const result = new BulkControlResult({ success: false });
         const response = new Response({ id: request.id, result });
@@ -685,31 +763,65 @@ const handlers: Record<string, StreamHandler> = {
       if (job.status === "paused") {
         const state = getJobState(params.jobId);
         state.paused = false;
-        yield* storage.updateBulkJobStatus(params.jobId, "running");
+        yield* storage.updateJobStatus(params.jobId, "running");
         broadcastJobUpdate(params.jobId, "running", state.workerCount);
         yield* Effect.sync(() => {
           log.info(`Job:${params.jobId.slice(0, 8)}`, `▶ Resuming paused job`);
           void runBulkJob(params.jobId, request.id);
         });
-      } else if (job.status === "pending" || job.status === "error") {
+      } else if (
+        job.status === "pending" ||
+        job.status === "error" ||
+        job.status === "done"
+      ) {
         yield* storage.resetStuckQueueItems(params.jobId);
+
+        // Reset error items when retrying a job (either error status or done with failures)
+        const stats = yield* storage.getJobStats(params.jobId);
+        if (
+          job.status === "error" ||
+          (job.status === "done" && stats.error > 0)
+        ) {
+          const resetCount = yield* storage.resetErrorQueueItems(params.jobId);
+          if (resetCount > 0) {
+            yield* Effect.sync(() => {
+              log.info(
+                `Job:${params.jobId.slice(0, 8)}`,
+                `▶ Retrying ${resetCount} failed items`,
+              );
+            });
+          } else {
+            yield* Effect.sync(() => {
+              log.info(
+                `Job:${params.jobId.slice(0, 8)}`,
+                `▶ No failed items to retry`,
+              );
+            });
+          }
+        } else {
+          yield* Effect.sync(() => {
+            log.info(
+              `Job:${params.jobId.slice(0, 8)}`,
+              `▶ Restarting pending job`,
+            );
+          });
+        }
+
         yield* Effect.sync(() => {
-          log.info(
-            `Job:${params.jobId.slice(0, 8)}`,
-            `▶ Restarting ${job.status} job`,
-          );
           void runBulkJob(params.jobId, request.id);
         });
       }
 
-      const updatedJob = yield* storage.getBulkJob(params.jobId);
+      const updatedJob = yield* storage.getJob(params.jobId);
       const state = getJobState(params.jobId);
       const result = new BulkControlResult({
         success: true,
         job: updatedJob
           ? new BulkJobInfo({
               id: updatedJob.id,
+              jobType: updatedJob.jobType,
               mode: updatedJob.mode,
+              aiMode: updatedJob.aiMode,
               status: updatedJob.status,
               filter: updatedJob.filter,
               createdAt: updatedJob.createdAt,
@@ -719,6 +831,8 @@ const handlers: Record<string, StreamHandler> = {
               totalCount: updatedJob.totalCount,
               queuedCount: updatedJob.queuedCount,
               workerCount: state.workerCount,
+              batchRequestId: updatedJob.batchRequestId,
+              batchStatus: updatedJob.batchStatus,
             })
           : undefined,
       });
@@ -733,7 +847,7 @@ const handlers: Record<string, StreamHandler> = {
       );
       const storage = yield* StorageService;
 
-      const job = yield* storage.getBulkJob(params.jobId);
+      const job = yield* storage.getJob(params.jobId);
       if (!job) {
         const result = new BulkControlResult({ success: false });
         const response = new Response({ id: request.id, result });
@@ -742,9 +856,9 @@ const handlers: Record<string, StreamHandler> = {
       }
 
       const state = getJobState(params.jobId);
-      state.workerCount = Math.max(1, Math.min(10, params.workerCount));
+      state.workerCount = Math.max(1, Math.min(50, params.workerCount));
 
-      const stats = yield* storage.getBulkJobStats(params.jobId);
+      const stats = yield* storage.getJobStats(params.jobId);
       const timeout = yield* storage.getTimeoutStats(params.jobId);
       broadcastJobUpdate(params.jobId, job.status, state.workerCount, {
         ...stats,
@@ -755,7 +869,9 @@ const handlers: Record<string, StreamHandler> = {
         success: true,
         job: new BulkJobInfo({
           id: job.id,
+          jobType: job.jobType,
           mode: job.mode,
+          aiMode: job.aiMode,
           status: job.status,
           filter: job.filter,
           createdAt: job.createdAt,
@@ -765,6 +881,8 @@ const handlers: Record<string, StreamHandler> = {
           totalCount: job.totalCount,
           queuedCount: job.queuedCount,
           workerCount: state.workerCount,
+          batchRequestId: job.batchRequestId,
+          batchStatus: job.batchStatus,
         }),
       });
       const response = new Response({ id: request.id, result });
@@ -824,37 +942,50 @@ type QueueItemResult = {
 };
 
 const runQueueItem = async (
-  item: ScrapeQueueItem | null,
+  item: JobQueueItem | null,
   storage: Services["storage"],
   scrapeService: Services["scrapeService"],
 ): Promise<QueueItemResult | null> => {
   if (!item) return null;
   const tag = `Queue:${item.id}`;
   const startTime = Date.now();
-  log.info(tag, `Starting ${item.mode} scrape: ${item.slug}`);
-
-  const stream =
-    item.mode === "fast"
-      ? scrapeService.scrapeFast(item.slug)
-      : scrapeService.scrape(item.slug);
+  const jobType = item.jobType ?? "scrape";
+  log.info(tag, `Starting ${jobType} job: ${item.slug}`);
 
   try {
-    await Effect.runPromise(
-      Stream.runForEach(stream, (event) =>
-        Effect.sync(() => {
-          if (!isScrapeResult(event) && event.type === "retry") {
-            log.warn(
-              tag,
-              `Retry ${event.attempt}/${event.maxAttempts}: ${event.reason}`,
-            );
-          }
-        }),
-      ),
-    );
+    if (jobType === "scrape") {
+      // Original scrape logic
+      const stream =
+        item.mode === "fast"
+          ? scrapeService.scrapeFast(item.slug)
+          : scrapeService.scrape(item.slug);
+
+      await Effect.runPromise(
+        Stream.runForEach(stream, (event) =>
+          Effect.sync(() => {
+            if (!isScrapeResult(event) && event.type === "retry") {
+              log.warn(
+                tag,
+                `Retry ${event.attempt}/${event.maxAttempts}: ${event.reason}`,
+              );
+            }
+          }),
+        ),
+      );
+      await Effect.runPromise(
+        storage.recordVerification(item.slug, false, null),
+      );
+    } else if (jobType === "process_raw") {
+      // Extract data from cached HTML
+      await runProcessRaw(item.slug, storage);
+    } else if (jobType === "process_ai") {
+      // Process raw data through AI
+      await runProcessAi(item.slug, storage);
+    }
+
     const duration = Date.now() - startTime;
     log.success(tag, `Completed ${item.slug} in ${formatDuration(duration)}`);
     await Effect.runPromise(storage.completeQueueItem(item.id));
-    await Effect.runPromise(storage.recordVerification(item.slug, false, null));
     return { slug: item.slug, success: true, error: null, rescheduled: false };
   } catch (error) {
     const duration = Date.now() - startTime;
@@ -901,6 +1032,69 @@ const runQueueItem = async (
   }
 };
 
+// Process raw HTML to extract phone data
+const runProcessRaw = async (
+  slug: string,
+  storage: Services["storage"],
+): Promise<void> => {
+  // Get cached HTML
+  const html = await Effect.runPromise(storage.getRawHtml(slug));
+  if (!html) {
+    throw new Error(`No cached HTML for slug: ${slug}`);
+  }
+
+  // Validate HTML
+  const validationError = getHtmlValidationError(html);
+  if (validationError) {
+    throw new Error(`Page invalid: ${validationError}`);
+  }
+
+  // Extract data using Playwright to parse HTML (local browser for cache parsing)
+  const browser = await Effect.runPromise(
+    Effect.flatMap(BrowserService, (s) => s.createLocalBrowser()).pipe(
+      Effect.provide(LiveLayer),
+    ),
+  );
+  const page = await browser.newPage();
+  try {
+    await page.setContent(html, { waitUntil: "domcontentloaded" });
+    const rawData = await extractPhoneData(page, slug);
+    await Effect.runPromise(
+      storage.savePhoneDataRaw(
+        slug,
+        rawData as unknown as Record<string, unknown>,
+      ),
+    );
+  } finally {
+    await page.close();
+    await browser.close();
+  }
+};
+
+// Process raw data through AI normalization
+const runProcessAi = async (
+  slug: string,
+  storage: Services["storage"],
+): Promise<void> => {
+  // Get raw phone data
+  const rawData = await Effect.runPromise(storage.getPhoneDataRaw(slug));
+  if (!rawData) {
+    throw new Error(`No raw data for slug: ${slug}`);
+  }
+
+  // Process through OpenAI/Gemini
+  const normalized = await Effect.runPromise(
+    Effect.flatMap(OpenAIService, (s) => s.adaptScrapedData(rawData)).pipe(
+      Effect.provide(LiveLayer),
+    ),
+  );
+
+  // Save normalized data
+  await Effect.runPromise(
+    storage.savePhoneData(slug, normalized as Record<string, unknown>),
+  );
+};
+
 const runBulkJob = async (jobId: string, requestId: string) => {
   const tag = `Job:${jobId.slice(0, 8)}`;
   const jobStart = Date.now();
@@ -932,21 +1126,34 @@ const runBulkJob = async (jobId: string, requestId: string) => {
     let lastProgressLog = Date.now();
 
     const worker = async (workerId: number) => {
-      if (workerId >= state.workerCount) {
-        return;
-      }
       const wtag = `${tag}:W${workerId}`;
-      log.info(wtag, `Worker started`);
+      let wasActive = false;
 
       while (true) {
         if (state.paused) {
-          log.info(wtag, `Paused, exiting`);
+          if (wasActive) log.info(wtag, `Paused, exiting`);
           break;
         }
 
+        // Wait if this worker is above the current limit
         if (workerId >= state.workerCount) {
-          log.info(wtag, `Stopping (worker count reduced)`);
-          break;
+          if (wasActive) {
+            log.info(wtag, `Stopping (worker count reduced)`);
+            wasActive = false;
+          }
+          // Check if queue is empty - exit if so (don't loop forever)
+          const stats = await Effect.runPromise(storage.getBulkJobStats(jobId));
+          if (stats.pending === 0 && stats.running === 0) {
+            break;
+          }
+          await sleep(1000);
+          continue;
+        }
+
+        // Worker became active
+        if (!wasActive) {
+          log.info(wtag, `Worker started`);
+          wasActive = true;
         }
 
         const item = await Effect.runPromise(storage.claimNextQueueItem(jobId));
@@ -1005,7 +1212,7 @@ const runBulkJob = async (jobId: string, requestId: string) => {
       tag,
       `Spawning ${state.workerCount} workers (rate limit: ${BULK_RATE_LIMIT_MS}ms)`,
     );
-    const maxWorkers = 10;
+    const maxWorkers = 50;
     const workers = Array.from({ length: maxWorkers }, (_, i) => worker(i));
     await Promise.all(workers);
 
@@ -1017,15 +1224,17 @@ const runBulkJob = async (jobId: string, requestId: string) => {
       return;
     }
 
-    const finalStatus = stats.error > 0 ? "error" : "done";
+    // Mark as "done" even with some failures - "error" is for fatal job errors
+    const finalStatus = "done";
+    const hasErrors = stats.error > 0;
 
-    if (finalStatus === "done") {
-      log.success(tag, `Completed: ${stats.done} items in ${totalDuration}`);
-    } else {
+    if (hasErrors) {
       log.warn(
         tag,
-        `Finished with errors: ${stats.done} done, ${stats.error} failed in ${totalDuration}`,
+        `Completed with ${stats.error} failures: ${stats.done} done, ${stats.error} failed in ${totalDuration}`,
       );
+    } else {
+      log.success(tag, `Completed: ${stats.done} items in ${totalDuration}`);
     }
 
     await Effect.runPromise(storage.updateBulkJobStatus(jobId, finalStatus));
@@ -1049,7 +1258,7 @@ const runBulkJob = async (jobId: string, requestId: string) => {
   }
 };
 
-const app = new Elysia()
+const app = new Elysia({ adapter: node() })
   .use(cors())
   .get("/api/slugs", async ({ query }) => {
     const program = Effect.gen(function* () {
@@ -1058,24 +1267,51 @@ const app = new Elysia()
       const corruptedSlugs = yield* storage.getCorruptedSlugs();
       const validSlugs = yield* storage.getValidSlugs();
       const scrapedSlugs = yield* storage.getScrapedSlugs();
-      return { devices, corruptedSlugs, validSlugs, scrapedSlugs };
+      const rawDataSlugs = yield* storage.getRawDataSlugs();
+      const aiDataSlugs = yield* storage.getAiDataSlugs();
+      const rawDataCount = yield* storage.getPhoneDataRawCount();
+      const aiDataCount = yield* storage.getPhoneDataCount();
+      return {
+        devices,
+        corruptedSlugs,
+        validSlugs,
+        scrapedSlugs,
+        rawDataSlugs,
+        aiDataSlugs,
+        rawDataCount,
+        aiDataCount,
+      };
     });
 
-    const { devices, corruptedSlugs, validSlugs, scrapedSlugs } =
-      await Effect.runPromise(
-        program.pipe(Effect.provide(LiveLayer)) as Effect.Effect<
-          any,
-          never,
-          never
-        >,
-      );
+    const {
+      devices,
+      corruptedSlugs,
+      validSlugs,
+      scrapedSlugs,
+      rawDataSlugs,
+      aiDataSlugs,
+      rawDataCount,
+      aiDataCount,
+    } = await Effect.runPromise(
+      program.pipe(Effect.provide(LiveLayer)) as Effect.Effect<
+        any,
+        never,
+        never
+      >,
+    );
 
     const corruptedSet = new Set(corruptedSlugs);
     const validSet = new Set(validSlugs);
     const scrapedSet = new Set(scrapedSlugs);
+    const rawDataSet = new Set(rawDataSlugs);
+    const aiDataSet = new Set(aiDataSlugs);
 
     const search = (query.search as string)?.toLowerCase() || "";
     const filter = query.filter as string | undefined;
+    const limit = Math.min(
+      Math.max(1, parseInt(query.limit as string) || 500),
+      10000,
+    );
 
     let filtered = devices;
 
@@ -1098,16 +1334,30 @@ const app = new Elysia()
       filtered = filtered.filter((d: any) => scrapedSet.has(d.slug));
     } else if (filter === "unscraped") {
       filtered = filtered.filter((d: any) => !scrapedSet.has(d.slug));
+    } else if (filter === "has_raw") {
+      filtered = filtered.filter((d: any) => rawDataSet.has(d.slug));
+    } else if (filter === "has_ai") {
+      filtered = filtered.filter((d: any) => aiDataSet.has(d.slug));
+    } else if (filter === "needs_raw") {
+      filtered = filtered.filter(
+        (d: any) => scrapedSet.has(d.slug) && !rawDataSet.has(d.slug),
+      );
+    } else if (filter === "needs_ai") {
+      filtered = filtered.filter(
+        (d: any) => rawDataSet.has(d.slug) && !aiDataSet.has(d.slug),
+      );
     }
 
     return {
       total: devices.length,
       filtered: filtered.length,
-      devices: filtered.slice(0, 500),
+      devices: filtered.slice(0, limit),
       stats: {
         corrupted: corruptedSlugs.length,
         valid: validSlugs.length,
         scraped: scrapedSlugs.length,
+        rawData: rawDataCount,
+        aiData: aiDataCount,
       },
     };
   })
@@ -1201,6 +1451,8 @@ const app = new Elysia()
         string,
         {
           hasHtml: boolean;
+          hasRawData: boolean;
+          hasAiData: boolean;
           queueStatus: string | null;
           isCorrupted: boolean | null;
           corruptionReason: string | null;
@@ -1209,10 +1461,14 @@ const app = new Elysia()
 
       for (const slug of slugs) {
         const hasHtml = yield* storage.hasScrapedHtml(slug);
+        const hasRawData = yield* storage.hasPhoneDataRaw(slug);
+        const hasAiData = yield* storage.hasPhoneData(slug);
         const queueItem = yield* storage.getQueueItemBySlug(slug);
         const verification = yield* storage.getVerificationStatus(slug);
         results[slug] = {
           hasHtml,
+          hasRawData,
+          hasAiData,
           queueStatus: queueItem?.status ?? null,
           isCorrupted: verification?.isCorrupted ?? null,
           corruptionReason: verification?.reason ?? null,
@@ -1298,6 +1554,61 @@ const app = new Elysia()
       >,
     );
   })
+  .get("/api/phone-data/raw/:slug", async ({ params }) => {
+    const program = Effect.gen(function* () {
+      const storage = yield* StorageService;
+      const data = yield* storage.getPhoneDataRaw(params.slug);
+      return { slug: params.slug, data };
+    });
+
+    return Effect.runPromise(
+      program.pipe(Effect.provide(LiveLayer)) as Effect.Effect<
+        any,
+        never,
+        never
+      >,
+    );
+  })
+  .get("/api/phone-data/:slug", async ({ params }) => {
+    const program = Effect.gen(function* () {
+      const storage = yield* StorageService;
+      const data = yield* storage.getPhoneData(params.slug);
+      return { slug: params.slug, data };
+    });
+
+    return Effect.runPromise(
+      program.pipe(Effect.provide(LiveLayer)) as Effect.Effect<
+        any,
+        never,
+        never
+      >,
+    );
+  })
+  .get("/api/bulk/:jobId/errors", async ({ params, query }) => {
+    const limit = Math.min(500, Math.max(1, Number(query.limit) || 100));
+    const program = Effect.gen(function* () {
+      const storage = yield* StorageService;
+      const items = yield* storage.getErrorQueueItems(params.jobId, limit);
+      return {
+        items: items.map((item) => ({
+          slug: item.slug,
+          error: item.errorMessage,
+          errorCode: item.lastErrorCode,
+          attempt: item.attempt,
+          updatedAt: item.updatedAt,
+        })),
+        total: items.length,
+      };
+    });
+
+    return Effect.runPromise(
+      program.pipe(Effect.provide(LiveLayer)) as Effect.Effect<
+        any,
+        never,
+        never
+      >,
+    );
+  })
   .post("/api/scrape/run-next", async () => {
     const { storage, scrapeService } = await getServices();
     const item = await Effect.runPromise(storage.claimNextQueueItem());
@@ -1307,6 +1618,38 @@ const app = new Elysia()
     await runQueueItem(item, storage, scrapeService);
     return { success: true, item };
   })
+  .post("/api/process/raw", async ({ body }) => {
+    const { slug } = body as { slug: string };
+    if (!slug) {
+      return { success: false, error: "slug is required" };
+    }
+
+    try {
+      const { storage } = await getServices();
+      await runProcessRaw(slug, storage);
+      return { success: true, slug };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.error("ProcessRaw", `Failed for ${slug}: ${message}`);
+      return { success: false, error: message };
+    }
+  })
+  .post("/api/process/ai", async ({ body }) => {
+    const { slug } = body as { slug: string };
+    if (!slug) {
+      return { success: false, error: "slug is required" };
+    }
+
+    try {
+      const { storage } = await getServices();
+      await runProcessAi(slug, storage);
+      return { success: true, slug };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.error("ProcessAi", `Failed for ${slug}: ${message}`);
+      return { success: false, error: message };
+    }
+  })
   .ws("/ws", {
     open(ws: Ws) {
       console.log("Client connected");
@@ -1314,7 +1657,14 @@ const app = new Elysia()
 
     message(ws: Ws, message: unknown) {
       const program = Effect.gen(function* () {
-        const request = yield* Schema.decodeUnknown(Request)(message);
+        // Parse message - in Node adapter it may come as string/Buffer
+        let parsed: unknown = message;
+        if (typeof message === "string") {
+          parsed = JSON.parse(message);
+        } else if (Buffer.isBuffer(message)) {
+          parsed = JSON.parse(message.toString());
+        }
+        const request = yield* Schema.decodeUnknown(Request)(parsed);
 
         const handler = handlers[request.method];
         if (!handler) {
@@ -1376,7 +1726,7 @@ const app = new Elysia()
 const resumeStuckJobs = async () => {
   try {
     const { storage } = await getServices();
-    const allJobs = await Effect.runPromise(storage.getAllBulkJobs());
+    const allJobs = await Effect.runPromise(storage.getAllJobs());
     const stuckJobs = allJobs.filter(
       (j) => j.status === "running" || j.status === "paused",
     );
@@ -1393,7 +1743,18 @@ const resumeStuckJobs = async () => {
         storage.resetStuckQueueItems(job.id),
       );
 
-      if (job.status === "paused") {
+      // Check if job is actually complete (all items done/error)
+      const stats = await Effect.runPromise(storage.getJobStats(job.id));
+      const isComplete = stats.pending === 0 && stats.running === 0;
+
+      if (isComplete) {
+        // Job finished but status wasn't updated - mark as done
+        log.info(
+          "Startup",
+          `Job ${job.id.slice(0, 8)} already complete (${stats.done} done, ${stats.error} errors) - marking done`,
+        );
+        await Effect.runPromise(storage.updateJobStatus(job.id, "done"));
+      } else if (job.status === "paused") {
         // Keep paused jobs paused, just reset any stuck items
         log.info(
           "Startup",
@@ -1408,7 +1769,7 @@ const resumeStuckJobs = async () => {
           "Startup",
           `Resuming job ${job.id.slice(0, 8)} (reset ${resetCount} stuck items)`,
         );
-        await Effect.runPromise(storage.updateBulkJobStatus(job.id, "running"));
+        await Effect.runPromise(storage.updateJobStatus(job.id, "running"));
         void runBulkJob(job.id, `startup-${job.id}`);
       }
     }

@@ -37,7 +37,7 @@ const isBotProtectionPage = (html: string): string | null => {
   return null;
 };
 
-const getHtmlValidationError = (html: string): string | null => {
+export const getHtmlValidationError = (html: string): string | null => {
   const botReason = isBotProtectionPage(html);
   if (botReason) return botReason;
   if (!html.includes("k-dltable") && !html.includes("container-sheet")) {
@@ -51,7 +51,7 @@ type DirtySku = { ram: number; rom: number };
 type DirtyMarket = { mkid: string; devices: DirtySku[] };
 
 // Raw phone data before normalization
-interface RawPhoneData {
+export interface RawPhoneData {
   slug: string;
   name: string;
   brand: string;
@@ -174,7 +174,7 @@ const getSoftware = (
   return { os: osMatch[0], osSkin: osSkinSplit[0]?.trim() ?? "" };
 };
 
-const extractPhoneData = async (
+export const extractPhoneData = async (
   page: Page,
   slug: string,
 ): Promise<RawPhoneData> => {
@@ -602,10 +602,15 @@ export const ScrapeServiceKimovil = Layer.effect(
         try {
           const page = await browser.newPage();
           await Effect.runPromise(browserService.abortExtraResources(page));
-          const { fullHtml } = await scrapePhoneData(page, slug);
+          const { data, fullHtml } = await scrapePhoneData(page, slug);
           await Effect.runPromise(
             storageService
               .saveRawHtml(slug, fullHtml)
+              .pipe(Effect.catchAll(() => Effect.void)),
+          );
+          await Effect.runPromise(
+            storageService
+              .savePhoneDataRaw(slug, data as unknown as Record<string, unknown>)
               .pipe(Effect.catchAll(() => Effect.void)),
           );
           console.log(`[SWR] Background refresh complete for ${slug}`);
@@ -891,6 +896,12 @@ export const ScrapeServiceKimovil = Layer.effect(
               others: null,
             });
 
+            await Effect.runPromise(
+              storageService
+                .savePhoneData(slug, phoneData as unknown as Record<string, unknown>)
+                .pipe(Effect.catchAll(() => Effect.void)),
+            );
+
             yield new ScrapeResult({ data: phoneData });
           } finally {
             if (browser) {
@@ -920,12 +931,37 @@ export const ScrapeServiceKimovil = Layer.effect(
             return duration;
           };
 
-          yield { type: "progress", stage: "Запуск браузера", percent: 5 };
+          yield { type: "progress", stage: "Проверка кэша", percent: 1 };
           yield {
             type: "log",
             level: "info",
             message: `[Fast] Начинаю скрейпинг: ${slug}`,
           };
+
+          // Check if HTML already exists in cache
+          const existingHtml = await Effect.runPromise(
+            storageService
+              .getRawHtml(slug)
+              .pipe(Effect.catchAll(() => Effect.succeed(null))),
+          );
+
+          if (existingHtml) {
+            const totalMs = Date.now() - totalStart;
+            yield {
+              type: "progress",
+              stage: "Кэш найден",
+              percent: 100,
+              durationMs: totalMs,
+            };
+            yield {
+              type: "log",
+              level: "info",
+              message: `✓ [Fast] Уже в кэше, пропускаю (${totalMs}ms)`,
+            };
+            return;
+          }
+
+          yield { type: "progress", stage: "Запуск браузера", percent: 5 };
 
           // Rate limiting - wait before starting
           yield {
@@ -1036,11 +1072,17 @@ export const ScrapeServiceKimovil = Layer.effect(
                 .pipe(Effect.catchAll(() => Effect.void)),
             );
 
-            yield { type: "progress", stage: "HTML сохранён", percent: 90 };
+            await Effect.runPromise(
+              storageService
+                .savePhoneDataRaw(slug, data as unknown as Record<string, unknown>)
+                .pipe(Effect.catchAll(() => Effect.void)),
+            );
+
+            yield { type: "progress", stage: "Данные сохранены", percent: 90 };
             yield {
               type: "log",
               level: "info",
-              message: `Raw HTML сохранён в кэш`,
+              message: `Raw HTML + phone data сохранены в кэш`,
             };
 
             const totalMs = Date.now() - totalStart;

@@ -7,6 +7,9 @@ import type {
   ScrapeStatus,
   ScrapeStats,
   FilterType,
+  PhoneDataRaw,
+  PhoneDataAi,
+  PhoneDataResponse,
 } from "../types";
 
 export function useSlugsApi() {
@@ -31,6 +34,7 @@ export function useSlugsApi() {
   const fetchDevices = async (
     searchQuery: string = "",
     filterType: FilterType = "all",
+    limit: number = 500,
   ) => {
     setLoading(true);
     try {
@@ -38,6 +42,7 @@ export function useSlugsApi() {
       const params = new URLSearchParams();
       if (searchQuery) params.set("search", searchQuery);
       if (filterType !== "all") params.set("filter", filterType);
+      params.set("limit", String(limit));
       if (params.toString()) url += `?${params.toString()}`;
 
       const res = await fetch(url);
@@ -91,12 +96,23 @@ export function useSlugsApi() {
 
   const fetchScrapeStatus = async (slugs: string[]) => {
     if (slugs.length === 0) return;
+    // Batch into chunks to avoid URL length limits
+    const BATCH_SIZE = 200;
+    const batches: string[][] = [];
+    for (let i = 0; i < slugs.length; i += BATCH_SIZE) {
+      batches.push(slugs.slice(i, i + BATCH_SIZE));
+    }
     try {
-      const res = await fetch(
-        `http://localhost:1488/api/scrape/status?slugs=${slugs.join(",")}`,
+      const results = await Promise.all(
+        batches.map(async (batch) => {
+          const res = await fetch(
+            `http://localhost:1488/api/scrape/status?slugs=${batch.join(",")}`,
+          );
+          return res.json() as Promise<Record<string, ScrapeStatus>>;
+        }),
       );
-      const data: Record<string, ScrapeStatus> = await res.json();
-      setScrapeStatus((prev) => ({ ...prev, ...data }));
+      const merged = results.reduce((acc, data) => ({ ...acc, ...data }), {});
+      setScrapeStatus((prev) => ({ ...prev, ...merged }));
     } catch (error) {
       console.error("Failed to fetch scrape status:", error);
     }
@@ -247,6 +263,84 @@ export function useSlugsApi() {
     }
   };
 
+  const fetchPhoneDataRaw = async (
+    slug: string,
+  ): Promise<PhoneDataRaw | null> => {
+    try {
+      const res = await fetch(
+        `http://localhost:1488/api/phone-data/raw/${encodeURIComponent(slug)}`,
+      );
+      const data: PhoneDataResponse<PhoneDataRaw> = await res.json();
+      return data.data;
+    } catch (error) {
+      console.error("Failed to fetch raw phone data:", error);
+      return null;
+    }
+  };
+
+  const fetchPhoneDataAi = async (
+    slug: string,
+  ): Promise<PhoneDataAi | null> => {
+    try {
+      const res = await fetch(
+        `http://localhost:1488/api/phone-data/${encodeURIComponent(slug)}`,
+      );
+      const data: PhoneDataResponse<PhoneDataAi> = await res.json();
+      return data.data;
+    } catch (error) {
+      console.error("Failed to fetch AI phone data:", error);
+      return null;
+    }
+  };
+
+  // Process raw data from cached HTML
+  const processRaw = async (slug: string): Promise<boolean> => {
+    try {
+      const res = await fetch("http://localhost:1488/api/process/raw", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Update scrape status to reflect new raw data
+        setScrapeStatus((prev) => ({
+          ...prev,
+          [slug]: { ...prev[slug], hasRawData: true },
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Failed to process raw data:", error);
+      return false;
+    }
+  };
+
+  // Process AI normalization from raw data
+  const processAi = async (slug: string): Promise<boolean> => {
+    try {
+      const res = await fetch("http://localhost:1488/api/process/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Update scrape status to reflect new AI data
+        setScrapeStatus((prev) => ({
+          ...prev,
+          [slug]: { ...prev[slug], hasAiData: true },
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Failed to process AI data:", error);
+      return false;
+    }
+  };
+
   return {
     devices,
     total,
@@ -269,5 +363,9 @@ export function useSlugsApi() {
     clearScrapeData,
     clearBulk,
     openPreview,
+    fetchPhoneDataRaw,
+    fetchPhoneDataAi,
+    processRaw,
+    processAi,
   };
 }
