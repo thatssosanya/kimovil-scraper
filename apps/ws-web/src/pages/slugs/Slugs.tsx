@@ -261,6 +261,60 @@ export default function Slugs() {
           </a>
         </div>
 
+        {/* Collapsible Jobs Section */}
+        <div class="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+          <button
+            onClick={() => setJobsExpanded((v) => !v)}
+            class="w-full flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-slate-800/30 transition-colors"
+          >
+            <div class="flex items-center gap-3">
+              <div class="p-1.5 bg-indigo-500/10 rounded-lg">
+                <svg class="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                </svg>
+              </div>
+              <span class="text-sm font-medium text-slate-200">Bulk Jobs</span>
+              <Show when={bulkJobs.allJobs().filter(j => j.status === "running").length > 0}>
+                <span class="bg-indigo-500/10 text-indigo-400 text-xs px-2 py-0.5 rounded-full border border-indigo-500/20 animate-pulse">
+                  {bulkJobs.allJobs().filter(j => j.status === "running").length} running
+                </span>
+              </Show>
+            </div>
+            <svg
+              class={`w-5 h-5 text-slate-400 transition-transform duration-200 ${jobsExpanded() ? "rotate-180" : ""}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <Show when={jobsExpanded()}>
+            <div class="px-4 pb-4 space-y-4 border-t border-slate-800/50">
+              <BulkStartPanel
+                wsConnected={bulkJobs.wsConnected()}
+                bulkJobLoading={bulkJobs.bulkJobLoading()}
+                onStartJob={bulkJobs.startBulkJob}
+              />
+              <JobsSection
+                allJobs={bulkJobs.allJobs()}
+                selectedJobId={bulkJobs.selectedJobId()}
+                selectedJob={bulkJobs.selectedJob()}
+                jobsExpanded={true}
+                onToggleExpanded={() => {}}
+                onSelectJob={bulkJobs.selectJob}
+                onDeselectJob={bulkJobs.deselectJob}
+                onPause={bulkJobs.pauseJob}
+                onResume={bulkJobs.resumeJob}
+                onSetWorkers={bulkJobs.setJobWorkers}
+                onShowErrors={showErrorItems}
+                formatTimeRemaining={bulkJobs.formatTimeRemaining}
+              />
+            </div>
+          </Show>
+        </div>
+
         <StatsPanel
           stats={api.stats()}
           scrapeStats={api.scrapeStats()}
@@ -278,27 +332,6 @@ export default function Slugs() {
           onFilterChange={handleFilterChange}
           onSearch={handleSearch}
           onClear={handleClear}
-        />
-
-        <BulkStartPanel
-          wsConnected={bulkJobs.wsConnected()}
-          bulkJobLoading={bulkJobs.bulkJobLoading()}
-          onStartJob={bulkJobs.startBulkJob}
-        />
-
-        <JobsSection
-          allJobs={bulkJobs.allJobs()}
-          selectedJobId={bulkJobs.selectedJobId()}
-          selectedJob={bulkJobs.selectedJob()}
-          jobsExpanded={jobsExpanded()}
-          onToggleExpanded={() => setJobsExpanded((v) => !v)}
-          onSelectJob={bulkJobs.selectJob}
-          onDeselectJob={bulkJobs.deselectJob}
-          onPause={bulkJobs.pauseJob}
-          onResume={bulkJobs.resumeJob}
-          onSetWorkers={bulkJobs.setJobWorkers}
-          onShowErrors={showErrorItems}
-          formatTimeRemaining={bulkJobs.formatTimeRemaining}
         />
 
         <DevicesTable
