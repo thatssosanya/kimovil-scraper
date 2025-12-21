@@ -296,7 +296,9 @@ export function useSlugsApi() {
   };
 
   // Process raw data from cached HTML
-  const processRaw = async (slug: string): Promise<boolean> => {
+  const processRaw = async (
+    slug: string,
+  ): Promise<{ success: boolean; error?: string }> => {
     try {
       const res = await fetch("http://localhost:1488/api/process/raw", {
         method: "POST",
@@ -305,22 +307,24 @@ export function useSlugsApi() {
       });
       const data = await res.json();
       if (data.success) {
-        // Update scrape status to reflect new raw data
         setScrapeStatus((prev) => ({
           ...prev,
           [slug]: { ...prev[slug], hasRawData: true },
         }));
-        return true;
+        return { success: true };
       }
-      return false;
+      return { success: false, error: data.error || "Unknown error" };
     } catch (error) {
       console.error("Failed to process raw data:", error);
-      return false;
+      const message = error instanceof Error ? error.message : "Network error";
+      return { success: false, error: message };
     }
   };
 
   // Process AI normalization from raw data
-  const processAi = async (slug: string): Promise<boolean> => {
+  const processAi = async (
+    slug: string,
+  ): Promise<{ success: boolean; error?: string }> => {
     try {
       const res = await fetch("http://localhost:1488/api/process/ai", {
         method: "POST",
@@ -329,17 +333,17 @@ export function useSlugsApi() {
       });
       const data = await res.json();
       if (data.success) {
-        // Update scrape status to reflect new AI data
         setScrapeStatus((prev) => ({
           ...prev,
           [slug]: { ...prev[slug], hasAiData: true },
         }));
-        return true;
+        return { success: true };
       }
-      return false;
+      return { success: false, error: data.error || "Unknown error" };
     } catch (error) {
       console.error("Failed to process AI data:", error);
-      return false;
+      const message = error instanceof Error ? error.message : "Network error";
+      return { success: false, error: message };
     }
   };
 

@@ -10,8 +10,8 @@ import {
 } from "@repo/scraper-domain";
 import type { PhoneData, RawPhoneData } from "@repo/scraper-domain";
 
-export class OpenAIError extends Error {
-  readonly _tag = "OpenAIError";
+export class RobotError extends Error {
+  readonly _tag = "RobotError";
   readonly cause?: unknown;
   constructor(message: string, options?: { cause?: unknown }) {
     super(message);
@@ -21,13 +21,13 @@ export class OpenAIError extends Error {
 
 export type { PhoneData as NormalizedData };
 
-export interface OpenAIService {
+export interface RobotService {
   readonly adaptScrapedData: (
     data: RawPhoneData,
-  ) => Effect.Effect<PhoneData, OpenAIError>;
+  ) => Effect.Effect<PhoneData, RobotError>;
 }
 
-export const OpenAIService = Context.GenericTag<OpenAIService>("OpenAIService");
+export const RobotService = Context.GenericTag<RobotService>("RobotService");
 
 const SYSTEM_PROMPT = `Ты — эксперт по мобильным устройствам, пишущий для русскоязычной аудитории технически грамотных, но не профессиональных пользователей (как читатели 4PDA или iXBT).
 
@@ -190,7 +190,7 @@ const callGeminiAPI = (
           prompt: userPrompt,
         }),
       catch: (error) =>
-        new OpenAIError(
+        new RobotError(
           `Gemini API call failed: ${error instanceof Error ? error.message : String(error)}`,
           { cause: error },
         ),
@@ -232,6 +232,7 @@ const validateAndMerge = (
       cpu: aiResult.cpu,
       cpuManufacturer: data.cpuManufacturer,
       cpuCores: data.cpuCores,
+      cpuCoreClusters: data.cpuCoreClusters,
       gpu: data.gpu,
       sdSlot: data.sdSlot,
       skus: data.skus,
@@ -260,7 +261,7 @@ const validateAndMerge = (
 
     return yield* decodePhoneData(mergedData).pipe(
       Effect.mapError(
-        (e) => new OpenAIError(`Final validation failed: ${JSON.stringify(e)}`),
+        (e) => new RobotError(`Final validation failed: ${JSON.stringify(e)}`),
       ),
     );
   });
@@ -270,7 +271,7 @@ const adaptScrapedDataImpl = (data: RawPhoneData) =>
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!apiKey) {
       return yield* Effect.fail(
-        new OpenAIError("GOOGLE_GENERATIVE_AI_API_KEY is not available in env"),
+        new RobotError("GOOGLE_GENERATIVE_AI_API_KEY is not available in env"),
       );
     }
 
@@ -279,7 +280,7 @@ const adaptScrapedDataImpl = (data: RawPhoneData) =>
 
     const aiResult = yield* decodeMinimalResponse(rawResult).pipe(
       Effect.mapError(
-        (e) => new OpenAIError(`Validation failed: ${JSON.stringify(e)}`),
+        (e) => new RobotError(`Validation failed: ${JSON.stringify(e)}`),
       ),
     );
 
@@ -301,9 +302,9 @@ const adaptScrapedDataImpl = (data: RawPhoneData) =>
     ),
   );
 
-export const OpenAIServiceLive = Layer.succeed(
-  OpenAIService,
-  OpenAIService.of({
+export const RobotServiceLive = Layer.succeed(
+  RobotService,
+  RobotService.of({
     adaptScrapedData: adaptScrapedDataImpl,
   }),
 );

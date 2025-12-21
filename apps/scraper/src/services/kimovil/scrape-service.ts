@@ -13,7 +13,7 @@ import {
 import { BrowserService, BrowserError } from "../browser";
 import { HtmlCacheService, HtmlCacheError } from "../html-cache";
 import { PhoneDataService, PhoneDataError } from "../phone-data";
-import { OpenAIService, OpenAIError } from "../openai";
+import { RobotService, RobotError } from "../robot";
 import { getHtmlValidationError } from "./validators";
 import {
   extractPhoneData,
@@ -146,10 +146,10 @@ type ScrapeServiceDeps = {
   browserService: BrowserService;
   htmlCache: HtmlCacheService;
   phoneDataService: PhoneDataService;
-  openaiService: OpenAIService;
+  robotService: RobotService;
 };
 
-type AllErrors = ScrapeError | BrowserError | HtmlCacheError | OpenAIError;
+type AllErrors = ScrapeError | BrowserError | HtmlCacheError | RobotError;
 
 const backgroundRefresh = (
   slug: string,
@@ -538,7 +538,7 @@ const scrapeWithCache = (
       message: "Нормализую данные через Gemini 3 Flash...",
     });
 
-    const normalizedData = yield* deps.openaiService.adaptScrapedData(
+    const normalizedData = yield* deps.robotService.adaptScrapedData(
       data as unknown as DomainRawPhoneData,
     );
     const aiMs = elapsed();
@@ -779,13 +779,13 @@ export const ScrapeServiceKimovil = Layer.effect(
     const browserService = yield* BrowserService;
     const htmlCache = yield* HtmlCacheService;
     const phoneDataService = yield* PhoneDataService;
-    const openaiService = yield* OpenAIService;
+    const robotService = yield* RobotService;
 
     const deps: ScrapeServiceDeps = {
       browserService,
       htmlCache,
       phoneDataService,
-      openaiService,
+      robotService,
     };
 
     return ScrapeService.of({

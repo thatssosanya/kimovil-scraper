@@ -4,7 +4,7 @@ import "../sources/kimovil";
 
 import { SearchServiceKimovil } from "../services/search-kimovil";
 import { BrowserServiceLive } from "../services/browser";
-import { OpenAIServiceLive } from "../services/openai";
+import { RobotServiceLive } from "../services/robot";
 import { ScrapeServiceKimovil } from "../services/kimovil";
 import { HtmlCacheServiceLive } from "../services/html-cache";
 import { JobQueueServiceLive } from "../services/job-queue";
@@ -39,14 +39,14 @@ const DataLayer = BaseDataLayer.pipe(
 const ScrapeServiceLayer = ScrapeServiceKimovil.pipe(
   Layer.provide(BrowserServiceLive),
   Layer.provide(DataLayer),
-  Layer.provide(OpenAIServiceLive),
+  Layer.provide(RobotServiceLive),
 );
 
 export const LiveLayer = Layer.mergeAll(
   SearchServiceLayer,
   ScrapeServiceLayer,
   BrowserServiceLive,
-  OpenAIServiceLive,
+  RobotServiceLive,
   DataLayer,
   SqlLayer,
 );

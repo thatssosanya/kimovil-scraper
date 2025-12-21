@@ -15,7 +15,7 @@ import {
   type JobType,
 } from "./job-queue";
 import { BrowserService } from "./browser";
-import { OpenAIService } from "./openai";
+import { RobotService } from "./robot";
 import { extractPhoneData, getHtmlValidationError } from "./kimovil";
 import { ScrapeResult } from "@repo/scraper-protocol";
 
@@ -285,7 +285,7 @@ export class BulkJobManager {
     }
 
     const normalized = await this.runtime.runPromise(
-      Effect.flatMap(OpenAIService, (s) => s.adaptScrapedData(rawData as unknown as RawPhoneData))
+      Effect.flatMap(RobotService, (s) => s.adaptScrapedData(rawData as unknown as RawPhoneData))
     );
 
     await Effect.runPromise(

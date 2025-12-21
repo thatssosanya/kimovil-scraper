@@ -10,8 +10,8 @@ interface PhoneDataModalProps {
   fetchHtml: (slug: string) => Promise<{ html: string | null }>;
   fetchRawData: (slug: string) => Promise<PhoneDataRaw | null>;
   fetchAiData: (slug: string) => Promise<PhoneDataAi | null>;
-  onProcessRaw?: (slug: string) => Promise<boolean>;
-  onProcessAi?: (slug: string) => Promise<boolean>;
+  onProcessRaw?: (slug: string) => Promise<{ success: boolean; error?: string }>;
+  onProcessAi?: (slug: string) => Promise<{ success: boolean; error?: string }>;
   onStatusChange?: () => void;
 }
 
@@ -117,6 +117,10 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
   const [rawProcessing, setRawProcessing] = createSignal(false);
   const [aiProcessing, setAiProcessing] = createSignal(false);
 
+  // Error states
+  const [rawError, setRawError] = createSignal<string | null>(null);
+  const [aiError, setAiError] = createSignal<string | null>(null);
+
   // Track what's been fetched
   const [htmlFetched, setHtmlFetched] = createSignal(false);
   const [rawFetched, setRawFetched] = createSignal(false);
@@ -134,6 +138,8 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
         setHtmlFetched(false);
         setRawFetched(false);
         setAiFetched(false);
+        setRawError(null);
+        setAiError(null);
       },
     ),
   );
@@ -172,9 +178,9 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
   const handleProcessRaw = async () => {
     if (!props.slug || !props.onProcessRaw) return;
     setRawProcessing(true);
-    const success = await props.onProcessRaw(props.slug);
-    if (success) {
-      // Refetch raw data
+    setRawError(null);
+    const result = await props.onProcessRaw(props.slug);
+    if (result.success) {
       setRawFetched(false);
       setRawLoading(true);
       const data = await props.fetchRawData(props.slug);
@@ -182,6 +188,8 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
       setRawFetched(true);
       setRawLoading(false);
       props.onStatusChange?.();
+    } else {
+      setRawError(result.error || "Processing failed");
     }
     setRawProcessing(false);
   };
@@ -189,9 +197,9 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
   const handleProcessAi = async () => {
     if (!props.slug || !props.onProcessAi) return;
     setAiProcessing(true);
-    const success = await props.onProcessAi(props.slug);
-    if (success) {
-      // Refetch AI data
+    setAiError(null);
+    const result = await props.onProcessAi(props.slug);
+    if (result.success) {
       setAiFetched(false);
       setAiLoading(true);
       const data = await props.fetchAiData(props.slug);
@@ -199,6 +207,8 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
       setAiFetched(true);
       setAiLoading(false);
       props.onStatusChange?.();
+    } else {
+      setAiError(result.error || "Processing failed");
     }
     setAiProcessing(false);
   };
@@ -334,6 +344,12 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
                       loading={rawProcessing()}
                       onClick={handleProcessRaw}
                     />
+                    <Show when={rawError()}>
+                      <div class="mt-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm max-w-sm">
+                        <div class="font-medium">Processing failed</div>
+                        <div class="text-rose-400/70 mt-1">{rawError()}</div>
+                      </div>
+                    </Show>
                   </EmptyStateWithAction>
                 </Show>
               </div>
@@ -369,6 +385,12 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
                       loading={aiProcessing()}
                       onClick={handleProcessAi}
                     />
+                    <Show when={aiError()}>
+                      <div class="mt-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm max-w-sm">
+                        <div class="font-medium">Processing failed</div>
+                        <div class="text-rose-400/70 mt-1">{aiError()}</div>
+                      </div>
+                    </Show>
                   </EmptyStateWithAction>
                 </Show>
               </div>
