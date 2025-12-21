@@ -279,6 +279,123 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_quarantine_slug ON quarantine(slug)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_quarantine_source ON quarantine(source_table)`);
 
+    // Phase 1: Multi-source schema extensions
+    // Add new columns to existing tables
+    yield* ensureColumn(sql, "jobs", "source", "TEXT NOT NULL DEFAULT 'kimovil'");
+    yield* ensureColumn(sql, "jobs", "data_kind", "TEXT NOT NULL DEFAULT 'specs'");
+    yield* ensureColumn(sql, "job_queue", "source", "TEXT NOT NULL DEFAULT 'kimovil'");
+    yield* ensureColumn(sql, "job_queue", "data_kind", "TEXT NOT NULL DEFAULT 'specs'");
+    yield* ensureColumn(sql, "job_queue", "scrape_id", "INTEGER");
+    yield* ensureColumn(sql, "raw_html", "scrape_id", "INTEGER");
+    yield* ensureColumn(sql, "scrape_verification", "scrape_id", "INTEGER");
+
+    // Canonical device registry
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS devices (
+        id TEXT PRIMARY KEY,
+        slug TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        brand TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )
+    `);
+
+    // Links devices to external sources
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS device_sources (
+        device_id TEXT NOT NULL REFERENCES devices(id),
+        source TEXT NOT NULL,
+        external_id TEXT NOT NULL,
+        url TEXT,
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','missing','deleted','conflict')),
+        first_seen INTEGER NOT NULL DEFAULT (unixepoch()),
+        last_seen INTEGER NOT NULL DEFAULT (unixepoch()),
+        PRIMARY KEY (source, external_id),
+        UNIQUE (device_id, source)
+      )
+    `);
+
+    // Individual scrape attempts
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS scrapes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id TEXT REFERENCES devices(id),
+        source TEXT NOT NULL,
+        data_kind TEXT NOT NULL,
+        external_id TEXT NOT NULL,
+        url TEXT,
+        requested_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        started_at INTEGER,
+        completed_at INTEGER,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','done','error')),
+        error_message TEXT
+      )
+    `);
+
+    // Source-specific extracted data
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS entity_data_raw (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id TEXT NOT NULL REFERENCES devices(id),
+        source TEXT NOT NULL,
+        data_kind TEXT NOT NULL,
+        scrape_id INTEGER REFERENCES scrapes(id),
+        data TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        UNIQUE(device_id, source, data_kind)
+      )
+    `);
+
+    // Normalized/merged data
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS entity_data (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id TEXT NOT NULL REFERENCES devices(id),
+        data_kind TEXT NOT NULL,
+        data TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        UNIQUE(device_id, data_kind)
+      )
+    `);
+
+    // Price quotes
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS price_quotes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id TEXT NOT NULL REFERENCES devices(id),
+        source TEXT NOT NULL,
+        seller TEXT,
+        price_minor_units INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        url TEXT,
+        scraped_at INTEGER NOT NULL,
+        scrape_id INTEGER REFERENCES scrapes(id),
+        is_available INTEGER NOT NULL DEFAULT 1
+      )
+    `);
+
+    // Price summary
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS price_summary (
+        device_id TEXT PRIMARY KEY REFERENCES devices(id),
+        min_price_minor_units INTEGER,
+        max_price_minor_units INTEGER,
+        currency TEXT,
+        updated_at INTEGER
+      )
+    `);
+
+    // New indexes for multi-source tables
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_scrapes_device ON scrapes(device_id)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_scrapes_source_ext ON scrapes(source, external_id)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_price_quotes_device ON price_quotes(device_id, source, scraped_at)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_entity_data_raw_device ON entity_data_raw(device_id)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_entity_data_device ON entity_data(device_id)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_sources_device ON device_sources(device_id)`);
+
     yield* Effect.logInfo("Schema initialized");
   });
 
