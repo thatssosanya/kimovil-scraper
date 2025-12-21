@@ -27,7 +27,6 @@ import {
 } from "@repo/scraper-protocol";
 import {
   SearchService,
-  SearchError,
   ScrapeService,
   ScrapeError,
   SearchEvent,
@@ -679,12 +678,20 @@ export function createWsServer(
         yield* (handler(request, ws) as Effect.Effect<void, unknown, never>).pipe(
           Effect.catchAll((error) =>
             Effect.gen(function* () {
-              const errorCode =
-                error instanceof SearchError
-                  ? "SEARCH_FAILED"
-                  : error instanceof ScrapeError
-                    ? "SCRAPE_FAILED"
-                    : "INTERNAL_ERROR";
+              const tag =
+                error && typeof error === "object" && "_tag" in error
+                  ? (error as { _tag: string })._tag
+                  : null;
+              const isSearchError =
+                tag === "KimovilHttpError" ||
+                tag === "KimovilInvalidResponseError" ||
+                tag === "SearchBrowserError" ||
+                tag === "SearchRetryExhaustedError";
+              const errorCode = isSearchError
+                ? "SEARCH_FAILED"
+                : error instanceof ScrapeError
+                  ? "SCRAPE_FAILED"
+                  : "INTERNAL_ERROR";
               const errorResponse = new ErrorResponse({
                 id: request.id,
                 error: {

@@ -1,14 +1,32 @@
-import { Effect, Context, Stream } from "effect";
+import { Context, Stream, Data } from "effect";
 import { SearchResult } from "@repo/scraper-protocol";
 
-export class SearchError extends Error {
-  readonly _tag = "SearchError";
-  readonly cause?: unknown;
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message);
-    if (options?.cause) this.cause = options.cause;
-  }
-}
+export class KimovilHttpError extends Data.TaggedError("KimovilHttpError")<{
+  readonly url: string;
+  readonly status: number;
+  readonly statusText: string;
+  readonly attempt: number;
+}> {}
+
+export class KimovilInvalidResponseError extends Data.TaggedError("KimovilInvalidResponseError")<{
+  readonly url: string;
+  readonly attempt: number;
+  readonly raw: unknown;
+}> {}
+
+export class SearchBrowserError extends Data.TaggedError("SearchBrowserError")<{
+  readonly message: string;
+  readonly attempt: number;
+}> {}
+
+export class SearchRetryExhaustedError extends Data.TaggedError("SearchRetryExhaustedError")<{
+  readonly query: string;
+  readonly attempts: number;
+  readonly lastError: SearchLeafError;
+}> {}
+
+export type SearchLeafError = KimovilHttpError | KimovilInvalidResponseError | SearchBrowserError;
+export type SearchError = SearchLeafError | SearchRetryExhaustedError;
 
 // Event types that can be streamed during search
 export type SearchEvent = 

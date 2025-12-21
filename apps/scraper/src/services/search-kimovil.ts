@@ -1,16 +1,30 @@
 import { Layer, Effect, Stream, Schedule, Ref } from "effect";
-import { SearchService, SearchError, SearchEvent } from "@repo/scraper-domain";
+import {
+  SearchService,
+  SearchEvent,
+  SearchLeafError,
+  SearchRetryExhaustedError,
+  KimovilHttpError,
+  KimovilInvalidResponseError,
+  SearchBrowserError,
+} from "@repo/scraper-domain";
 import { SearchResult, SearchOption } from "@repo/scraper-protocol";
-import { BrowserService } from "./browser";
+import { BrowserService, BrowserError } from "./browser";
 
 const MAX_RETRIES = 3;
 
-// Kimovil API response type
 interface KimovilResponse {
   results: Array<{
     full_name: string;
     url: string;
   }>;
+}
+
+interface HttpFailure {
+  _tag: "HttpFailure";
+  status: number;
+  statusText: string;
+  url: string;
 }
 
 export const SearchServiceKimovil = Layer.effect(
@@ -25,73 +39,100 @@ export const SearchServiceKimovil = Layer.effect(
             const attemptRef = yield* Ref.make(0);
             const eventsRef = yield* Ref.make<SearchEvent[]>([]);
 
+            const url = `https://www.kimovil.com/_json/autocomplete_devicemodels_joined.json?device_type=0&name=${encodeURIComponent(query)}`;
+
             const searchEffect = Effect.gen(function* () {
               const attempt = yield* Ref.updateAndGet(attemptRef, (n) => n + 1);
 
-              // Build kimovil API URL
-              const url = `https://www.kimovil.com/_json/autocomplete_devicemodels_joined.json?device_type=0&name=${encodeURIComponent(query)}`;
-
-              // Make request via persistent stealth browser page
               const data = yield* browserService
                 .withPersistentStealthPage((page) =>
                   Effect.tryPromise({
                     try: async () => {
-                      const result = await page.evaluate(async (url: string) => {
-                        const res = await fetch(url, { credentials: "include" });
-                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                      const result = await page.evaluate(async (u: string) => {
+                        const res = await fetch(u, { credentials: "include" });
+                        if (!res.ok) {
+                          throw {
+                            _tag: "HttpFailure",
+                            status: res.status,
+                            statusText: res.statusText,
+                            url: u,
+                          };
+                        }
                         return await res.json();
                       }, url);
                       return result as KimovilResponse;
                     },
-                    catch: (error) =>
-                      new SearchError(
-                        `Kimovil API request failed (attempt ${attempt}): ${error}`,
-                        { cause: error },
-                      ),
+                    catch: (error) => error,
                   }),
                 )
                 .pipe(
-                  Effect.catchAll((error) =>
-                    Effect.fail(
-                      new SearchError(
-                        `Kimovil API request failed (attempt ${attempt}): ${error}`,
-                        { cause: error },
-                      ),
-                    ),
+                  Effect.flatMap((result) =>
+                    Effect.succeed(result as KimovilResponse),
                   ),
+                  Effect.mapError((error): SearchLeafError => {
+                    if (
+                      error &&
+                      typeof error === "object" &&
+                      (error as HttpFailure)._tag === "HttpFailure"
+                    ) {
+                      const e = error as HttpFailure;
+                      return new KimovilHttpError({
+                        url: e.url,
+                        status: e.status,
+                        statusText: e.statusText,
+                        attempt,
+                      });
+                    }
+                    if (error instanceof BrowserError) {
+                      return new SearchBrowserError({
+                        message: error.message,
+                        attempt,
+                      });
+                    }
+                    return new KimovilHttpError({
+                      url,
+                      status: -1,
+                      statusText: String(error),
+                      attempt,
+                    });
+                  }),
                 );
-              
+
               if (!data.results || !Array.isArray(data.results)) {
                 return yield* Effect.fail(
-                  new SearchError("Invalid response from Kimovil API")
+                  new KimovilInvalidResponseError({
+                    url,
+                    attempt,
+                    raw: data,
+                  }),
                 );
               }
 
-              // Map to our SearchResult format
               return new SearchResult({
-                options: data.results.map((item) =>
-                  new SearchOption({
-                    name: item.full_name,
-                    slug: item.url,
-                    url: `https://www.kimovil.com/en/${item.url}`,
-                  })
+                options: data.results.map(
+                  (item) =>
+                    new SearchOption({
+                      name: item.full_name,
+                      slug: item.url,
+                      url: `https://www.kimovil.com/en/${item.url}`,
+                    }),
                 ),
               });
             });
 
-            // Retry logic with exponential backoff
             const searchWithRetry = searchEffect.pipe(
               Effect.retry({
                 schedule: Schedule.exponential("1 second").pipe(
-                  Schedule.compose(Schedule.recurs(MAX_RETRIES))
+                  Schedule.compose(Schedule.recurs(MAX_RETRIES)),
                 ),
-                while: (error) => error instanceof SearchError,
+                while: (error) =>
+                  error._tag === "KimovilHttpError" ||
+                  error._tag === "SearchBrowserError",
               }),
-              Effect.tapErrorCause((cause) =>
+              Effect.tapErrorCause(() =>
                 Effect.gen(function* () {
                   const attempt = yield* Ref.get(attemptRef);
                   if (attempt <= MAX_RETRIES) {
-                    // Add retry event
                     const retryEvent: SearchEvent = {
                       type: "retry",
                       attempt,
@@ -104,26 +145,23 @@ export const SearchServiceKimovil = Layer.effect(
                       retryEvent,
                     ]);
                   }
-                })
-              )
+                }),
+              ),
             );
 
-            // Execute search and get result
             const result = yield* searchWithRetry.pipe(
-              Effect.catchAll((error) =>
-                Effect.fail(
-                  new SearchError(
-                    `Search failed after ${MAX_RETRIES} retries: ${error.message}`,
-                    { cause: error },
-                  )
-                )
-              )
+              Effect.mapError(
+                (lastError) =>
+                  new SearchRetryExhaustedError({
+                    query,
+                    attempts: MAX_RETRIES,
+                    lastError,
+                  }),
+              ),
             );
 
-            // Get all events that were collected during retries
             const events = yield* Ref.get(eventsRef);
 
-            // Return stream with log event, retry events, then result
             const headLog: SearchEvent = {
               type: "log",
               level: "info",
@@ -135,8 +173,8 @@ export const SearchServiceKimovil = Layer.effect(
               ...events,
               result,
             ]);
-          })
+          }),
         ),
     };
-  })
+  }),
 );

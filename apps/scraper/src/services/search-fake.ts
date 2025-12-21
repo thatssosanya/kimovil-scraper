@@ -1,5 +1,5 @@
-import { Layer, Effect, Stream, Schedule, Ref } from "effect";
-import { SearchService, SearchError, SearchEvent } from "@repo/scraper-domain";
+import { Layer, Effect, Stream, Ref } from "effect";
+import { SearchService, SearchEvent, KimovilHttpError } from "@repo/scraper-domain";
 import { SearchResult, SearchOption } from "@repo/scraper-protocol";
 
 const MAX_RETRIES = 3;
@@ -20,7 +20,12 @@ export const SearchServiceFake = Layer.succeed(SearchService, {
           const shouldFail = Math.random() < 0.6;
           if (shouldFail && attempt <= MAX_RETRIES) {
             return yield* Effect.fail(
-              new SearchError(`Search attempt ${attempt} failed`)
+              new KimovilHttpError({
+                url: "fake://kimovil",
+                status: 500,
+                statusText: `Search attempt ${attempt} failed`,
+                attempt,
+              })
             );
           }
 
