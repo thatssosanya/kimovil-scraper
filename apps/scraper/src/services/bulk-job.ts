@@ -543,9 +543,18 @@ export class BulkJobManager {
       const totalDuration = formatDuration(Date.now() - jobStart);
       const stats = await this.getStatsWithTimeout(jobQueue, jobId);
 
-      if (state.paused) {
+      const isComplete = stats.pending === 0 && stats.running === 0;
+
+      if (state.paused && !isComplete) {
         log.info(tag, `⏸ Workers stopped (paused after ${totalDuration})`);
         return;
+      }
+
+      if (state.paused && isComplete) {
+        log.info(
+          tag,
+          `⏸ Pause requested but job already complete - marking done`
+        );
       }
 
       const finalStatus = "done";

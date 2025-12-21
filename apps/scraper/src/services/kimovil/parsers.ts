@@ -214,3 +214,96 @@ export const getSoftware = (
   const osSkinSplit = osSkinPart?.split("(") ?? [];
   return { os: osMatch[0], osSkin: osSkinSplit[0]?.trim() ?? "" };
 };
+
+export interface SimInfo {
+  simCount: number;
+  simTypes: string[];
+  slots: string[][];
+}
+
+const normalizeSimType = (raw: string): string | null => {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const lower = trimmed.toLowerCase().replace(/\s+/g, " ");
+
+  if (lower.includes("nano") && lower.includes("sim")) return "Nano SIM";
+  if (lower.includes("micro") && lower.includes("sim")) return "Micro SIM";
+  if (lower.includes("mini") && lower.includes("sim")) return "Mini SIM";
+  if (lower.includes("esim") || lower.includes("e-sim")) return "eSIM";
+  if (lower.includes("unknown")) return "Unknown";
+
+  return trimmed.replace(/\s+/g, " ");
+};
+
+const inferCountFromPrefix = (input: string): number | null => {
+  const lower = input.toLowerCase();
+
+  if (/\btriple\s+sim\b/.test(lower)) return 3;
+  if (/\bdual\s+sim\b/.test(lower)) return 2;
+  if (/\bsingle\s+sim\b/.test(lower)) return 1;
+
+  return null;
+};
+
+export const parseSim = (input: string | null): SimInfo => {
+  const trimmed = (input || "").trim();
+  const slots: string[][] = [];
+  const typeSet = new Set<string>();
+
+  if (!trimmed) {
+    return { simCount: 0, simTypes: [], slots: [] };
+  }
+
+  const openIdx = trimmed.indexOf("(");
+  const closeIdx = trimmed.lastIndexOf(")");
+  let inside: string | null = null;
+
+  if (openIdx !== -1 && closeIdx > openIdx) {
+    inside = trimmed.slice(openIdx + 1, closeIdx).trim();
+  }
+
+  if (inside) {
+    const slotParts = inside
+      .split("+")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    for (const slotPart of slotParts) {
+      const optionParts = slotPart
+        .split("/")
+        .map((s) => normalizeSimType(s))
+        .filter((s): s is string => !!s);
+
+      const seen = new Set<string>();
+      const options: string[] = [];
+      for (const opt of optionParts) {
+        if (!seen.has(opt)) {
+          seen.add(opt);
+          options.push(opt);
+          typeSet.add(opt);
+        }
+      }
+
+      slots.push(options);
+    }
+  }
+
+  let simCount = slots.length;
+
+  if (simCount === 0) {
+    const inferred = inferCountFromPrefix(trimmed);
+    if (inferred != null) {
+      simCount = inferred;
+      for (let i = 0; i < simCount; i++) {
+        slots.push([]);
+      }
+    }
+  }
+
+  return {
+    simCount,
+    simTypes: Array.from(typeSet),
+    slots,
+  };
+};

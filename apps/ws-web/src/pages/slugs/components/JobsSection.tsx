@@ -1,10 +1,17 @@
 import { Show, For } from "solid-js";
-import type { BulkJobInfo, BulkJobStats } from "../types";
+import type { JobEntry, OptimisticStatus } from "../hooks/useBulkJobs";
+import type { BulkJobInfo } from "../types";
+
+type DisplayStatus = BulkJobInfo["status"] | OptimisticStatus;
+
+function getDisplayStatus(item: JobEntry): DisplayStatus {
+  return item.optimisticStatus ?? item.job.status;
+}
 
 interface JobsSectionProps {
-  allJobs: Array<{ job: BulkJobInfo; stats: BulkJobStats }>;
+  allJobs: JobEntry[];
   selectedJobId: string | null;
-  selectedJob: { job: BulkJobInfo; stats: BulkJobStats } | null;
+  selectedJob: JobEntry | null;
   jobsExpanded: boolean;
   onToggleExpanded: () => void;
   onSelectJob: (jobId: string) => void;
@@ -77,20 +84,22 @@ export function JobsSection(props: JobsSectionProps) {
               </thead>
               <tbody class="divide-y divide-slate-800">
                 <For each={props.allJobs}>
-                  {(item) => (
-                    <tr
-                      class={`cursor-pointer transition-colors ${
-                        props.selectedJobId === item.job.id
-                          ? "bg-indigo-500/10 ring-1 ring-inset ring-indigo-500/30"
-                          : "hover:bg-slate-800/30"
-                      }`}
-                      onClick={() => props.onSelectJob(item.job.id)}
-                    >
-                      <td class="p-4">
-                        <div class="flex flex-col">
-                          <span class="font-mono text-[10px] text-slate-300">
-                            {item.job.id}
-                          </span>
+                  {(item) => {
+                    const status = () => item.optimisticStatus ?? item.job.status;
+                    return (
+                      <tr
+                        class={`cursor-pointer transition-colors ${
+                          props.selectedJobId === item.job.id
+                            ? "bg-indigo-500/10 ring-1 ring-inset ring-indigo-500/30"
+                            : "hover:bg-slate-800/30"
+                        }`}
+                        onClick={() => props.onSelectJob(item.job.id)}
+                      >
+                        <td class="p-4">
+                          <div class="flex flex-col">
+                            <span class="font-mono text-[10px] text-slate-300">
+                              {item.job.id}
+                            </span>
                           <span class="text-xs text-slate-500">
                             {new Date(
                               item.job.createdAt * 1000,
@@ -121,30 +130,35 @@ export function JobsSection(props: JobsSectionProps) {
                         <div class="flex flex-col gap-1">
                           <span
                             class={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide border inline-flex items-center gap-1.5 w-fit ${
-                              item.job.status === "running"
+                              status() === "running" || status() === "resuming"
                                 ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20 animate-pulse"
-                                : item.job.status === "paused"
+                                : status() === "paused" || status() === "pausing"
                                   ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                                  : item.job.status === "done" &&
-                                      item.stats.error > 0
+                                  : status() === "done" && item.stats.error > 0
                                     ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                                    : item.job.status === "done"
+                                    : status() === "done"
                                       ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                                      : item.job.status === "error"
+                                      : status() === "error"
                                         ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
                                         : "bg-slate-800 text-slate-400 border-slate-700"
                             }`}
                           >
                             <span
                               class={`w-1.5 h-1.5 rounded-full ${
-                                item.job.status === "running"
-                                  ? "bg-indigo-400"
-                                  : "bg-current"
+                                status() === "running" || status() === "resuming"
+                                  ? "bg-indigo-400 animate-pulse"
+                                  : status() === "pausing"
+                                    ? "bg-amber-400 animate-pulse"
+                                    : "bg-current"
                               }`}
                             ></span>
-                            {item.job.status === "done" && item.stats.error > 0
+                            {status() === "done" && item.stats.error > 0
                               ? "done w/ errors"
-                              : item.job.status}
+                              : status() === "pausing"
+                                ? "pausing…"
+                                : status() === "resuming"
+                                  ? "resuming…"
+                                  : status}
                           </span>
                           <Show when={item.stats.error > 0}>
                             <button
@@ -155,7 +169,7 @@ export function JobsSection(props: JobsSectionProps) {
                               }}
                             >
                               {item.stats.error} failed items
-                              {item.job.status === "done" ? " (retryable)" : ""}
+                              {status() === "done" ? " (retryable)" : ""}
                             </button>
                           </Show>
                           <Show when={item.job.errorMessage}>
@@ -187,9 +201,9 @@ export function JobsSection(props: JobsSectionProps) {
                           <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
                             <div
                               class={`h-full transition-all duration-500 ${
-                                item.job.status === "error"
+                                status() === "error"
                                   ? "bg-rose-500"
-                                  : item.job.status === "done"
+                                  : status() === "done"
                                     ? "bg-emerald-500"
                                     : "bg-indigo-500"
                               }`}
@@ -235,7 +249,7 @@ export function JobsSection(props: JobsSectionProps) {
                           class="bg-slate-900 border border-slate-700 text-slate-300 text-xs rounded-lg px-2 py-1 outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                           value={item.job.workerCount || 2}
                           disabled={
-                            !["running", "paused"].includes(item.job.status)
+                            !["running", "paused", "pausing", "resuming"].includes(status())
                           }
                           onChange={(e) =>
                             props.onSetWorkers(
@@ -255,7 +269,7 @@ export function JobsSection(props: JobsSectionProps) {
                         class="p-4 text-right"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <Show when={item.job.status === "running"}>
+                        <Show when={status() === "running"}>
                           <button
                             class="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-amber-500/20"
                             onClick={() => props.onPause(item.job.id)}
@@ -263,24 +277,31 @@ export function JobsSection(props: JobsSectionProps) {
                             Pause
                           </button>
                         </Show>
-                        <Show
-                          when={
-                            item.job.status === "paused" ||
-                            item.job.status === "error"
-                          }
-                        >
+                        <Show when={status() === "pausing"}>
+                          <button
+                            class="text-amber-400/50 px-3 py-1.5 rounded-lg text-xs font-medium border border-amber-500/10 cursor-not-allowed"
+                            disabled
+                          >
+                            Pausing…
+                          </button>
+                        </Show>
+                        <Show when={status() === "resuming"}>
+                          <button
+                            class="text-emerald-400/50 px-3 py-1.5 rounded-lg text-xs font-medium border border-emerald-500/10 cursor-not-allowed"
+                            disabled
+                          >
+                            Resuming…
+                          </button>
+                        </Show>
+                        <Show when={status() === "paused" || status() === "error"}>
                           <button
                             class="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-emerald-500/20"
                             onClick={() => props.onResume(item.job.id)}
                           >
-                            {item.job.status === "error" ? "Retry" : "Resume"}
+                            {status() === "error" ? "Retry" : "Resume"}
                           </button>
                         </Show>
-                        <Show
-                          when={
-                            item.job.status === "done" && item.stats.error > 0
-                          }
-                        >
+                        <Show when={status() === "done" && item.stats.error > 0}>
                           <button
                             class="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-rose-500/20"
                             onClick={() => props.onResume(item.job.id)}
@@ -290,7 +311,8 @@ export function JobsSection(props: JobsSectionProps) {
                         </Show>
                       </td>
                     </tr>
-                  )}
+                  );
+                  }}
                 </For>
                 <Show when={props.allJobs.length === 0}>
                   <tr>
@@ -309,29 +331,37 @@ export function JobsSection(props: JobsSectionProps) {
 
         {/* Selected Job Detail Panel - the kept view */}
         <Show when={props.selectedJob}>
-          <div class="mt-4 bg-slate-800/50 border border-slate-700 rounded-xl p-5 animate-in slide-in-from-top-2 duration-200">
-            <div class="flex items-start justify-between mb-4">
-              <div>
-                <div class="flex items-center gap-3">
-                  <h4 class="text-base font-semibold text-slate-200">
-                    Job {props.selectedJob!.job.id.slice(0, 8)}
-                  </h4>
-                  <span
-                    class={`px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide border ${
-                      props.selectedJob!.job.status === "running"
-                        ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20 animate-pulse"
-                        : props.selectedJob!.job.status === "paused"
-                          ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                          : props.selectedJob!.job.status === "done"
-                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                            : props.selectedJob!.job.status === "error"
-                              ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                              : "bg-slate-800 text-slate-400 border-slate-700"
-                    }`}
-                  >
-                    {props.selectedJob!.job.status}
-                  </span>
-                </div>
+          {(() => {
+            const selectedStatus = () =>
+              props.selectedJob!.optimisticStatus ?? props.selectedJob!.job.status;
+            return (
+              <div class="mt-4 bg-slate-800/50 border border-slate-700 rounded-xl p-5 animate-in slide-in-from-top-2 duration-200">
+                <div class="flex items-start justify-between mb-4">
+                  <div>
+                    <div class="flex items-center gap-3">
+                      <h4 class="text-base font-semibold text-slate-200">
+                        Job {props.selectedJob!.job.id.slice(0, 8)}
+                      </h4>
+                      <span
+                        class={`px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide border ${
+                          selectedStatus() === "running" || selectedStatus() === "resuming"
+                            ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20 animate-pulse"
+                            : selectedStatus() === "paused" || selectedStatus() === "pausing"
+                              ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                              : selectedStatus() === "done"
+                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                : selectedStatus() === "error"
+                                  ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                                  : "bg-slate-800 text-slate-400 border-slate-700"
+                        }`}
+                      >
+                        {selectedStatus() === "pausing"
+                          ? "pausing…"
+                          : selectedStatus() === "resuming"
+                            ? "resuming…"
+                            : selectedStatus()}
+                      </span>
+                    </div>
                 <div class="text-xs text-slate-500 mt-1">
                   Created:{" "}
                   {new Date(
@@ -391,9 +421,9 @@ export function JobsSection(props: JobsSectionProps) {
               <div class="h-2 bg-slate-700 rounded-full overflow-hidden">
                 <div
                   class={`h-full transition-all duration-500 ${
-                    props.selectedJob!.job.status === "error"
+                    selectedStatus() === "error"
                       ? "bg-rose-500"
-                      : props.selectedJob!.job.status === "done"
+                      : selectedStatus() === "done"
                         ? "bg-emerald-500"
                         : "bg-gradient-to-r from-indigo-500 to-cyan-400"
                   }`}
@@ -473,10 +503,7 @@ export function JobsSection(props: JobsSectionProps) {
 
             {/* Error banner for done jobs with failures */}
             <Show
-              when={
-                props.selectedJob!.job.status === "done" &&
-                props.selectedJob!.stats.error > 0
-              }
+              when={selectedStatus() === "done" && props.selectedJob!.stats.error > 0}
             >
               <div class="mt-4 bg-rose-500/10 border border-rose-500/20 rounded-lg p-3 flex items-center justify-between">
                 <button
@@ -524,8 +551,8 @@ export function JobsSection(props: JobsSectionProps) {
                     )
                   }
                   disabled={
-                    !["running", "paused"].includes(
-                      props.selectedJob!.job.status,
+                    !["running", "paused", "pausing", "resuming"].includes(
+                      selectedStatus(),
                     )
                   }
                 >
@@ -535,7 +562,7 @@ export function JobsSection(props: JobsSectionProps) {
                 </select>
               </div>
               <div class="flex gap-2">
-                <Show when={props.selectedJob!.job.status === "running"}>
+                <Show when={selectedStatus() === "running"}>
                   <button
                     class="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-amber-500/20"
                     onClick={() => props.onPause(props.selectedJob!.job.id)}
@@ -543,27 +570,31 @@ export function JobsSection(props: JobsSectionProps) {
                     Pause
                   </button>
                 </Show>
-                <Show
-                  when={
-                    props.selectedJob!.job.status === "paused" ||
-                    props.selectedJob!.job.status === "error"
-                  }
-                >
+                <Show when={selectedStatus() === "pausing"}>
+                  <button
+                    class="text-amber-400/50 px-3 py-1.5 rounded-lg text-xs font-medium border border-amber-500/10 cursor-not-allowed"
+                    disabled
+                  >
+                    Pausing…
+                  </button>
+                </Show>
+                <Show when={selectedStatus() === "resuming"}>
+                  <button
+                    class="text-emerald-400/50 px-3 py-1.5 rounded-lg text-xs font-medium border border-emerald-500/10 cursor-not-allowed"
+                    disabled
+                  >
+                    Resuming…
+                  </button>
+                </Show>
+                <Show when={selectedStatus() === "paused" || selectedStatus() === "error"}>
                   <button
                     class="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-emerald-500/20"
                     onClick={() => props.onResume(props.selectedJob!.job.id)}
                   >
-                    {props.selectedJob!.job.status === "error"
-                      ? "Retry All"
-                      : "Resume"}
+                    {selectedStatus() === "error" ? "Retry All" : "Resume"}
                   </button>
                 </Show>
-                <Show
-                  when={
-                    props.selectedJob!.job.status === "done" &&
-                    props.selectedJob!.stats.error > 0
-                  }
-                >
+                <Show when={selectedStatus() === "done" && props.selectedJob!.stats.error > 0}>
                   <button
                     class="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-rose-500/20"
                     onClick={() => props.onResume(props.selectedJob!.job.id)}
@@ -574,6 +605,8 @@ export function JobsSection(props: JobsSectionProps) {
               </div>
             </div>
           </div>
+            );
+          })()}
         </Show>
       </Show>
     </div>

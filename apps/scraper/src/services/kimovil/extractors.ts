@@ -1,7 +1,7 @@
 import { Effect, Option } from "effect";
 import { Page } from "playwright";
 import { SingleCameraData, Sku, Benchmark } from "@repo/scraper-protocol";
-import { getCpuCores, getCpuCoreClusters, parseReleaseDate, getSoftware } from "./parsers";
+import { getCpuCores, getCpuCoreClusters, parseReleaseDate, getSoftware, parseSim } from "./parsers";
 import type { CpuCoreCluster } from "./parsers";
 import {
   ExtractionContext,
@@ -14,8 +14,7 @@ import {
   fixImageUrl,
 } from "./extraction";
 
-const SIM_TYPES = ["Nano-SIM", "Mini-SIM", "Micro-SIM", "eSIM"] as const;
-type Sim = (typeof SIM_TYPES)[number];
+
 
 type DirtySku = { ram: number; rom: number };
 type DirtyMarket = { mkid: string; devices: DirtySku[] };
@@ -416,21 +415,9 @@ export const extractPhoneDataAsync = async (
   const simText = await extractText(
     'section.container-sheet-connectivity h3.k-h4:has-text("SIM card") + .k-dltable tr:has-text("Type") td'
   );
-  const sim: Sim[] = [];
-  if (simText) {
-    let trimmedSimText = simText.slice(
-      simText.indexOf("("),
-      simText.indexOf(")") + 1
-    );
-    for (const simType of SIM_TYPES) {
-      const i = trimmedSimText.indexOf(simType);
-      if (i !== -1 && trimmedSimText) {
-        sim.push(simType);
-        trimmedSimText =
-          trimmedSimText.slice(0, i) + trimmedSimText.slice(i + simType.length);
-      }
-    }
-  }
+  const simInfo = parseSim(simText);
+  const sim = simInfo.simTypes;
+  const simCount = simInfo.simCount;
 
   const headphoneJackText = await extractText(
     'section.container-sheet-connectivity .k-dltable tr:has-text("Audio Jack") td'
@@ -554,7 +541,7 @@ export const extractPhoneDataAsync = async (
     nfc,
     bluetooth,
     sim,
-    simCount: sim.length,
+    simCount,
     usb,
     headphoneJack,
     batteryCapacity_mah,

@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, createMemo } from "solid-js";
+import { createStore, produce, reconcile } from "solid-js/store";
 import type {
   BulkJobInfo,
   BulkJobStats,
@@ -14,15 +15,21 @@ interface UseBulkJobsOptions {
   onJobComplete: () => void;
 }
 
+export type OptimisticStatus = "pausing" | "resuming";
+
+export interface JobEntry {
+  job: BulkJobInfo;
+  stats: BulkJobStats;
+  optimisticStatus?: OptimisticStatus;
+}
+
 export function useBulkJobs(options: UseBulkJobsOptions) {
   const [wsConnected, setWsConnected] = createSignal(false);
   const [bulkJob, setBulkJob] = createSignal<BulkJobInfo | null>(null);
   const [bulkJobStats, setBulkJobStats] = createSignal<BulkJobStats | null>(
     null,
   );
-  const [allJobs, setAllJobs] = createSignal<
-    Array<{ job: BulkJobInfo; stats: BulkJobStats }>
-  >([]);
+  const [allJobs, setAllJobs] = createStore<JobEntry[]>([]);
   const [selectedJobId, setSelectedJobId] = createSignal<string | null>(null);
   const [lastCompleted, setLastCompleted] =
     createSignal<BulkLastCompleted | null>(null);
@@ -37,7 +44,7 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
   const selectedJob = createMemo(() => {
     const id = selectedJobId();
     if (!id) return null;
-    return allJobs().find((j) => j.job.id === id) ?? null;
+    return allJobs.find((j) => j.job.id === id) ?? null;
   });
 
   const formatTimeRemaining = (targetTimestamp: number | null) => {
@@ -109,7 +116,7 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
 
         if (data.id) {
           if (data.id === "req-list" && data.result?.jobs) {
-            setAllJobs(data.result.jobs);
+            setAllJobs(reconcile(data.result.jobs, { key: "job.id", merge: true }));
             if (bulkJob()) {
               const currentInList = data.result.jobs.find(
                 (j: { job: BulkJobInfo }) => j.job.id === bulkJob()!.id,
@@ -124,13 +131,11 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
             ["req-pause", "req-resume", "req-workers"].includes(data.id)
           ) {
             if (data.result.job) {
-              setAllJobs((prev) =>
-                prev.map((item) =>
-                  item.job.id === data.result.job.id
-                    ? { ...item, job: data.result.job }
-                    : item,
-                ),
-              );
+              const idx = allJobs.findIndex((item) => item.job.id === data.result.job.id);
+              if (idx >= 0) {
+                setAllJobs(idx, "job", data.result.job);
+                setAllJobs(idx, "optimisticStatus", undefined);
+              }
               if (bulkJob()?.id === data.result.job.id) {
                 setBulkJob((prev) => ({ ...prev!, ...data.result.job }));
               }
@@ -148,15 +153,12 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
                 "bulk-job",
                 JSON.stringify({ jobId: job.id, requestId: activeRequestId }),
               );
-              setAllJobs((prev) => {
-                const idx = prev.findIndex((j) => j.job.id === job.id);
-                if (idx >= 0) {
-                  const next = [...prev];
-                  next[idx] = { job, stats };
-                  return next;
-                }
-                return [{ job, stats }, ...prev];
-              });
+              const idx = allJobs.findIndex((j) => j.job.id === job.id);
+              if (idx >= 0) {
+                setAllJobs(idx, { job, stats });
+              } else {
+                setAllJobs(produce((draft) => draft.unshift({ job, stats })));
+              }
             }
           } else if (data.error) {
             alert(`Error: ${data.error.message}`);
@@ -169,17 +171,22 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
           const evt = data.event;
 
           if (evt.type === "bulk.jobUpdate") {
-            setAllJobs((prev) =>
-              prev.map((item) =>
-                item.job.id === evt.job.id
-                  ? {
-                      ...item,
-                      job: { ...item.job, ...evt.job },
-                      stats: evt.stats || item.stats,
-                    }
-                  : item,
-              ),
-            );
+            const idx = allJobs.findIndex((item) => item.job.id === evt.job.id);
+            if (idx >= 0) {
+              setAllJobs(idx, "job", (prev) => ({ ...prev, ...evt.job }));
+              if (evt.stats) {
+                setAllJobs(idx, "stats", evt.stats);
+              }
+              const current = allJobs[idx];
+              if (
+                current.optimisticStatus &&
+                evt.job.status &&
+                ((current.optimisticStatus === "pausing" && evt.job.status === "paused") ||
+                  (current.optimisticStatus === "resuming" && evt.job.status === "running"))
+              ) {
+                setAllJobs(idx, "optimisticStatus", undefined);
+              }
+            }
 
             if (bulkJob() && bulkJob()!.id === evt.job.id) {
               setBulkJob((prev) => ({ ...prev!, ...evt.job }));
@@ -187,13 +194,10 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
             }
           } else if (evt.type === "bulk.progress") {
             if (evt.jobId) {
-              setAllJobs((prev) =>
-                prev.map((item) =>
-                  item.job.id === evt.jobId
-                    ? { ...item, stats: evt.stats }
-                    : item,
-                ),
-              );
+              const idx = allJobs.findIndex((item) => item.job.id === evt.jobId);
+              if (idx >= 0) {
+                setAllJobs(idx, "stats", evt.stats);
+              }
             }
 
             if (bulkJob() && bulkJob()!.id === evt.jobId) {
@@ -210,17 +214,12 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
               }
             }
           } else if (evt.type === "bulk.done") {
-            setAllJobs((prev) =>
-              prev.map((item) =>
-                item.job.id === evt.jobId
-                  ? {
-                      ...item,
-                      job: { ...item.job, status: evt.status },
-                      stats: evt.stats,
-                    }
-                  : item,
-              ),
-            );
+            const idx = allJobs.findIndex((item) => item.job.id === evt.jobId);
+            if (idx >= 0) {
+              setAllJobs(idx, "job", "status", evt.status);
+              setAllJobs(idx, "stats", evt.stats);
+              setAllJobs(idx, "optimisticStatus", undefined);
+            }
 
             if (bulkJob() && bulkJob()!.id === evt.jobId) {
               setBulkJobStats(evt.stats);
@@ -240,6 +239,10 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
 
   const pauseJob = (jobId: string) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const idx = allJobs.findIndex((item) => item.job.id === jobId);
+    if (idx >= 0) {
+      setAllJobs(idx, "optimisticStatus", "pausing");
+    }
     ws.send(
       JSON.stringify({
         id: "req-pause",
@@ -251,6 +254,10 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
 
   const resumeJob = (jobId: string) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const idx = allJobs.findIndex((item) => item.job.id === jobId);
+    if (idx >= 0) {
+      setAllJobs(idx, "optimisticStatus", "resuming");
+    }
     ws.send(
       JSON.stringify({
         id: "req-resume",
@@ -359,7 +366,7 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
     wsConnected,
     bulkJob,
     bulkJobStats,
-    allJobs,
+    allJobs: () => allJobs,
     selectedJobId,
     selectedJob,
     lastCompleted,
