@@ -32,22 +32,34 @@ export const SearchServiceKimovil = Layer.effect(
               const url = `https://www.kimovil.com/_json/autocomplete_devicemodels_joined.json?device_type=0&name=${encodeURIComponent(query)}`;
 
               // Make request via persistent stealth browser page
-              const data = yield* browserService.withPersistentStealthPage((page) =>
-                Effect.tryPromise({
-                  try: async () => {
-                    const result = await page.evaluate(async (url: string) => {
-                      const res = await fetch(url, { credentials: "include" });
-                      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                      return await res.json();
-                    }, url);
-                    return result as KimovilResponse;
-                  },
-                  catch: (error) =>
-                    new SearchError(`Kimovil API request failed (attempt ${attempt}): ${error}`, {
-                      cause: error,
-                    }),
-                })
-              );
+              const data = yield* browserService
+                .withPersistentStealthPage((page) =>
+                  Effect.tryPromise({
+                    try: async () => {
+                      const result = await page.evaluate(async (url: string) => {
+                        const res = await fetch(url, { credentials: "include" });
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        return await res.json();
+                      }, url);
+                      return result as KimovilResponse;
+                    },
+                    catch: (error) =>
+                      new SearchError(
+                        `Kimovil API request failed (attempt ${attempt}): ${error}`,
+                        { cause: error },
+                      ),
+                  }),
+                )
+                .pipe(
+                  Effect.catchAll((error) =>
+                    Effect.fail(
+                      new SearchError(
+                        `Kimovil API request failed (attempt ${attempt}): ${error}`,
+                        { cause: error },
+                      ),
+                    ),
+                  ),
+                );
               
               if (!data.results || !Array.isArray(data.results)) {
                 return yield* Effect.fail(

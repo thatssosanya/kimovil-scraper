@@ -51,64 +51,76 @@ const logBrowserError = (message: string, error: unknown) =>
 const CHROME_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-const initStealthSession = Effect.gen(function* () {
-  yield* logBrowser("Launching stealth browser...");
+const initStealthSession: Effect.Effect<StealthSession, BrowserError> =
+  Effect.gen(function* () {
+    yield* logBrowser("Launching stealth browser...");
 
-  const browser = yield* Effect.tryPromise({
-    try: () =>
-      chromium.launch({
-        headless: true,
-        args: ["--disable-blink-features=AutomationControlled"],
-      }),
-    catch: (error) =>
-      new BrowserError(
-        `Failed to launch stealth browser: ${error instanceof Error ? error.message : String(error)}`,
+    const browser = yield* Effect.tryPromise({
+      try: () =>
+        chromium.launch({
+          headless: true,
+          args: ["--disable-blink-features=AutomationControlled"],
+        }),
+      catch: (error) =>
+        new BrowserError(
+          `Failed to launch stealth browser: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+    });
+
+    return yield* Effect.gen(function* () {
+      const context = yield* Effect.tryPromise({
+        try: () => browser.newContext({ userAgent: CHROME_USER_AGENT }),
+        catch: (error) =>
+          new BrowserError(
+            `Failed to create stealth context: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      });
+
+      const page = yield* Effect.tryPromise({
+        try: () => context.newPage(),
+        catch: (error) =>
+          new BrowserError(
+            `Failed to create stealth page: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      });
+
+      yield* Effect.tryPromise({
+        try: () =>
+          page.addInitScript(() => {
+            Object.defineProperty(navigator, "webdriver", {
+              get: () => undefined,
+            });
+          }),
+        catch: (error) =>
+          new BrowserError(
+            `Failed to add init script: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      });
+
+      yield* Effect.tryPromise({
+        try: () =>
+          page.goto("https://www.kimovil.com/en/", {
+            waitUntil: "domcontentloaded",
+            timeout: 15000,
+          }),
+        catch: (error) =>
+          new BrowserError(
+            `Failed to navigate to kimovil: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      });
+
+      yield* logBrowser("Stealth browser initialized and navigated to kimovil");
+
+      return { browser, context, page } satisfies StealthSession;
+    }).pipe(
+      Effect.catchAll((error) =>
+        Effect.tryPromise(() => browser.close()).pipe(
+          Effect.ignore,
+          Effect.flatMap(() => Effect.fail(error)),
+        ),
       ),
+    );
   });
-
-  const context = yield* Effect.tryPromise({
-    try: () => browser.newContext({ userAgent: CHROME_USER_AGENT }),
-    catch: (error) =>
-      new BrowserError(
-        `Failed to create stealth context: ${error instanceof Error ? error.message : String(error)}`,
-      ),
-  });
-
-  const page = yield* Effect.tryPromise({
-    try: () => context.newPage(),
-    catch: (error) =>
-      new BrowserError(
-        `Failed to create stealth page: ${error instanceof Error ? error.message : String(error)}`,
-      ),
-  });
-
-  yield* Effect.tryPromise({
-    try: () =>
-      page.addInitScript(() => {
-        Object.defineProperty(navigator, "webdriver", { get: () => undefined });
-      }),
-    catch: (error) =>
-      new BrowserError(
-        `Failed to add init script: ${error instanceof Error ? error.message : String(error)}`,
-      ),
-  });
-
-  yield* Effect.tryPromise({
-    try: () =>
-      page.goto("https://www.kimovil.com/en/", {
-        waitUntil: "domcontentloaded",
-        timeout: 15000,
-      }),
-    catch: (error) =>
-      new BrowserError(
-        `Failed to navigate to kimovil: ${error instanceof Error ? error.message : String(error)}`,
-      ),
-  });
-
-  yield* logBrowser("Stealth browser initialized and navigated to kimovil");
-
-  return { browser, context, page } satisfies StealthSession;
-});
 
 export const BrowserServiceLive = Layer.scoped(
   BrowserService,
