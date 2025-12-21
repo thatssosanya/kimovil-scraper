@@ -58,6 +58,10 @@ export interface PhoneDataService {
 
   readonly getAiDataSlugs: () => Effect.Effect<string[], PhoneDataError>;
 
+  readonly deleteRaw: (slug: string) => Effect.Effect<boolean, PhoneDataError>;
+
+  readonly delete: (slug: string) => Effect.Effect<boolean, PhoneDataError>;
+
   readonly saveRawWithEntity: (
     slug: string,
     data: Record<string, unknown>,
@@ -273,6 +277,20 @@ export const PhoneDataServiceLive = Layer.effect(
       getAiDataSlugs: () =>
         sql`SELECT slug FROM phone_data`.pipe(
           Effect.map((rows) => rows.map((r) => (r as { slug: string }).slug)),
+          Effect.mapError(mapError),
+        ),
+
+      deleteRaw: (slug: string) =>
+        sql`DELETE FROM phone_data_raw WHERE slug = ${slug}`.pipe(
+          Effect.flatMap(() => sql`SELECT changes() as count`),
+          Effect.map((rows) => ((rows[0] as { count: number })?.count ?? 0) > 0),
+          Effect.mapError(mapError),
+        ),
+
+      delete: (slug: string) =>
+        sql`DELETE FROM phone_data WHERE slug = ${slug}`.pipe(
+          Effect.flatMap(() => sql`SELECT changes() as count`),
+          Effect.map((rows) => ((rows[0] as { count: number })?.count ?? 0) > 0),
           Effect.mapError(mapError),
         ),
 

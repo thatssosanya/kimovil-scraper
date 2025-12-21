@@ -317,6 +317,10 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
                     data={rawData()}
                     loading={rawLoading()}
                     emptyMessage="No raw data available"
+                    onRefresh={props.status?.hasHtml && props.onProcessRaw ? handleProcessRaw : undefined}
+                    refreshing={rawProcessing()}
+                    refreshLabel={rawProcessing() ? "Extracting..." : "Re-extract"}
+                    refreshColor="cyan"
                   />
                 </Show>
                 <Show when={!rawLoading() && !rawData()}>
@@ -348,6 +352,10 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
                     data={aiData()}
                     loading={aiLoading()}
                     emptyMessage="No AI-processed data available"
+                    onRefresh={props.status?.hasRawData && props.onProcessAi ? handleProcessAi : undefined}
+                    refreshing={aiProcessing()}
+                    refreshLabel={aiProcessing() ? "Processing..." : "Re-process"}
+                    refreshColor="violet"
                   />
                 </Show>
                 <Show when={!aiLoading() && !aiData()}>

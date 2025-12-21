@@ -6,14 +6,20 @@ interface SelectionBarProps {
   unscrapedCount: number;
   needsExtractionCount: number;
   needsAiCount: number;
+  hasRawCount: number;
+  hasAiCount: number;
   bulkLoading: boolean;
   verifyLoading: boolean;
   clearLoading: boolean;
+  clearRawLoading: boolean;
+  clearAiLoading: boolean;
   onQueueScrape: () => void;
   onQueueExtract: () => void;
   onQueueAi: () => void;
   onVerify: () => void;
   onClear: () => void;
+  onClearRaw: () => void;
+  onClearAi: () => void;
   onCancel: () => void;
 }
 
@@ -99,6 +105,45 @@ export function SelectionBar(props: SelectionBarProps) {
                 >
                   Clear ({props.scrapedCount})
                 </button>
+              </Show>
+
+              {/* Clear Raw/AI Data */}
+              <Show when={props.hasRawCount > 0 || props.hasAiCount > 0}>
+                <div class="w-px h-6 bg-slate-600 mx-1" />
+                <Show when={props.hasRawCount > 0}>
+                  <button
+                    class="cursor-pointer px-3 py-1.5 text-xs font-semibold bg-cyan-700/80 hover:bg-cyan-600 text-white rounded-lg transition-all active:scale-95 disabled:opacity-50 ring-1 ring-cyan-500/30"
+                    onClick={props.onClearRaw}
+                    disabled={props.clearRawLoading}
+                    title="Clear raw extracted data"
+                  >
+                    {props.clearRawLoading ? (
+                      <span class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Clearing...
+                      </span>
+                    ) : (
+                      <>Clear Raw ({props.hasRawCount})</>
+                    )}
+                  </button>
+                </Show>
+                <Show when={props.hasAiCount > 0}>
+                  <button
+                    class="cursor-pointer px-3 py-1.5 text-xs font-semibold bg-violet-700/80 hover:bg-violet-600 text-white rounded-lg transition-all active:scale-95 disabled:opacity-50 ring-1 ring-violet-500/30"
+                    onClick={props.onClearAi}
+                    disabled={props.clearAiLoading}
+                    title="Clear AI processed data"
+                  >
+                    {props.clearAiLoading ? (
+                      <span class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Clearing...
+                      </span>
+                    ) : (
+                      <>Clear AI ({props.hasAiCount})</>
+                    )}
+                  </button>
+                </Show>
               </Show>
 
               {/* Cancel */}

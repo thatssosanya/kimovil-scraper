@@ -275,6 +275,14 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
 
       return LiveRuntime.runPromise(program);
     })
+    .delete("/phone-data/raw/:slug", async ({ params }) => {
+      const program = Effect.gen(function* () {
+        const phoneData = yield* PhoneDataService;
+        const deleted = yield* phoneData.deleteRaw(params.slug);
+        return { success: true, slug: params.slug, deleted };
+      });
+      return LiveRuntime.runPromise(program);
+    })
     .get("/phone-data/:slug", async ({ params }) => {
       const program = Effect.gen(function* () {
         const phoneData = yield* PhoneDataService;
@@ -282,6 +290,14 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         return { slug: params.slug, data };
       });
 
+      return LiveRuntime.runPromise(program);
+    })
+    .delete("/phone-data/:slug", async ({ params }) => {
+      const program = Effect.gen(function* () {
+        const phoneData = yield* PhoneDataService;
+        const deleted = yield* phoneData.delete(params.slug);
+        return { success: true, slug: params.slug, deleted };
+      });
       return LiveRuntime.runPromise(program);
     })
     .get("/bulk/:jobId/errors", async ({ params, query }) => {
@@ -349,6 +365,11 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         const { htmlCache, phoneData, jobQueue, scrapeService } =
           await LiveRuntime.runPromise(program);
 
+        const hasHtml = await LiveRuntime.runPromise(htmlCache.hasScrapedHtml(slug));
+        if (!hasHtml) {
+          return { success: false, error: "No cached HTML found for this slug" };
+        }
+
         const dummyItem = {
           id: -1,
           slug,
@@ -397,6 +418,11 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         });
         const { htmlCache, phoneData, jobQueue, scrapeService } =
           await LiveRuntime.runPromise(program);
+
+        const hasRaw = await LiveRuntime.runPromise(phoneData.hasRaw(slug));
+        if (!hasRaw) {
+          return { success: false, error: "No raw data found for this slug" };
+        }
 
         const dummyItem = {
           id: -1,

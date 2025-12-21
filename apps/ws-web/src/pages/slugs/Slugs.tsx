@@ -120,6 +120,28 @@ export default function Slugs() {
     return count;
   });
 
+  // Devices with raw data (for bulk clear)
+  const hasRawDataCount = createMemo(() => {
+    const sel = selected();
+    const status = api.scrapeStatus();
+    let count = 0;
+    for (const slug of sel) {
+      if (status[slug]?.hasRawData) count++;
+    }
+    return count;
+  });
+
+  // Devices with AI data (for bulk clear)
+  const hasAiDataCount = createMemo(() => {
+    const sel = selected();
+    const status = api.scrapeStatus();
+    let count = 0;
+    for (const slug of sel) {
+      if (status[slug]?.hasAiData) count++;
+    }
+    return count;
+  });
+
   const handleSearch = () => {
     api.fetchDevices(search(), filter(), limit());
     setSelected(new Set<string>());
@@ -199,6 +221,34 @@ export default function Slugs() {
   const handleClearBulk = async () => {
     const cleared = await api.clearBulk(Array.from(selected()));
     if (cleared) setSelected(new Set<string>());
+  };
+
+  const handleClearRawBulk = async () => {
+    const slugsToClear = Array.from(selected()).filter(
+      (slug) => api.scrapeStatus()[slug]?.hasRawData,
+    );
+    if (slugsToClear.length === 0) return;
+    if (!confirm(`Clear raw data for ${slugsToClear.length} items?`)) return;
+    await api.clearRawBulk(slugsToClear);
+  };
+
+  const handleClearAiBulk = async () => {
+    const slugsToClear = Array.from(selected()).filter(
+      (slug) => api.scrapeStatus()[slug]?.hasAiData,
+    );
+    if (slugsToClear.length === 0) return;
+    if (!confirm(`Clear AI data for ${slugsToClear.length} items?`)) return;
+    await api.clearAiBulk(slugsToClear);
+  };
+
+  const handleClearRawData = async (slug: string) => {
+    if (!confirm(`Clear raw data for "${slug}"?`)) return;
+    await api.clearRawData(slug);
+  };
+
+  const handleClearAiData = async (slug: string) => {
+    if (!confirm(`Clear AI data for "${slug}"?`)) return;
+    await api.clearAiData(slug);
   };
 
   const openModal = (slug: string) => {
@@ -392,6 +442,8 @@ export default function Slugs() {
           onQueueScrape={api.queueScrape}
           onOpenModal={openModal}
           onClearData={api.clearScrapeData}
+          onClearRawData={handleClearRawData}
+          onClearAiData={handleClearAiData}
           allSelected={allSelected()}
           filtered={api.filtered()}
           total={api.total()}
@@ -405,14 +457,20 @@ export default function Slugs() {
           unscrapedCount={unscrapedSelectedCount()}
           needsExtractionCount={needsExtractionCount()}
           needsAiCount={needsAiCount()}
+          hasRawCount={hasRawDataCount()}
+          hasAiCount={hasAiDataCount()}
           bulkLoading={bulkJobs.bulkLoading()}
           verifyLoading={api.verifyLoading()}
           clearLoading={api.clearLoading()}
+          clearRawLoading={api.clearRawLoading()}
+          clearAiLoading={api.clearAiLoading()}
           onQueueScrape={handleQueueScrape}
           onQueueExtract={handleQueueExtract}
           onQueueAi={handleQueueAi}
           onVerify={handleVerifyBulk}
           onClear={handleClearBulk}
+          onClearRaw={handleClearRawBulk}
+          onClearAi={handleClearAiBulk}
           onCancel={() => setSelected(new Set<string>())}
         />
 

@@ -30,6 +30,8 @@ export function useSlugsApi() {
   );
   const [verifyLoading, setVerifyLoading] = createSignal(false);
   const [clearLoading, setClearLoading] = createSignal(false);
+  const [clearRawLoading, setClearRawLoading] = createSignal(false);
+  const [clearAiLoading, setClearAiLoading] = createSignal(false);
 
   const fetchDevices = async (
     searchQuery: string = "",
@@ -341,6 +343,84 @@ export function useSlugsApi() {
     }
   };
 
+  // Clear raw data (phone_data_raw)
+  const clearRawData = async (slug: string): Promise<boolean> => {
+    try {
+      const res = await fetch(
+        `http://localhost:1488/api/phone-data/raw/${encodeURIComponent(slug)}`,
+        { method: "DELETE" },
+      );
+      const data = await res.json();
+      if (data.success) {
+        setScrapeStatus((prev) => ({
+          ...prev,
+          [slug]: { ...prev[slug], hasRawData: false },
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Failed to clear raw data:", error);
+      return false;
+    }
+  };
+
+  // Clear AI data (phone_data)
+  const clearAiData = async (slug: string): Promise<boolean> => {
+    try {
+      const res = await fetch(
+        `http://localhost:1488/api/phone-data/${encodeURIComponent(slug)}`,
+        { method: "DELETE" },
+      );
+      const data = await res.json();
+      if (data.success) {
+        setScrapeStatus((prev) => ({
+          ...prev,
+          [slug]: { ...prev[slug], hasAiData: false },
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Failed to clear AI data:", error);
+      return false;
+    }
+  };
+
+  // Bulk clear raw data
+  const clearRawBulk = async (slugs: string[]): Promise<number> => {
+    const status = scrapeStatus();
+    const slugsToClear = slugs.filter((slug) => status[slug]?.hasRawData);
+
+    if (slugsToClear.length === 0) return 0;
+
+    setClearRawLoading(true);
+    let clearedCount = 0;
+    for (const slug of slugsToClear) {
+      const success = await clearRawData(slug);
+      if (success) clearedCount++;
+    }
+    setClearRawLoading(false);
+    return clearedCount;
+  };
+
+  // Bulk clear AI data
+  const clearAiBulk = async (slugs: string[]): Promise<number> => {
+    const status = scrapeStatus();
+    const slugsToClear = slugs.filter((slug) => status[slug]?.hasAiData);
+
+    if (slugsToClear.length === 0) return 0;
+
+    setClearAiLoading(true);
+    let clearedCount = 0;
+    for (const slug of slugsToClear) {
+      const success = await clearAiData(slug);
+      if (success) clearedCount++;
+    }
+    setClearAiLoading(false);
+    return clearedCount;
+  };
+
   return {
     devices,
     total,
@@ -353,6 +433,8 @@ export function useSlugsApi() {
     queueLoading,
     verifyLoading,
     clearLoading,
+    clearRawLoading,
+    clearAiLoading,
     setScrapeStatus,
     fetchDevices,
     fetchStats,
@@ -362,6 +444,10 @@ export function useSlugsApi() {
     verifyBulk,
     clearScrapeData,
     clearBulk,
+    clearRawData,
+    clearAiData,
+    clearRawBulk,
+    clearAiBulk,
     openPreview,
     fetchPhoneDataRaw,
     fetchPhoneDataAi,

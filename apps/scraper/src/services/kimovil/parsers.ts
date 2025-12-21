@@ -1,24 +1,41 @@
 export const getCpuCores = (input: string | null): string[] | null => {
   if (!input) return null;
 
-  // Normalize input: replace bullet (•) with space, normalize whitespace
-  const normalized = input.replace(/•/g, " ").replace(/\s+/g, " ").trim();
+  // Normalize input: replace bullets, HTML entities, normalize whitespace
+  const normalized = input
+    .replace(/•/g, " ")
+    .replace(/&amp;/g, "+")
+    .replace(/\s+/g, " ")
+    .trim();
 
-  // Use regex to find all core specifications directly
-  // Pattern: NxFrequency GHz/MHz (optionally followed by model name)
-  // Handles both "1x3.21GHz ARM Cortex X4" and "1x3.21GHz"
-  // Supports both 'x' and '×' as multiplication sign
-  const corePattern = /(\d+)\s*[x×]\s*([\d.,]+)\s*(ghz|mhz)/gi;
   const result: string[] = [];
 
-  let match;
-  while ((match = corePattern.exec(normalized)) !== null) {
-    const count = parseInt(match[1], 10);
-    const frequency = parseFloat(match[2].replace(",", "."));
-    const unit = match[3].toLowerCase();
-    const frequencyInMhz = unit === "ghz" ? Math.round(frequency * 1000) : Math.round(frequency);
+  // Split by common group separators: +, &, comma (when followed by digit+x pattern)
+  const groups = normalized.split(/\s*(?:\+|&|,\s*(?=\d+\s*[x×]))\s*/i);
 
-    result.push(`${count}x${frequencyInMhz}`);
+  for (const group of groups) {
+    // Pattern 1: Frequency attached to count - "1x3.21GHz", "2x4050MHz"
+    const attachedMatch = group.match(/(\d+)\s*[x×]\s*([\d.,]+)\s*(ghz|mhz)/i);
+    if (attachedMatch) {
+      const count = parseInt(attachedMatch[1], 10);
+      const frequency = parseFloat(attachedMatch[2].replace(",", "."));
+      const unit = attachedMatch[3].toLowerCase();
+      const frequencyInMhz = unit === "ghz" ? Math.round(frequency * 1000) : Math.round(frequency);
+      result.push(`${count}x${frequencyInMhz}`);
+      continue;
+    }
+
+    // Pattern 2: Separated format - "8x Cortex A53 1.5 GHz", "4x A78 2.4 GHz"
+    // Core count at start, frequency anywhere after
+    const separatedMatch = group.match(/(\d+)\s*[x×]\s*.+?([\d.,]+)\s*(ghz|mhz)/i);
+    if (separatedMatch) {
+      const count = parseInt(separatedMatch[1], 10);
+      const frequency = parseFloat(separatedMatch[2].replace(",", "."));
+      const unit = separatedMatch[3].toLowerCase();
+      const frequencyInMhz = unit === "ghz" ? Math.round(frequency * 1000) : Math.round(frequency);
+      result.push(`${count}x${frequencyInMhz}`);
+      continue;
+    }
   }
 
   return result.length > 0 ? result : null;

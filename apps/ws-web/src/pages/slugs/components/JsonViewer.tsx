@@ -6,6 +6,11 @@ interface JsonViewerProps {
   loading?: boolean;
   emptyMessage?: string;
   showLineNumbers?: boolean;
+  // Optional refresh action
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  refreshLabel?: string;
+  refreshColor?: "cyan" | "violet";
 }
 
 export function JsonViewer(props: JsonViewerProps) {
@@ -107,30 +112,71 @@ export function JsonViewer(props: JsonViewerProps) {
             </span>
           </div>
 
-          <button
-            onClick={copyToClipboard}
-            class={`
-              flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md
-              transition-all duration-200 cursor-pointer
-              ${copied()
-                ? "bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20"
-                : "bg-slate-800/50 hover:bg-slate-700/50 text-slate-400 hover:text-slate-200"
-              }
-            `}
-          >
-            <Show when={copied()}>
-              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              <span>Copied</span>
+          <div class="flex items-center gap-2">
+            {/* Refresh button (optional) */}
+            <Show when={props.onRefresh}>
+              {(() => {
+                const colorClasses = () => props.refreshColor === "violet" 
+                  ? {
+                      base: "bg-violet-500/10 text-violet-400 hover:bg-violet-500/20",
+                      ring: "ring-1 ring-violet-500/20",
+                    }
+                  : {
+                      base: "bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20", 
+                      ring: "ring-1 ring-cyan-500/20",
+                    };
+                return (
+                  <button
+                    onClick={props.onRefresh}
+                    disabled={props.refreshing}
+                    class={`
+                      group flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md
+                      transition-all duration-200 cursor-pointer
+                      disabled:opacity-50 disabled:cursor-not-allowed
+                      ${colorClasses().base} ${colorClasses().ring}
+                    `}
+                  >
+                    <Show when={props.refreshing}>
+                      <span class="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                      <span>{props.refreshLabel || "Refreshing..."}</span>
+                    </Show>
+                    <Show when={!props.refreshing}>
+                      <svg class="w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      <span>{props.refreshLabel || "Refresh"}</span>
+                    </Show>
+                  </button>
+                );
+              })()}
             </Show>
-            <Show when={!copied()}>
-              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-              <span>Copy</span>
-            </Show>
-          </button>
+
+            {/* Copy button */}
+            <button
+              onClick={copyToClipboard}
+              class={`
+                flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md
+                transition-all duration-200 cursor-pointer
+                ${copied()
+                  ? "bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20"
+                  : "bg-slate-800/50 hover:bg-slate-700/50 text-slate-400 hover:text-slate-200"
+                }
+              `}
+            >
+              <Show when={copied()}>
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <span>Copied</span>
+              </Show>
+              <Show when={!copied()}>
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                <span>Copy</span>
+              </Show>
+            </button>
+          </div>
         </div>
 
         {/* Code area with line numbers */}
