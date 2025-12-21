@@ -164,10 +164,17 @@ export const PhoneDataServiceLive = Layer.effect(
               ),
             );
             if (decoded) {
-              results.push({
-                slug: decoded.slug,
-                data: JSON.parse(decoded.data) as Record<string, unknown>,
-              });
+              try {
+                const data = JSON.parse(decoded.data) as Record<string, unknown>;
+                results.push({ slug: decoded.slug, data });
+              } catch (e) {
+                yield* quarantineRow(
+                  decoded.slug,
+                  "phone_data_raw",
+                  decoded.data,
+                  `JSON parse failed: ${e instanceof Error ? e.message : String(e)}`,
+                );
+              }
             }
           }
           return results;

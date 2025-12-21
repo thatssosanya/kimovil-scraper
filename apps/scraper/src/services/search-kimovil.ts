@@ -46,7 +46,8 @@ export const SearchServiceKimovil = Layer.effect(
                 Effect.catchAll((error) =>
                   Effect.fail(
                     new SearchError(
-                      `Kimovil API request failed (attempt ${attempt}): ${error}`
+                      `Kimovil API request failed (attempt ${attempt}): ${error}`,
+                      { cause: error },
                     )
                   )
                 )
@@ -107,7 +108,8 @@ export const SearchServiceKimovil = Layer.effect(
               Effect.catchAll((error) =>
                 Effect.fail(
                   new SearchError(
-                    `Search failed after ${MAX_RETRIES} retries: ${error.message}`
+                    `Search failed after ${MAX_RETRIES} retries: ${error.message}`,
+                    { cause: error },
                   )
                 )
               )

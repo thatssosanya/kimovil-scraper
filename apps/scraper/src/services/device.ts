@@ -23,6 +23,11 @@ export interface KimovilPrefixState {
 
 export class DeviceError extends Error {
   readonly _tag = "DeviceError";
+  readonly cause?: unknown;
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message);
+    if (options?.cause) this.cause = options.cause;
+  }
 }
 
 export interface DeviceService {
@@ -55,7 +60,7 @@ export interface DeviceService {
   readonly markPrefixDone: (
     prefix: string,
     resultCount: number,
-  ) => Effect.Effect<void, DeviceError>;
+  ) => Effect.Effect<boolean, DeviceError>;
 
   readonly getPendingPrefixCount: () => Effect.Effect<number, DeviceError>;
 
@@ -113,6 +118,7 @@ const wrapError =
   (error: unknown): DeviceError =>
     new DeviceError(
       `${message}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
 
 export const DeviceServiceLive = Layer.effect(
@@ -177,9 +183,15 @@ export const DeviceServiceLive = Layer.effect(
         }).pipe(Effect.mapError(wrapError("Failed to get next pending prefix"))),
 
       markPrefixDone: (prefix: string, resultCount: number) =>
-        sql`
-          UPDATE kimovil_prefix_state SET status = 'done', last_result_count = ${resultCount}, last_run_at = unixepoch() WHERE prefix = ${prefix}
-        `.pipe(Effect.asVoid, Effect.mapError(wrapError("Failed to mark prefix done"))),
+        Effect.gen(function* () {
+          yield* sql`
+            UPDATE kimovil_prefix_state 
+            SET status = 'done', last_result_count = ${resultCount}, last_run_at = unixepoch()
+            WHERE prefix = ${prefix} AND status = 'pending'
+          `;
+          const result = yield* sql<{ count: number }>`SELECT changes() as count`;
+          return result[0]?.count === 1;
+        }).pipe(Effect.mapError(wrapError("Failed to mark prefix done"))),
 
       getPendingPrefixCount: () =>
         Effect.gen(function* () {

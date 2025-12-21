@@ -12,6 +12,11 @@ import type { PhoneData, RawPhoneData } from "@repo/scraper-domain";
 
 export class OpenAIError extends Error {
   readonly _tag = "OpenAIError";
+  readonly cause?: unknown;
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message);
+    if (options?.cause) this.cause = options.cause;
+  }
 }
 
 export type { PhoneData as NormalizedData };
@@ -184,6 +189,7 @@ const callGeminiAPI = (
       catch: (error) =>
         new OpenAIError(
           `Gemini API call failed: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
         ),
     });
 

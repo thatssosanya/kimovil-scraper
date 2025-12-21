@@ -3,6 +3,11 @@ import { SearchResult } from "@repo/scraper-protocol";
 
 export class SearchError extends Error {
   readonly _tag = "SearchError";
+  readonly cause?: unknown;
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message);
+    if (options?.cause) this.cause = options.cause;
+  }
 }
 
 // Event types that can be streamed during search

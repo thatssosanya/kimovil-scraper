@@ -639,8 +639,8 @@ export function createWsServer(
     });
 
     socket.on("message", (data: Buffer | string) => {
-      const program = Effect.gen(function* () {
-        let parsed: unknown;
+      let parsed: unknown;
+      try {
         if (typeof data === "string") {
           parsed = JSON.parse(data);
         } else if (Buffer.isBuffer(data)) {
@@ -648,7 +648,19 @@ export function createWsServer(
         } else {
           parsed = JSON.parse(String(data));
         }
+      } catch (err) {
+        const errorResponse = new ErrorResponse({
+          id: "unknown",
+          error: {
+            code: "INVALID_JSON",
+            message: `Failed to parse message as JSON: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        });
+        ws.send(JSON.stringify(errorResponse));
+        return;
+      }
 
+      const program = Effect.gen(function* () {
         const request = yield* Schema.decodeUnknown(Request)(parsed);
 
         const handler = handlers[request.method];

@@ -270,9 +270,9 @@ export const JobQueueServiceLive = Layer.effect(
           `;
           const rows = yield* sql<JobRow>`SELECT * FROM jobs WHERE id = ${input.id}`;
           const row = rows[0];
-          if (!row) throw new Error("Failed to get inserted job");
+          if (!row) return yield* Effect.fail(new JobQueueError("Failed to get inserted job"));
           return mapJobRow(row);
-        }).pipe(Effect.mapError(wrapSqlError)),
+        }).pipe(Effect.mapError((e) => e instanceof JobQueueError ? e : wrapSqlError(e))),
 
       getJob: (id: string) =>
         sql<JobRow>`SELECT * FROM jobs WHERE id = ${id}`.pipe(
@@ -707,9 +707,9 @@ export const JobQueueServiceLive = Layer.effect(
           `;
           const countRows = yield* sql<{ count: number }>`SELECT changes() as count`;
           if ((countRows[0]?.count ?? 0) === 0) {
-            throw new JobQueueError(`Failed to claim queue item ${id}: already claimed or not pending`);
+            return yield* Effect.fail(new JobQueueError(`Failed to claim queue item ${id}: already claimed or not pending`));
           }
-        }).pipe(Effect.mapError(wrapSqlError)),
+        }).pipe(Effect.mapError((e) => e instanceof JobQueueError ? e : wrapSqlError(e))),
 
       getNextPendingQueueItem: () =>
         sql<QueueRow>`
