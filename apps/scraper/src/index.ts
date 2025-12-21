@@ -7,15 +7,15 @@ import { config } from "./config";
 import { log } from "./utils/logger";
 
 // Core infrastructure
-import { LiveLayer } from "./layers/live";
+import { LiveLayer, LiveRuntime } from "./layers/live";
 import { BulkJobManager } from "./services/bulk-job";
 
 // Routes
 import { createApiRoutes } from "./routes/api";
 import { createWsRoute } from "./routes/ws";
 
-// Initialize runtime state
-const bulkJobManager = new BulkJobManager(LiveLayer);
+// Initialize runtime state with memoized runtime
+const bulkJobManager = new BulkJobManager(LiveRuntime);
 
 // Create server
 const app = new Elysia({ adapter: node() })

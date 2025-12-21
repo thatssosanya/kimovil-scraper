@@ -1,4 +1,5 @@
 import { Effect, Stream, Context } from "effect";
+import type { ManagedRuntime, Layer } from "effect";
 import { StreamEvent, BulkJobStats } from "@repo/scraper-protocol";
 import { ScrapeService, ScrapeEvent } from "@repo/scraper-domain";
 import type { RawPhoneData } from "@repo/scraper-domain";
@@ -18,6 +19,11 @@ import { BrowserService } from "./browser";
 import { OpenAIService } from "./openai";
 import { extractPhoneData, getHtmlValidationError } from "./scrape-kimovil";
 import { ScrapeResult } from "@repo/scraper-protocol";
+
+type LiveRuntimeType = ManagedRuntime.ManagedRuntime<
+  Layer.Layer.Success<LiveLayerType>,
+  never
+>;
 
 export type Ws = { send: (data: string) => void };
 
@@ -64,10 +70,10 @@ export class BulkJobManager {
   private subscribers = new Map<string, Set<Ws>>();
   private listSubscribers = new Set<Ws>();
   private jobState = new Map<string, JobControlState>();
-  private liveLayer: LiveLayerType;
+  private runtime: LiveRuntimeType;
 
-  constructor(liveLayer: LiveLayerType) {
-    this.liveLayer = liveLayer;
+  constructor(runtime: LiveRuntimeType) {
+    this.runtime = runtime;
   }
 
   getJobState(jobId: string): JobControlState {
@@ -212,9 +218,7 @@ export class BulkJobManager {
       const scrapeService = yield* ScrapeService;
       return { htmlCache, phoneData, jobQueue, scrapeService };
     });
-    return Effect.runPromise(
-      program.pipe(Effect.provide(this.liveLayer), Effect.orDie)
-    );
+    return this.runtime.runPromise(program);
   }
 
   private async getStatsWithTimeout(
@@ -255,7 +259,7 @@ export class BulkJobManager {
       throw new Error(`Page invalid: ${validationError}`);
     }
 
-    await Effect.runPromise(
+    await this.runtime.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
           const browserService = yield* BrowserService;
@@ -275,7 +279,7 @@ export class BulkJobManager {
             rawData as unknown as Record<string, unknown>
           );
         })
-      ).pipe(Effect.provide(this.liveLayer))
+      )
     );
   }
 
@@ -288,10 +292,8 @@ export class BulkJobManager {
       throw new Error(`No raw data for slug: ${slug}`);
     }
 
-    const normalized = await Effect.runPromise(
-      Effect.flatMap(OpenAIService, (s) => s.adaptScrapedData(rawData as unknown as RawPhoneData)).pipe(
-        Effect.provide(this.liveLayer)
-      )
+    const normalized = await this.runtime.runPromise(
+      Effect.flatMap(OpenAIService, (s) => s.adaptScrapedData(rawData as unknown as RawPhoneData))
     );
 
     await Effect.runPromise(

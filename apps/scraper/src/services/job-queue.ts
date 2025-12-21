@@ -371,44 +371,47 @@ export const JobQueueServiceLive = Layer.effect(
         ).pipe(Effect.mapError(wrapSqlError)),
 
       claimNextJobQueueItem: (jobId: string, jobType?: JobType) =>
-        Effect.gen(function* () {
-          // Atomic claim: UPDATE with subquery to select the row, then fetch the updated row
-          const subquery = jobType
-            ? `SELECT id FROM job_queue
-               WHERE status = 'pending'
-                 AND job_id = '${jobId}'
-                 AND job_type = '${jobType}'
-                 AND (next_attempt_at IS NULL OR next_attempt_at <= unixepoch())
-               ORDER BY created_at ASC
-               LIMIT 1`
-            : `SELECT id FROM job_queue
-               WHERE status = 'pending'
-                 AND job_id = '${jobId}'
-                 AND (next_attempt_at IS NULL OR next_attempt_at <= unixepoch())
-               ORDER BY created_at ASC
-               LIMIT 1`;
+        sql.withTransaction(
+          Effect.gen(function* () {
+            // Select the next pending item
+            const selectRows = jobType
+              ? yield* sql<QueueRow>`
+                  SELECT * FROM job_queue
+                  WHERE status = 'pending'
+                    AND job_id = ${jobId}
+                    AND job_type = ${jobType}
+                    AND (next_attempt_at IS NULL OR next_attempt_at <= unixepoch())
+                  ORDER BY created_at ASC
+                  LIMIT 1
+                `
+              : yield* sql<QueueRow>`
+                  SELECT * FROM job_queue
+                  WHERE status = 'pending'
+                    AND job_id = ${jobId}
+                    AND (next_attempt_at IS NULL OR next_attempt_at <= unixepoch())
+                  ORDER BY created_at ASC
+                  LIMIT 1
+                `;
 
-          yield* sql.unsafe(`
-            UPDATE job_queue
-            SET status = 'running',
-                started_at = unixepoch(),
-                updated_at = unixepoch(),
-                next_attempt_at = NULL
-            WHERE id = (${subquery})
-          `);
+            const row = selectRows[0];
+            if (!row) return null;
 
-          const countRows = yield* sql<{ count: number }>`SELECT changes() as count`;
-          if ((countRows[0]?.count ?? 0) === 0) return null;
+            // Claim it atomically within transaction
+            yield* sql`
+              UPDATE job_queue
+              SET status = 'running',
+                  started_at = unixepoch(),
+                  updated_at = unixepoch(),
+                  next_attempt_at = NULL
+              WHERE id = ${row.id} AND status = 'pending'
+            `;
 
-          // Fetch the row we just claimed
-          const rows = yield* sql<QueueRow>`
-            SELECT * FROM job_queue
-            WHERE job_id = ${jobId} AND status = 'running'
-            ORDER BY started_at DESC
-            LIMIT 1
-          `;
-          return rows[0] ? mapQueueRow(rows[0]) : null;
-        }).pipe(Effect.mapError(wrapSqlError)),
+            const countRows = yield* sql<{ count: number }>`SELECT changes() as count`;
+            if ((countRows[0]?.count ?? 0) === 0) return null;
+
+            return mapQueueRow({ ...row, status: "running" });
+          }),
+        ).pipe(Effect.mapError(wrapSqlError)),
 
       completeQueueItem: (id: number, error?: string) =>
         (error
@@ -610,49 +613,45 @@ export const JobQueueServiceLive = Layer.effect(
         ),
 
       claimNextQueueItem: (jobId?: string) =>
-        Effect.gen(function* () {
-          // Atomic claim: UPDATE with subquery to select the row
-          const subquery = jobId
-            ? `SELECT id FROM job_queue
-               WHERE status = 'pending'
-                 AND (next_attempt_at IS NULL OR next_attempt_at <= unixepoch())
-                 AND job_id = '${jobId}'
-               ORDER BY created_at ASC
-               LIMIT 1`
-            : `SELECT id FROM job_queue
-               WHERE status = 'pending'
-                 AND (next_attempt_at IS NULL OR next_attempt_at <= unixepoch())
-               ORDER BY created_at ASC
-               LIMIT 1`;
+        sql.withTransaction(
+          Effect.gen(function* () {
+            // Select the next pending item
+            const selectRows = jobId
+              ? yield* sql<QueueRow>`
+                  SELECT * FROM job_queue
+                  WHERE status = 'pending'
+                    AND (next_attempt_at IS NULL OR next_attempt_at <= unixepoch())
+                    AND job_id = ${jobId}
+                  ORDER BY created_at ASC
+                  LIMIT 1
+                `
+              : yield* sql<QueueRow>`
+                  SELECT * FROM job_queue
+                  WHERE status = 'pending'
+                    AND (next_attempt_at IS NULL OR next_attempt_at <= unixepoch())
+                  ORDER BY created_at ASC
+                  LIMIT 1
+                `;
 
-          yield* sql.unsafe(`
-            UPDATE job_queue
-            SET status = 'running',
-                started_at = unixepoch(),
-                updated_at = unixepoch(),
-                next_attempt_at = NULL
-            WHERE id = (${subquery})
-          `);
+            const row = selectRows[0];
+            if (!row) return null;
 
-          const countRows = yield* sql<{ count: number }>`SELECT changes() as count`;
-          if ((countRows[0]?.count ?? 0) === 0) return null;
+            // Claim it atomically within transaction
+            yield* sql`
+              UPDATE job_queue
+              SET status = 'running',
+                  started_at = unixepoch(),
+                  updated_at = unixepoch(),
+                  next_attempt_at = NULL
+              WHERE id = ${row.id} AND status = 'pending'
+            `;
 
-          // Fetch the row we just claimed
-          const rows = jobId
-            ? yield* sql<QueueRow>`
-                SELECT * FROM job_queue
-                WHERE job_id = ${jobId} AND status = 'running'
-                ORDER BY started_at DESC
-                LIMIT 1
-              `
-            : yield* sql<QueueRow>`
-                SELECT * FROM job_queue
-                WHERE status = 'running'
-                ORDER BY started_at DESC
-                LIMIT 1
-              `;
-          return rows[0] ? mapQueueRow(rows[0]) : null;
-        }).pipe(Effect.mapError(wrapSqlError)),
+            const countRows = yield* sql<{ count: number }>`SELECT changes() as count`;
+            if ((countRows[0]?.count ?? 0) === 0) return null;
+
+            return mapQueueRow({ ...row, status: "running" });
+          }),
+        ).pipe(Effect.mapError(wrapSqlError)),
 
       startQueueItem: (id: number) =>
         sql`

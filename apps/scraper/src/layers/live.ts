@@ -1,4 +1,4 @@
-import { Layer } from "effect";
+import { Layer, ManagedRuntime } from "effect";
 import { FetchHttpClient } from "@effect/platform";
 import { SearchServiceKimovil } from "../services/search-kimovil";
 import { BrowserServiceLive } from "../services/browser";
@@ -39,3 +39,6 @@ export const LiveLayer = Layer.mergeAll(
 );
 
 export type LiveLayerType = typeof LiveLayer;
+
+// Memoized runtime - use this instead of Effect.provide(LiveLayer) for shared state
+export const LiveRuntime = ManagedRuntime.make(LiveLayer);
