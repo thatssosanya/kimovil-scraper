@@ -47,24 +47,27 @@ export interface HtmlCacheService {
     slug: string,
     isCorrupted: boolean,
     reason: string | null,
+    source?: string,
   ) => Effect.Effect<void, HtmlCacheError>;
 
   readonly verifyHtml: (
     slug: string,
+    source?: string,
   ) => Effect.Effect<
-    { isCorrupted: boolean; reason: string | null },
+    { isCorrupted: boolean | null; reason: string | null },
     HtmlCacheError
   >;
 
   readonly getVerificationStatus: (
     slug: string,
+    source?: string,
   ) => Effect.Effect<
     { isCorrupted: boolean; reason: string | null } | null,
     HtmlCacheError
   >;
 
-  readonly getCorruptedSlugs: () => Effect.Effect<string[], HtmlCacheError>;
-  readonly getValidSlugs: () => Effect.Effect<string[], HtmlCacheError>;
+  readonly getCorruptedSlugs: (source?: string) => Effect.Effect<string[], HtmlCacheError>;
+  readonly getValidSlugs: (source?: string) => Effect.Effect<string[], HtmlCacheError>;
 }
 
 export const HtmlCacheService =
@@ -150,27 +153,36 @@ export const HtmlCacheServiceLive = Layer.effect(
           ),
         ),
 
-      recordVerification: (slug: string, isCorrupted: boolean, reason: string | null) =>
+      recordVerification: (slug: string, isCorrupted: boolean, reason: string | null, source = "kimovil") =>
         wrapError(
           sql`
-            INSERT INTO scrape_verification (slug, is_corrupted, verified_at, corruption_reason)
-            VALUES (${slug}, ${isCorrupted ? 1 : 0}, unixepoch(), ${reason})
-            ON CONFLICT(slug) DO UPDATE SET
+            INSERT INTO scrape_verification (slug, source, is_corrupted, verified_at, corruption_reason)
+            VALUES (${slug}, ${source}, ${isCorrupted ? 1 : 0}, unixepoch(), ${reason})
+            ON CONFLICT(slug, source) DO UPDATE SET
               is_corrupted = excluded.is_corrupted,
               verified_at = excluded.verified_at,
               corruption_reason = excluded.corruption_reason
           `.pipe(Effect.asVoid),
         ),
 
-      verifyHtml: (slug: string) =>
+      verifyHtml: (slug: string, source = "kimovil") =>
         wrapError(
           Effect.gen(function* () {
             const rows = yield* sql<{ html: string }>`
-              SELECT html FROM raw_html WHERE slug = ${slug} AND source = 'kimovil'
+              SELECT html FROM raw_html WHERE slug = ${slug} AND source = ${source}
             `;
 
             if (!rows[0]?.html) {
-              return { isCorrupted: false, reason: null };
+              // No HTML found - record as missing and return null for isCorrupted
+              yield* sql`
+                INSERT INTO scrape_verification (slug, source, is_corrupted, verified_at, corruption_reason)
+                VALUES (${slug}, ${source}, 0, unixepoch(), 'No HTML found')
+                ON CONFLICT(slug, source) DO UPDATE SET
+                  is_corrupted = 0,
+                  verified_at = excluded.verified_at,
+                  corruption_reason = 'No HTML found'
+              `;
+              return { isCorrupted: null, reason: "No HTML found" };
             }
 
             const html = rows[0].html;
@@ -194,9 +206,9 @@ export const HtmlCacheServiceLive = Layer.effect(
             const isCorrupted = reason !== null;
 
             yield* sql`
-              INSERT INTO scrape_verification (slug, is_corrupted, verified_at, corruption_reason)
-              VALUES (${slug}, ${isCorrupted ? 1 : 0}, unixepoch(), ${reason})
-              ON CONFLICT(slug) DO UPDATE SET
+              INSERT INTO scrape_verification (slug, source, is_corrupted, verified_at, corruption_reason)
+              VALUES (${slug}, ${source}, ${isCorrupted ? 1 : 0}, unixepoch(), ${reason})
+              ON CONFLICT(slug, source) DO UPDATE SET
                 is_corrupted = excluded.is_corrupted,
                 verified_at = excluded.verified_at,
                 corruption_reason = excluded.corruption_reason
@@ -206,10 +218,10 @@ export const HtmlCacheServiceLive = Layer.effect(
           }),
         ),
 
-      getVerificationStatus: (slug: string) =>
+      getVerificationStatus: (slug: string, source = "kimovil") =>
         wrapError(
           sql<{ is_corrupted: number; corruption_reason: string | null }>`
-            SELECT is_corrupted, corruption_reason FROM scrape_verification WHERE slug = ${slug}
+            SELECT is_corrupted, corruption_reason FROM scrape_verification WHERE slug = ${slug} AND source = ${source}
           `.pipe(
             Effect.map((rows) => {
               const row = rows[0];
@@ -222,19 +234,19 @@ export const HtmlCacheServiceLive = Layer.effect(
           ),
         ),
 
-      getCorruptedSlugs: () =>
+      getCorruptedSlugs: (source = "kimovil") =>
         wrapError(
           sql<{ slug: string }>`
-            SELECT slug FROM scrape_verification WHERE is_corrupted = 1
+            SELECT slug FROM scrape_verification WHERE is_corrupted = 1 AND source = ${source}
           `.pipe(
             Effect.map((rows) => rows.map((r) => r.slug)),
           ),
         ),
 
-      getValidSlugs: () =>
+      getValidSlugs: (source = "kimovil") =>
         wrapError(
           sql<{ slug: string }>`
-            SELECT slug FROM scrape_verification WHERE is_corrupted = 0
+            SELECT slug FROM scrape_verification WHERE is_corrupted = 0 AND source = ${source}
           `.pipe(
             Effect.map((rows) => rows.map((r) => r.slug)),
           ),

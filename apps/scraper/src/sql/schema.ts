@@ -141,12 +141,16 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
 
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS scrape_verification (
-        slug TEXT PRIMARY KEY,
+        slug TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'kimovil',
         is_corrupted INTEGER NOT NULL DEFAULT 0,
         verified_at INTEGER NOT NULL DEFAULT (unixepoch()),
-        corruption_reason TEXT
+        corruption_reason TEXT,
+        PRIMARY KEY (slug, source)
       )
     `);
+
+    yield* ensureColumn(sql, "scrape_verification", "source", "TEXT NOT NULL DEFAULT 'kimovil'");
 
     yield* ensureColumn(sql, "raw_html", "source", "TEXT NOT NULL DEFAULT 'kimovil'");
 

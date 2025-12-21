@@ -221,7 +221,7 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         const htmlCache = yield* HtmlCacheService;
         const results: Record<
           string,
-          { isCorrupted: boolean; reason: string | null }
+          { isCorrupted: boolean | null; reason: string | null }
         > = {};
 
         for (const slug of slugs) {
@@ -230,13 +230,16 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         }
 
         const corrupted = Object.values(results).filter(
-          (r) => r.isCorrupted,
+          (r) => r.isCorrupted === true,
         ).length;
         const valid = Object.values(results).filter(
-          (r) => !r.isCorrupted,
+          (r) => r.isCorrupted === false,
+        ).length;
+        const missing = Object.values(results).filter(
+          (r) => r.isCorrupted === null,
         ).length;
 
-        return { results, summary: { total: slugs.length, corrupted, valid } };
+        return { results, summary: { total: slugs.length, corrupted, valid, missing } };
       });
 
       return LiveRuntime.runPromise(program);
