@@ -1,0 +1,247 @@
+import { Schema } from "@effect/schema";
+
+// Camera types for AI normalization
+export const CameraTypeSchema = Schema.Literal(
+  "ширик",
+  "зум",
+  "основная",
+  "фронтальная",
+  "lidar",
+  "макро",
+  "инфракрасная",
+);
+export type CameraType = typeof CameraTypeSchema.Type;
+
+// Camera features for AI normalization
+export const CameraFeaturesArraySchema = Schema.Array(
+  Schema.Literal("macro", "monochrome"),
+);
+export type CameraFeaturesArray = typeof CameraFeaturesArraySchema.Type;
+
+// USB type enum
+export const UsbTypeSchema = Schema.Literal("USB-A", "USB-C", "Lightning");
+export type UsbType = typeof UsbTypeSchema.Type;
+
+// Fingerprint position enum
+export const FingerprintPositionSchema = Schema.Literal(
+  "screen",
+  "side",
+  "back",
+);
+export type FingerprintPosition = typeof FingerprintPositionSchema.Type;
+
+// Embedded types (not stored as separate tables)
+
+export class Camera extends Schema.Class<Camera>("Camera")({
+  resolution_mp: Schema.Number,
+  aperture_fstop: Schema.NullOr(Schema.String),
+  sensor: Schema.NullOr(Schema.String),
+  type: Schema.String,
+  features: Schema.String, // pipe-delimited or empty string
+}) {}
+
+export class NormalizedCamera extends Schema.Class<NormalizedCamera>(
+  "NormalizedCamera",
+)({
+  resolution_mp: Schema.Number,
+  aperture_fstop: Schema.NullOr(Schema.String),
+  sensor: Schema.NullOr(Schema.String),
+  type: CameraTypeSchema,
+  features: Schema.optional(
+    Schema.NullOr(Schema.Union(CameraFeaturesArraySchema, Schema.Literal(""))),
+  ),
+}) {}
+
+export class Sku extends Schema.Class<Sku>("Sku")({
+  marketId: Schema.String, // pipe-delimited
+  ram_gb: Schema.Number,
+  storage_gb: Schema.Number,
+}) {}
+
+export class Benchmark extends Schema.Class<Benchmark>("Benchmark")({
+  name: Schema.String,
+  score: Schema.Number,
+}) {}
+
+// JSON transformers for SQLite storage (arrays stored as JSON TEXT)
+
+export const JsonFromString = <A, I>(
+  schema: Schema.Schema<A, I>,
+): Schema.Schema<A, string> =>
+  Schema.transform(Schema.String, schema, {
+    decode: (s) => JSON.parse(s) as I,
+    encode: (a) => JSON.stringify(a),
+  });
+
+// Boolean stored as 0/1 in SQLite
+export const BooleanFromNumber = Schema.transform(
+  Schema.Number,
+  Schema.Boolean,
+  {
+    decode: (n) => n !== 0,
+    encode: (b) => (b ? 1 : 0),
+  },
+);
+
+// Nullable boolean stored as 0/1/null in SQLite
+export const NullableBooleanFromNumber = Schema.NullOr(BooleanFromNumber);
+
+// Date stored as unix timestamp in SQLite
+export const DateFromTimestamp = Schema.transform(
+  Schema.Number,
+  Schema.DateFromSelf,
+  {
+    decode: (n) => new Date(n * 1000),
+    encode: (d) => Math.floor(d.getTime() / 1000),
+  },
+);
+
+// Raw phone data before AI normalization (extracted from HTML)
+export class RawPhone extends Schema.Class<RawPhone>("RawPhone")({
+  // Primary key
+  slug: Schema.String,
+
+  // Essentials
+  name: Schema.String,
+  brand: Schema.String,
+  aliases: Schema.String, // pipe-delimited
+  releaseDate: Schema.NullOr(Schema.String), // ISO date string
+  images: Schema.NullOr(Schema.String), // pipe-delimited URLs
+
+  // Design
+  height_mm: Schema.NullOr(Schema.Number),
+  width_mm: Schema.NullOr(Schema.Number),
+  thickness_mm: Schema.NullOr(Schema.Number),
+  weight_g: Schema.NullOr(Schema.Number),
+  materials: Schema.String, // pipe-delimited
+  ipRating: Schema.NullOr(Schema.String),
+  colors: Schema.String, // pipe-delimited
+
+  // Display
+  size_in: Schema.NullOr(Schema.Number),
+  displayType: Schema.NullOr(Schema.String),
+  resolution: Schema.NullOr(Schema.String),
+  aspectRatio: Schema.NullOr(Schema.String),
+  ppi: Schema.NullOr(Schema.Number),
+  displayFeatures: Schema.String, // pipe-delimited
+
+  // Hardware
+  cpu: Schema.NullOr(Schema.String),
+  cpuManufacturer: Schema.NullOr(Schema.String),
+  cpuCores: Schema.NullOr(Schema.String), // pipe-delimited
+  gpu: Schema.NullOr(Schema.String),
+  sdSlot: Schema.NullOr(Schema.Boolean),
+  skus: Schema.Array(Sku),
+  fingerprintPosition: Schema.NullOr(FingerprintPositionSchema),
+  benchmarks: Schema.Array(Benchmark),
+
+  // Connectivity
+  nfc: Schema.NullOr(Schema.Boolean),
+  bluetooth: Schema.NullOr(Schema.String),
+  sim: Schema.String, // pipe-delimited
+  simCount: Schema.Number,
+  usb: Schema.NullOr(UsbTypeSchema),
+  headphoneJack: Schema.NullOr(Schema.Boolean),
+
+  // Battery
+  batteryCapacity_mah: Schema.NullOr(Schema.Number),
+  batteryFastCharging: Schema.NullOr(Schema.Boolean),
+  batteryWattage: Schema.NullOr(Schema.Number),
+
+  // Cameras
+  cameras: Schema.Array(Camera),
+  cameraFeatures: Schema.String, // pipe-delimited
+
+  // Software
+  os: Schema.NullOr(Schema.String),
+  osSkin: Schema.NullOr(Schema.String),
+
+  // Extras
+  scores: Schema.NullOr(Schema.String), // pipe-delimited key=value
+  others: Schema.NullOr(Schema.String), // pipe-delimited
+}) {}
+
+// AI-normalized phone data
+export class Phone extends Schema.Class<Phone>("Phone")({
+  // Primary key
+  slug: Schema.String,
+
+  // Essentials
+  name: Schema.String,
+  brand: Schema.String,
+  aliases: Schema.String, // pipe-delimited
+  releaseDate: Schema.NullOr(Schema.String), // ISO date string
+
+  // Design
+  height_mm: Schema.NullOr(Schema.Number),
+  width_mm: Schema.NullOr(Schema.Number),
+  thickness_mm: Schema.NullOr(Schema.Number),
+  weight_g: Schema.NullOr(Schema.Number),
+  materials: Schema.String, // pipe-delimited, translated
+  ipRating: Schema.NullOr(Schema.String),
+  colors: Schema.String, // pipe-delimited, translated
+
+  // Display
+  size_in: Schema.NullOr(Schema.Number),
+  displayType: Schema.NullOr(Schema.String),
+  resolution: Schema.NullOr(Schema.String),
+  aspectRatio: Schema.NullOr(Schema.String),
+  ppi: Schema.NullOr(Schema.Number),
+  displayFeatures: Schema.String, // pipe-delimited, normalized
+
+  // Hardware
+  cpu: Schema.NullOr(Schema.String), // cleaned
+  cpuManufacturer: Schema.NullOr(Schema.String),
+  cpuCores: Schema.NullOr(Schema.String), // pipe-delimited
+  gpu: Schema.NullOr(Schema.String),
+  sdSlot: Schema.NullOr(Schema.Boolean),
+  skus: Schema.Array(Sku),
+  fingerprintPosition: Schema.NullOr(FingerprintPositionSchema),
+  benchmarks: Schema.Array(Benchmark),
+
+  // Connectivity
+  nfc: Schema.NullOr(Schema.Boolean),
+  bluetooth: Schema.NullOr(Schema.String),
+  sim: Schema.String, // pipe-delimited
+  simCount: Schema.Number,
+  usb: Schema.NullOr(UsbTypeSchema),
+  headphoneJack: Schema.NullOr(Schema.Boolean),
+
+  // Battery
+  batteryCapacity_mah: Schema.NullOr(Schema.Number),
+  batteryFastCharging: Schema.NullOr(Schema.Boolean),
+  batteryWattage: Schema.NullOr(Schema.Number),
+
+  // Cameras (with AI-normalized types)
+  cameras: Schema.Array(NormalizedCamera),
+  cameraFeatures: Schema.String, // pipe-delimited, normalized
+
+  // Software
+  os: Schema.NullOr(Schema.String),
+  osSkin: Schema.NullOr(Schema.String),
+}) {}
+
+// DB row types for SQLite storage (data stored as JSON TEXT)
+export class RawPhoneRow extends Schema.Class<RawPhoneRow>("RawPhoneRow")({
+  slug: Schema.String,
+  data: Schema.String, // JSON string of RawPhone (without slug)
+  created_at: Schema.Number, // unix timestamp
+  updated_at: Schema.Number, // unix timestamp
+}) {}
+
+export class PhoneRow extends Schema.Class<PhoneRow>("PhoneRow")({
+  slug: Schema.String,
+  data: Schema.String, // JSON string of Phone (without slug)
+  created_at: Schema.Number, // unix timestamp
+  updated_at: Schema.Number, // unix timestamp
+}) {}
+
+// Plain TypeScript types for frontend (no Schema runtime dependency)
+export type CameraData = typeof Camera.Type;
+export type NormalizedCameraData = typeof NormalizedCamera.Type;
+export type SkuData = typeof Sku.Type;
+export type BenchmarkData = typeof Benchmark.Type;
+export type RawPhoneData = typeof RawPhone.Type;
+export type PhoneData = typeof Phone.Type;
+export type RawPhoneRowData = typeof RawPhoneRow.Type;
+export type PhoneRowData = typeof PhoneRow.Type;
