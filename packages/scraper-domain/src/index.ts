@@ -16,4 +16,12 @@ export type {
   BenchmarkData,
   RawPhoneData,
   PhoneData,
+
+  // Device types
+  DataKind,
+  SourceStatus,
+  ScrapeStatus,
+  DeviceData,
+  DeviceSourceLinkData,
+  ScrapeData,
 } from "./models";

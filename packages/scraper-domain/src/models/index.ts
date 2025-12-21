@@ -39,3 +39,14 @@ export type {
   RawPhoneRowData,
   PhoneRowData,
 } from "./phone";
+
+export { Device, DeviceSourceLink, Scrape } from "./device";
+
+export type {
+  DataKind,
+  SourceStatus,
+  ScrapeStatus,
+  DeviceData,
+  DeviceSourceLinkData,
+  ScrapeData,
+} from "./device";

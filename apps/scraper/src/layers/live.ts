@@ -8,6 +8,9 @@ import { HtmlCacheServiceLive } from "../services/html-cache";
 import { JobQueueServiceLive } from "../services/job-queue";
 import { DeviceServiceLive } from "../services/device";
 import { PhoneDataServiceLive } from "../services/phone-data";
+import { DeviceRegistryServiceLive } from "../services/device-registry";
+import { EntityDataServiceLive } from "../services/entity-data";
+import { ScrapeRecordServiceLive } from "../services/scrape-record";
 import { SqlClientLive, SchemaLive } from "../sql";
 
 const SearchServiceLayer = SearchServiceKimovil.pipe(
@@ -21,6 +24,9 @@ const DataLayer = Layer.mergeAll(
   JobQueueServiceLive,
   PhoneDataServiceLive,
   DeviceServiceLive,
+  DeviceRegistryServiceLive,
+  EntityDataServiceLive,
+  ScrapeRecordServiceLive,
 ).pipe(Layer.provide(SqlLayer));
 
 const ScrapeServiceLayer = ScrapeServiceKimovil.pipe(
