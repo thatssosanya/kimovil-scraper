@@ -202,15 +202,17 @@ export const DeviceServiceLive = Layer.effect(
               count++;
             }
           }
-          console.log(
-            `[Device] Seeded ${count} initial prefixes (2-char combos)`,
+          yield* Effect.logInfo(`Seeded ${count} initial prefixes (2-char combos)`).pipe(
+            Effect.annotateLogs({ service: "Device" }),
           );
         }).pipe(Effect.asVoid, Effect.mapError(wrapError("Failed to seed initial prefixes"))),
 
       resetAllPrefixes: () =>
         Effect.gen(function* () {
           yield* sql`DELETE FROM kimovil_prefix_state`;
-          console.log("[Device] Reset all prefixes");
+          yield* Effect.logInfo("Reset all prefixes").pipe(
+            Effect.annotateLogs({ service: "Device" }),
+          );
         }).pipe(Effect.asVoid, Effect.mapError(wrapError("Failed to reset prefixes"))),
     });
   }),

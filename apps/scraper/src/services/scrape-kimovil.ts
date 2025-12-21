@@ -96,10 +96,12 @@ const createPageScoped = (
         ),
     }),
     (page) =>
-      Effect.promise(() =>
-        page.close().catch((e) => {
-          console.error("[Page] Error closing page:", e);
-        }),
+      Effect.promise(() => page.close()).pipe(
+        Effect.catchAll((e) =>
+          Effect.logError(`Error closing page: ${e}`).pipe(
+            Effect.annotateLogs({ service: "Page" }),
+          ),
+        ),
       ),
   );
 
@@ -117,7 +119,9 @@ const backgroundRefresh = (
   deps: ScrapeServiceDeps,
 ): Effect.Effect<void, AllErrors> =>
   Effect.gen(function* () {
-    console.log(`[SWR] Starting background refresh for ${slug}`);
+    yield* Effect.logInfo("Starting background refresh").pipe(
+      Effect.annotateLogs({ service: "SWR", slug }),
+    );
     yield* Effect.scoped(
       Effect.gen(function* () {
         const browser = yield* deps.browserService.createBrowserScoped();
@@ -130,14 +134,17 @@ const backgroundRefresh = (
         yield* deps.phoneDataService
           .saveRaw(slug, data as unknown as Record<string, unknown>)
           .pipe(Effect.catchAll(() => Effect.void));
-        console.log(`[SWR] Background refresh complete for ${slug}`);
+        yield* Effect.logInfo("Background refresh complete").pipe(
+          Effect.annotateLogs({ service: "SWR", slug }),
+        );
       }),
     );
   }).pipe(
-    Effect.catchAll((error) => {
-      console.error(`[SWR] Background refresh failed for ${slug}:`, error);
-      return Effect.void;
-    }),
+    Effect.catchAll((error) =>
+      Effect.logError(`Background refresh failed: ${error}`).pipe(
+        Effect.annotateLogs({ service: "SWR", slug }),
+      ),
+    ),
   );
 
 const toDelimited = (arr: string[] | null | undefined): string =>

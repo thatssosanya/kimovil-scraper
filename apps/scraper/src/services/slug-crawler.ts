@@ -172,8 +172,8 @@ export const SlugCrawlerServiceLive = Layer.effect(
         for (const d of devices) {
           knownSlugs.add(d.slug);
         }
-        console.log(
-          `[Crawler] Loaded ${knownSlugs.size} known slugs into memory`,
+        yield* Effect.logInfo(`Loaded ${knownSlugs.size} known slugs into memory`).pipe(
+          Effect.annotateLogs({ service: "Crawler" }),
         );
       });
 
@@ -193,9 +193,7 @@ export const SlugCrawlerServiceLive = Layer.effect(
 
           if (response.status === 429 || !response.ok) {
             const backoffMs = Math.min(5000 * Math.pow(2, attempt - 1), 60000);
-            console.log(
-              `\n[Crawler] Rate limited (${response.status}), waiting ${backoffMs / 1000}s...`,
-            );
+            console.log(`[Crawler] Rate limited (${response.status}), waiting ${backoffMs / 1000}s...`);
             await sleep(backoffMs);
             continue;
           }
@@ -204,9 +202,7 @@ export const SlugCrawlerServiceLive = Layer.effect(
             const data = JSON.parse(response.text) as AutocompleteResponse;
             return data.results || [];
           } catch {
-            console.log(
-              `\n[Crawler] Invalid JSON for "${prefix}", retrying...`,
-            );
+            console.log(`[Crawler] Invalid JSON for "${prefix}", retrying...`);
             await sleep(2000);
             continue;
           }
@@ -267,10 +263,9 @@ export const SlugCrawlerServiceLive = Layer.effect(
         }
 
         if (newlyAdded.length > 0) {
-          console.log(`\n  + Found ${newlyAdded.length} new device(s):`);
-          for (const d of newlyAdded) {
-            console.log(`    [${d.id}] ${d.name}`);
-          }
+          yield* Effect.logInfo(`Found ${newlyAdded.length} new device(s)`).pipe(
+            Effect.annotateLogs({ service: "Crawler", devices: newlyAdded.map((d) => `[${d.id}] ${d.name}`).join(", ") }),
+          );
         }
 
         const count = results.length;
@@ -355,7 +350,9 @@ export const SlugCrawlerServiceLive = Layer.effect(
 
           const pendingCount = yield* deviceService.getPendingPrefixCount();
           if (pendingCount === 0) {
-            console.log("[Crawler] No pending prefixes, seeding initial...");
+            yield* Effect.logInfo("No pending prefixes, seeding initial...").pipe(
+              Effect.annotateLogs({ service: "Crawler" }),
+            );
             yield* deviceService.seedInitialPrefixes();
           }
 
@@ -374,7 +371,9 @@ export const SlugCrawlerServiceLive = Layer.effect(
             while (true) {
               const nextPrefix = yield* deviceService.getNextPendingPrefix();
               if (!nextPrefix) {
-                console.log("\n[Crawler] No more pending prefixes, done!");
+                yield* Effect.logInfo("No more pending prefixes, done!").pipe(
+                  Effect.annotateLogs({ service: "Crawler" }),
+                );
                 break;
               }
 
@@ -394,9 +393,9 @@ export const SlugCrawlerServiceLive = Layer.effect(
               );
             }
 
-            console.log(
-              `\n[Crawler] Finished! Processed ${processed} prefixes, found ${knownSlugs.size} total devices (+${totalNewDevices} new this session)`,
-            );
+            yield* Effect.logInfo(
+              `Finished! Processed ${processed} prefixes, found ${knownSlugs.size} total devices (+${totalNewDevices} new this session)`,
+            ).pipe(Effect.annotateLogs({ service: "Crawler" }));
           });
 
           yield* Effect.ensuring(

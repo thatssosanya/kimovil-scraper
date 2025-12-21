@@ -32,116 +32,138 @@ export interface BrowserService {
 export const BrowserService =
   Context.GenericTag<BrowserService>("BrowserService");
 
+const logBrowser = (message: string) =>
+  Effect.logInfo(message).pipe(Effect.annotateLogs({ service: "Browser" }));
+
+const logBrowserError = (message: string, error: unknown) =>
+  Effect.logError(`${message}: ${error}`).pipe(
+    Effect.annotateLogs({ service: "Browser" }),
+  );
+
 export const BrowserServiceLive = Layer.succeed(
   BrowserService,
   BrowserService.of({
     createBrowser: () =>
-      Effect.tryPromise({
-        try: async () => {
-          const useLocal =
-            (process.env.LOCAL_PLAYWRIGHT ?? "").toLowerCase() === "true";
-          if (useLocal) {
-            const browser = await chromium.launch({ headless: false });
-            console.log("[Browser] Launched local headful Chromium");
-            return browser;
-          }
-
-          const wsEndpoint = process.env.BRD_WSENDPOINT;
-          if (!wsEndpoint) {
-            throw new Error("BRD_WSENDPOINT is not available in env");
-          }
-
-          console.log("[Browser] Attempting CDP connection to:", wsEndpoint);
-          const browser = await chromium.connectOverCDP(wsEndpoint, {
-            timeout: PLAYWRIGHT_TIMEOUT,
-            headers: {
-              "User-Agent":
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            },
+      Effect.gen(function* () {
+        const useLocal =
+          (process.env.LOCAL_PLAYWRIGHT ?? "").toLowerCase() === "true";
+        if (useLocal) {
+          const browser = yield* Effect.tryPromise({
+            try: () => chromium.launch({ headless: false }),
+            catch: (error) =>
+              new BrowserError(
+                `Failed to create browser: ${error instanceof Error ? error.message : String(error)}`,
+              ),
           });
-          console.log("[Browser] Connected to Bright Data scraping browser");
+          yield* logBrowser("Launched local headful Chromium");
           return browser;
-        },
-        catch: (error) =>
-          new BrowserError(
-            `Failed to create browser: ${error instanceof Error ? error.message : String(error)}`,
-          ),
-      }),
+        }
 
-    createLocalBrowser: () =>
-      Effect.tryPromise({
-        try: async () => {
-          const browser = await chromium.launch({ headless: true });
-          console.log(
-            "[Browser] Launched local headless Chromium (for cache parsing)",
+        const wsEndpoint = process.env.BRD_WSENDPOINT;
+        if (!wsEndpoint) {
+          return yield* Effect.fail(
+            new BrowserError("BRD_WSENDPOINT is not available in env"),
           );
-          return browser;
-        },
-        catch: (error) =>
-          new BrowserError(
-            `Failed to create local browser: ${error instanceof Error ? error.message : String(error)}`,
-          ),
-      }),
+        }
 
-    createBrowserScoped: () =>
-      Effect.acquireRelease(
-        Effect.tryPromise({
-          try: async () => {
-            const useLocal =
-              (process.env.LOCAL_PLAYWRIGHT ?? "").toLowerCase() === "true";
-            if (useLocal) {
-              const browser = await chromium.launch({ headless: false });
-              console.log("[Browser] Launched local headful Chromium (scoped)");
-              return browser;
-            }
-
-            const wsEndpoint = process.env.BRD_WSENDPOINT;
-            if (!wsEndpoint) {
-              throw new Error("BRD_WSENDPOINT is not available in env");
-            }
-
-            console.log("[Browser] Attempting CDP connection to:", wsEndpoint);
-            const browser = await chromium.connectOverCDP(wsEndpoint, {
+        yield* logBrowser(`Attempting CDP connection to: ${wsEndpoint}`);
+        const browser = yield* Effect.tryPromise({
+          try: () =>
+            chromium.connectOverCDP(wsEndpoint, {
               timeout: PLAYWRIGHT_TIMEOUT,
               headers: {
                 "User-Agent":
                   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
               },
-            });
-            console.log("[Browser] Connected to Bright Data (scoped)");
-            return browser;
-          },
+            }),
           catch: (error) =>
             new BrowserError(
               `Failed to create browser: ${error instanceof Error ? error.message : String(error)}`,
             ),
+        });
+        yield* logBrowser("Connected to Bright Data scraping browser");
+        return browser;
+      }),
+
+    createLocalBrowser: () =>
+      Effect.gen(function* () {
+        const browser = yield* Effect.tryPromise({
+          try: () => chromium.launch({ headless: true }),
+          catch: (error) =>
+            new BrowserError(
+              `Failed to create local browser: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        });
+        yield* logBrowser("Launched local headless Chromium (for cache parsing)");
+        return browser;
+      }),
+
+    createBrowserScoped: () =>
+      Effect.acquireRelease(
+        Effect.gen(function* () {
+          const useLocal =
+            (process.env.LOCAL_PLAYWRIGHT ?? "").toLowerCase() === "true";
+          if (useLocal) {
+            const browser = yield* Effect.tryPromise({
+              try: () => chromium.launch({ headless: false }),
+              catch: (error) =>
+                new BrowserError(
+                  `Failed to create browser: ${error instanceof Error ? error.message : String(error)}`,
+                ),
+            });
+            yield* logBrowser("Launched local headful Chromium (scoped)");
+            return browser;
+          }
+
+          const wsEndpoint = process.env.BRD_WSENDPOINT;
+          if (!wsEndpoint) {
+            return yield* Effect.fail(
+              new BrowserError("BRD_WSENDPOINT is not available in env"),
+            );
+          }
+
+          yield* logBrowser(`Attempting CDP connection to: ${wsEndpoint}`);
+          const browser = yield* Effect.tryPromise({
+            try: () =>
+              chromium.connectOverCDP(wsEndpoint, {
+                timeout: PLAYWRIGHT_TIMEOUT,
+                headers: {
+                  "User-Agent":
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                },
+              }),
+            catch: (error) =>
+              new BrowserError(
+                `Failed to create browser: ${error instanceof Error ? error.message : String(error)}`,
+              ),
+          });
+          yield* logBrowser("Connected to Bright Data (scoped)");
+          return browser;
         }),
         (browser) =>
-          Effect.promise(() =>
-            browser.close().catch((e) => {
-              console.error("[Browser] Error closing browser:", e);
-            }),
+          Effect.promise(() => browser.close()).pipe(
+            Effect.catchAll((e) => logBrowserError("Error closing browser", e)),
           ),
       ),
 
     createLocalBrowserScoped: () =>
       Effect.acquireRelease(
-        Effect.tryPromise({
-          try: async () => {
-            const browser = await chromium.launch({ headless: true });
-            console.log("[Browser] Launched local headless Chromium (scoped)");
-            return browser;
-          },
-          catch: (error) =>
-            new BrowserError(
-              `Failed to create local browser: ${error instanceof Error ? error.message : String(error)}`,
-            ),
+        Effect.gen(function* () {
+          const browser = yield* Effect.tryPromise({
+            try: () => chromium.launch({ headless: true }),
+            catch: (error) =>
+              new BrowserError(
+                `Failed to create local browser: ${error instanceof Error ? error.message : String(error)}`,
+              ),
+          });
+          yield* logBrowser("Launched local headless Chromium (scoped)");
+          return browser;
         }),
         (browser) =>
-          Effect.promise(() =>
-            browser.close().catch((e) => {
-              console.error("[Browser] Error closing local browser:", e);
-            }),
+          Effect.promise(() => browser.close()).pipe(
+            Effect.catchAll((e) =>
+              logBrowserError("Error closing local browser", e),
+            ),
           ),
       ),
 

@@ -208,35 +208,38 @@ const callGeminiAPI = (
   minimalData: ReturnType<typeof extractFieldsForAI>,
   slug: string,
 ) =>
-  Effect.tryPromise({
-    try: async () => {
-      const userPrompt = USER_PROMPT_TEMPLATE.replace(
-        "{{DATA}}",
-        JSON.stringify(minimalData),
-      );
-      const startTime = Date.now();
-      console.log(
-        `[Gemini] Starting normalization for ${slug} (~${Math.ceil(userPrompt.length / 4)} tokens)`,
-      );
-      console.log(`[Gemini] Sending:`, JSON.stringify(minimalData));
+  Effect.gen(function* () {
+    const userPrompt = USER_PROMPT_TEMPLATE.replace(
+      "{{DATA}}",
+      JSON.stringify(minimalData),
+    );
+    const startTime = Date.now();
+    yield* Effect.logInfo(
+      `Starting normalization (~${Math.ceil(userPrompt.length / 4)} tokens)`,
+    ).pipe(Effect.annotateLogs({ service: "Gemini", slug }));
+    yield* Effect.logDebug(`Sending: ${JSON.stringify(minimalData)}`).pipe(
+      Effect.annotateLogs({ service: "Gemini", slug }),
+    );
 
-      const response = await generateObject({
-        model: google("gemini-3-flash-preview"),
-        schema: MinimalAIResponseZod,
-        system: SYSTEM_PROMPT,
-        prompt: userPrompt,
-      });
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        generateObject({
+          model: google("gemini-3-flash-preview"),
+          schema: MinimalAIResponseZod,
+          system: SYSTEM_PROMPT,
+          prompt: userPrompt,
+        }),
+      catch: (error) =>
+        new OpenAIError(
+          `Gemini API call failed: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+    });
 
-      const elapsed = Date.now() - startTime;
-      console.log(
-        `[Gemini] Completed in ${elapsed}ms (input: ${response.usage?.inputTokens}, output: ${response.usage?.outputTokens})`,
-      );
-      return response.object;
-    },
-    catch: (error) =>
-      new OpenAIError(
-        `Gemini API call failed: ${error instanceof Error ? error.message : String(error)}`,
-      ),
+    const elapsed = Date.now() - startTime;
+    yield* Effect.logInfo(
+      `Completed in ${elapsed}ms (input: ${response.usage?.inputTokens}, output: ${response.usage?.outputTokens})`,
+    ).pipe(Effect.annotateLogs({ service: "Gemini", slug }));
+    return response.object;
   });
 
 const validateAndMerge = (
@@ -320,11 +323,15 @@ const adaptScrapedDataImpl = (data: RawPhoneData) =>
     );
 
     const decoded = yield* validateAndMerge(aiResult, data);
-    console.log("[Gemini] Successfully normalized data for:", data.slug);
+    yield* Effect.logInfo("Successfully normalized data").pipe(
+      Effect.annotateLogs({ service: "Gemini", slug: data.slug }),
+    );
     return decoded;
   }).pipe(
     Effect.tapError((e) =>
-      Effect.sync(() => console.log(`[Gemini] Error, will retry: ${e.message}`)),
+      Effect.logWarning(`Error, will retry: ${e.message}`).pipe(
+        Effect.annotateLogs({ service: "Gemini" }),
+      ),
     ),
     Effect.retry(
       Schedule.exponential("1 second").pipe(
