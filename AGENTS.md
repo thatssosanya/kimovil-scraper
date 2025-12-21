@@ -195,4 +195,3 @@ registerPipeline({
 ## Known Limitations (Future Work)
 - **Postgres**: SQLite-specific SQL (PRAGMA, INSERT OR REPLACE, last_insert_rowid) needs conversion
 - **Scheduled jobs**: No cron/scheduler; jobs are manually triggered
-- **Pipe-delimited fields**: Some domain fields still use `|`-separated strings instead of arrays
