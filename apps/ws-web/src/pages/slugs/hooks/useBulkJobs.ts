@@ -344,7 +344,7 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
     wsConnected,
     bulkJob,
     bulkJobStats,
-    allJobs: () => allJobs,
+    allJobs,
     selectedJobId,
     selectedJob,
     lastCompleted,

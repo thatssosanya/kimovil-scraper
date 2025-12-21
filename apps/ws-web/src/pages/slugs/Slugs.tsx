@@ -294,14 +294,14 @@ export default function Slugs() {
             bg-gradient-to-b from-slate-900/90 to-slate-900/70 backdrop-blur-xl
             border border-slate-700/40
             ${jobsExpanded() ? "shadow-2xl shadow-indigo-500/5" : "shadow-lg shadow-slate-950/50"}
-            ${bulkJobs.allJobs().filter(j => j.job.status === "running").length > 0 ? "ring-1 ring-indigo-500/20" : ""}
+            ${bulkJobs.allJobs.filter(j => j.job.status === "running").length > 0 ? "ring-1 ring-indigo-500/20" : ""}
           `}
         >
           {/* Subtle gradient overlay for depth */}
           <div class="absolute inset-0 bg-gradient-to-br from-indigo-500/[0.02] via-transparent to-cyan-500/[0.02] pointer-events-none" />
           
           {/* Active job ambient glow */}
-          <Show when={bulkJobs.allJobs().filter(j => j.job.status === "running").length > 0}>
+          <Show when={bulkJobs.allJobs.filter(j => j.job.status === "running").length > 0}>
             <div class="absolute -inset-px bg-gradient-to-r from-indigo-500/10 via-cyan-500/5 to-indigo-500/10 rounded-2xl blur-xl opacity-50 animate-pulse pointer-events-none" />
           </Show>
           
@@ -334,25 +334,25 @@ export default function Slugs() {
                   <span class={`text-sm font-semibold tracking-wide transition-colors duration-300 ${jobsExpanded() ? "text-white" : "text-slate-200 group-hover/jobs:text-white"}`}>
                     Bulk Jobs
                   </span>
-                  <Show when={bulkJobs.allJobs().filter(j => j.job.status === "running").length > 0}>
+                  <Show when={bulkJobs.allJobs.filter(j => j.job.status === "running").length > 0}>
                     <span class="relative flex items-center gap-1.5 bg-gradient-to-r from-indigo-500/15 to-cyan-500/15 text-indigo-300 text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border border-indigo-400/20">
                       <span class="relative flex h-2 w-2">
                         <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
                         <span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-400"></span>
                       </span>
-                      {bulkJobs.allJobs().filter(j => j.job.status === "running").length} running
+                      {bulkJobs.allJobs.filter(j => j.job.status === "running").length} running
                     </span>
                   </Show>
-                  <Show when={bulkJobs.allJobs().filter(j => j.job.status === "paused").length > 0}>
+                  <Show when={bulkJobs.allJobs.filter(j => j.job.status === "paused").length > 0}>
                     <span class="flex items-center gap-1.5 bg-amber-500/10 text-amber-400 text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border border-amber-500/20">
-                      {bulkJobs.allJobs().filter(j => j.job.status === "paused").length} paused
+                      {bulkJobs.allJobs.filter(j => j.job.status === "paused").length} paused
                     </span>
                   </Show>
                 </div>
                 <span class="text-[11px] text-slate-500 font-medium mt-0.5">
-                  {bulkJobs.allJobs().length === 0 
+                  {bulkJobs.allJobs.length === 0 
                     ? "No active jobs" 
-                    : `${bulkJobs.allJobs().length} job${bulkJobs.allJobs().length !== 1 ? "s" : ""} total`
+                    : `${bulkJobs.allJobs.length} job${bulkJobs.allJobs.length !== 1 ? "s" : ""} total`
                   }
                 </span>
               </div>
@@ -394,7 +394,7 @@ export default function Slugs() {
                 onStartJob={bulkJobs.startBulkJob}
               />
               <JobsSection
-                allJobs={bulkJobs.allJobs()}
+                allJobs={bulkJobs.allJobs}
                 selectedJobId={bulkJobs.selectedJobId()}
                 selectedJob={bulkJobs.selectedJob()}
                 jobsExpanded={true}
