@@ -1,6 +1,6 @@
 import { Effect, Layer, Context } from "effect";
 import { createHash } from "crypto";
-import { DatabaseService } from "./db";
+import { SqlClient } from "@effect/sql";
 
 export interface KimovilDevice {
   id: string;
@@ -81,6 +81,14 @@ type DeviceRow = {
   last_seen: number;
 };
 
+type PrefixRow = {
+  prefix: string;
+  depth: number;
+  status: "pending" | "done";
+  last_result_count: number | null;
+  last_run_at: number | null;
+};
+
 const mapDeviceRow = (row: DeviceRow): KimovilDevice => ({
   id: row.id,
   slug: row.slug,
@@ -92,192 +100,118 @@ const mapDeviceRow = (row: DeviceRow): KimovilDevice => ({
   lastSeen: row.last_seen,
 });
 
+const mapPrefixRow = (row: PrefixRow): KimovilPrefixState => ({
+  prefix: row.prefix,
+  depth: row.depth,
+  status: row.status,
+  lastResultCount: row.last_result_count,
+  lastRunAt: row.last_run_at,
+});
+
+const wrapError =
+  (message: string) =>
+  (error: unknown): DeviceError =>
+    new DeviceError(
+      `${message}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+
 export const DeviceServiceLive = Layer.effect(
   DeviceService,
   Effect.gen(function* () {
-    const { db } = yield* DatabaseService;
+    const sql = yield* SqlClient.SqlClient;
 
     return DeviceService.of({
       upsertDevice: (device) =>
-        Effect.try({
-          try: () => {
-            const id = hashSlug(device.slug);
-            db.prepare(
-              `INSERT INTO kimovil_devices (id, slug, name, brand, is_rumor, raw, first_seen, last_seen)
-               VALUES (?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
-               ON CONFLICT(slug) DO UPDATE SET
-                 name = excluded.name,
-                 brand = excluded.brand,
-                 is_rumor = excluded.is_rumor,
-                 raw = excluded.raw,
-                 last_seen = unixepoch()`,
-            ).run(
-              id,
-              device.slug,
-              device.name,
-              device.brand,
-              device.isRumor ? 1 : 0,
-              device.raw,
-            );
-          },
-          catch: (error) =>
-            new DeviceError(
-              `Failed to upsert device: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        Effect.gen(function* () {
+          const id = hashSlug(device.slug);
+          const isRumor = device.isRumor ? 1 : 0;
+          yield* sql`
+            INSERT INTO kimovil_devices (id, slug, name, brand, is_rumor, raw, first_seen, last_seen)
+            VALUES (${id}, ${device.slug}, ${device.name}, ${device.brand}, ${isRumor}, ${device.raw}, unixepoch(), unixepoch())
+            ON CONFLICT(slug) DO UPDATE SET
+              name = excluded.name,
+              brand = excluded.brand,
+              is_rumor = excluded.is_rumor,
+              raw = excluded.raw,
+              last_seen = unixepoch()
+          `;
+        }).pipe(Effect.asVoid, Effect.mapError(wrapError("Failed to upsert device"))),
 
       getDevice: (slug: string) =>
-        Effect.try({
-          try: () => {
-            const row = db
-              .prepare(`SELECT * FROM kimovil_devices WHERE slug = ?`)
-              .get(slug) as DeviceRow | undefined;
-            if (!row) return null;
-            return mapDeviceRow(row);
-          },
-          catch: (error) =>
-            new DeviceError(
-              `Failed to get device: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        Effect.gen(function* () {
+          const rows = yield* sql<DeviceRow>`
+            SELECT * FROM kimovil_devices WHERE slug = ${slug}
+          `;
+          if (rows.length === 0) return null;
+          return mapDeviceRow(rows[0]!);
+        }).pipe(Effect.mapError(wrapError("Failed to get device"))),
 
       getDeviceCount: () =>
-        Effect.try({
-          try: () => {
-            const row = db
-              .prepare(`SELECT COUNT(*) as count FROM kimovil_devices`)
-              .get() as { count: number } | undefined;
-            return row?.count ?? 0;
-          },
-          catch: (error) =>
-            new DeviceError(
-              `Failed to get device count: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        Effect.gen(function* () {
+          const rows = yield* sql<{ count: number }>`
+            SELECT COUNT(*) as count FROM kimovil_devices
+          `;
+          return rows[0]?.count ?? 0;
+        }).pipe(Effect.mapError(wrapError("Failed to get device count"))),
 
       getAllDevices: () =>
-        Effect.try({
-          try: () => {
-            const rows = db
-              .prepare(`SELECT * FROM kimovil_devices ORDER BY name`)
-              .all() as DeviceRow[];
-            return rows.map(mapDeviceRow);
-          },
-          catch: (error) =>
-            new DeviceError(
-              `Failed to get all devices: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        Effect.gen(function* () {
+          const rows = yield* sql<DeviceRow>`
+            SELECT * FROM kimovil_devices ORDER BY name
+          `;
+          return rows.map(mapDeviceRow);
+        }).pipe(Effect.mapError(wrapError("Failed to get all devices"))),
 
       enqueuePrefix: (prefix: string, depth: number) =>
-        Effect.try({
-          try: () => {
-            db.prepare(
-              `INSERT OR IGNORE INTO kimovil_prefix_state (prefix, depth, status) VALUES (?, ?, 'pending')`,
-            ).run(prefix, depth);
-          },
-          catch: (error) =>
-            new DeviceError(
-              `Failed to enqueue prefix: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        sql`
+          INSERT OR IGNORE INTO kimovil_prefix_state (prefix, depth, status) VALUES (${prefix}, ${depth}, 'pending')
+        `.pipe(Effect.asVoid, Effect.mapError(wrapError("Failed to enqueue prefix"))),
 
       getNextPendingPrefix: () =>
-        Effect.try({
-          try: () => {
-            const row = db
-              .prepare(
-                `SELECT * FROM kimovil_prefix_state WHERE status = 'pending' ORDER BY depth, prefix LIMIT 1`,
-              )
-              .get() as
-              | {
-                  prefix: string;
-                  depth: number;
-                  status: "pending" | "done";
-                  last_result_count: number | null;
-                  last_run_at: number | null;
-                }
-              | undefined;
-            if (!row) return null;
-            return {
-              prefix: row.prefix,
-              depth: row.depth,
-              status: row.status,
-              lastResultCount: row.last_result_count,
-              lastRunAt: row.last_run_at,
-            };
-          },
-          catch: (error) =>
-            new DeviceError(
-              `Failed to get next pending prefix: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        Effect.gen(function* () {
+          const rows = yield* sql<PrefixRow>`
+            SELECT * FROM kimovil_prefix_state WHERE status = 'pending' ORDER BY depth, prefix LIMIT 1
+          `;
+          if (rows.length === 0) return null;
+          return mapPrefixRow(rows[0]!);
+        }).pipe(Effect.mapError(wrapError("Failed to get next pending prefix"))),
 
       markPrefixDone: (prefix: string, resultCount: number) =>
-        Effect.try({
-          try: () => {
-            db.prepare(
-              `UPDATE kimovil_prefix_state SET status = 'done', last_result_count = ?, last_run_at = unixepoch() WHERE prefix = ?`,
-            ).run(resultCount, prefix);
-          },
-          catch: (error) =>
-            new DeviceError(
-              `Failed to mark prefix done: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        sql`
+          UPDATE kimovil_prefix_state SET status = 'done', last_result_count = ${resultCount}, last_run_at = unixepoch() WHERE prefix = ${prefix}
+        `.pipe(Effect.asVoid, Effect.mapError(wrapError("Failed to mark prefix done"))),
 
       getPendingPrefixCount: () =>
-        Effect.try({
-          try: () => {
-            const row = db
-              .prepare(
-                `SELECT COUNT(*) as count FROM kimovil_prefix_state WHERE status = 'pending'`,
-              )
-              .get() as { count: number } | undefined;
-            return row?.count ?? 0;
-          },
-          catch: (error) =>
-            new DeviceError(
-              `Failed to get pending prefix count: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        Effect.gen(function* () {
+          const rows = yield* sql<{ count: number }>`
+            SELECT COUNT(*) as count FROM kimovil_prefix_state WHERE status = 'pending'
+          `;
+          return rows[0]?.count ?? 0;
+        }).pipe(Effect.mapError(wrapError("Failed to get pending prefix count"))),
 
       seedInitialPrefixes: () =>
-        Effect.try({
-          try: () => {
-            const chars = "abcdefghijklmnopqrstuvwxyz0123456789".split("");
-            const stmt = db.prepare(
-              `INSERT OR IGNORE INTO kimovil_prefix_state (prefix, depth, status) VALUES (?, 2, 'pending')`,
-            );
-            let count = 0;
-            for (const c1 of chars) {
-              for (const c2 of chars) {
-                const prefix = c1 + c2;
-                stmt.run(prefix);
-                count++;
-              }
+        Effect.gen(function* () {
+          const chars = "abcdefghijklmnopqrstuvwxyz0123456789".split("");
+          let count = 0;
+          for (const c1 of chars) {
+            for (const c2 of chars) {
+              const prefix = c1 + c2;
+              yield* sql`
+                INSERT OR IGNORE INTO kimovil_prefix_state (prefix, depth, status) VALUES (${prefix}, 2, 'pending')
+              `;
+              count++;
             }
-            console.log(
-              `[Device] Seeded ${count} initial prefixes (2-char combos)`,
-            );
-          },
-          catch: (error) =>
-            new DeviceError(
-              `Failed to seed initial prefixes: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+          }
+          console.log(
+            `[Device] Seeded ${count} initial prefixes (2-char combos)`,
+          );
+        }).pipe(Effect.asVoid, Effect.mapError(wrapError("Failed to seed initial prefixes"))),
 
       resetAllPrefixes: () =>
-        Effect.try({
-          try: () => {
-            db.exec(`DELETE FROM kimovil_prefix_state`);
-            console.log("[Device] Reset all prefixes");
-          },
-          catch: (error) =>
-            new DeviceError(
-              `Failed to reset prefixes: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        Effect.gen(function* () {
+          yield* sql`DELETE FROM kimovil_prefix_state`;
+          console.log("[Device] Reset all prefixes");
+        }).pipe(Effect.asVoid, Effect.mapError(wrapError("Failed to reset prefixes"))),
     });
   }),
 );

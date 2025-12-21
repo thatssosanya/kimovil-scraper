@@ -1,10 +1,10 @@
 import { Effect, Layer } from "effect";
-import { SqlClient } from "@effect/sql";
+import { SqlClient, SqlError } from "@effect/sql";
 
 const tableExists = (
   sql: SqlClient.SqlClient,
   table: string,
-): Effect.Effect<boolean> =>
+): Effect.Effect<boolean, SqlError.SqlError> =>
   sql`SELECT name FROM sqlite_master WHERE type='table' AND name=${table}`.pipe(
     Effect.map((rows) => rows.length > 0),
   );
@@ -14,7 +14,7 @@ const ensureColumn = (
   table: string,
   column: string,
   definition: string,
-): Effect.Effect<void> =>
+): Effect.Effect<void, SqlError.SqlError> =>
   sql.unsafe(`PRAGMA table_info(${table})`).pipe(
     Effect.map((columns) =>
       (columns as Array<{ name: string }>).some((c) => c.name === column),
@@ -33,7 +33,7 @@ const migrateTableRename = (
   sql: SqlClient.SqlClient,
   oldName: string,
   newName: string,
-): Effect.Effect<void> =>
+): Effect.Effect<void, SqlError.SqlError> =>
   Effect.all([tableExists(sql, oldName), tableExists(sql, newName)]).pipe(
     Effect.flatMap(([oldExists, newExists]) =>
       oldExists && !newExists
@@ -52,7 +52,7 @@ const migrateTableRename = (
 const getRowCount = (
   sql: SqlClient.SqlClient,
   table: string,
-): Effect.Effect<number> =>
+): Effect.Effect<number, SqlError.SqlError> =>
   tableExists(sql, table).pipe(
     Effect.flatMap((exists) =>
       exists
@@ -63,7 +63,7 @@ const getRowCount = (
     ),
   );
 
-const migrateJobsData = (sql: SqlClient.SqlClient): Effect.Effect<void> =>
+const migrateJobsData = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlError> =>
   Effect.all([
     getRowCount(sql, "bulk_jobs"),
     getRowCount(sql, "jobs"),
@@ -108,7 +108,7 @@ const migrateJobsData = (sql: SqlClient.SqlClient): Effect.Effect<void> =>
     Effect.asVoid,
   );
 
-const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void> =>
+const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlError> =>
   Effect.gen(function* () {
     yield* sql.unsafe(`PRAGMA journal_mode = WAL`);
     yield* sql.unsafe(`PRAGMA busy_timeout = 5000`);

@@ -1,5 +1,5 @@
-import { Effect, Layer, Context } from "effect";
-import { DatabaseService } from "./db";
+import { Effect, Layer, Context, Schema } from "effect";
+import { SqlClient } from "@effect/sql";
 
 export class PhoneDataError extends Error {
   readonly _tag = "PhoneDataError";
@@ -54,218 +54,176 @@ export interface PhoneDataService {
 export const PhoneDataService =
   Context.GenericTag<PhoneDataService>("PhoneDataService");
 
+const mapError = (error: unknown): PhoneDataError =>
+  error instanceof PhoneDataError
+    ? error
+    : new PhoneDataError(error instanceof Error ? error.message : String(error));
+
+const RawPhoneRowSchema = Schema.Struct({
+  slug: Schema.String,
+  data: Schema.String,
+  created_at: Schema.Number,
+  updated_at: Schema.Number,
+});
+
+const PhoneRowSchema = Schema.Struct({
+  slug: Schema.String,
+  data: Schema.String,
+  created_at: Schema.Number,
+  updated_at: Schema.Number,
+});
+
 export const PhoneDataServiceLive = Layer.effect(
   PhoneDataService,
   Effect.gen(function* () {
-    const { db } = yield* DatabaseService;
+    const sql = yield* SqlClient.SqlClient;
+
+    const quarantineRow = (
+      slug: string,
+      sourceTable: string,
+      data: unknown,
+      error: string,
+    ) =>
+      sql`
+        INSERT INTO quarantine (slug, source_table, data, error)
+        VALUES (${slug}, ${sourceTable}, ${JSON.stringify(data)}, ${error})
+      `.pipe(Effect.asVoid, Effect.ignore);
 
     return PhoneDataService.of({
       saveRaw: (slug: string, data: Record<string, unknown>) =>
-        Effect.try({
-          try: () => {
-            db.prepare(
-              `INSERT INTO phone_data_raw (slug, data, created_at, updated_at)
-               VALUES (?, ?, unixepoch(), unixepoch())
-               ON CONFLICT(slug) DO UPDATE SET
-                 data = excluded.data,
-                 updated_at = unixepoch()`,
-            ).run(slug, JSON.stringify(data));
-          },
-          catch: (error) =>
-            new PhoneDataError(
-              `Failed to save raw phone data: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        sql`
+          INSERT INTO phone_data_raw (slug, data, created_at, updated_at)
+          VALUES (${slug}, ${JSON.stringify(data)}, unixepoch(), unixepoch())
+          ON CONFLICT(slug) DO UPDATE SET
+            data = excluded.data,
+            updated_at = unixepoch()
+        `.pipe(
+          Effect.asVoid,
+          Effect.mapError(mapError),
+        ),
 
       getRaw: (slug: string) =>
-        Effect.try({
-          try: () => {
-            const row = db
-              .prepare(`SELECT data FROM phone_data_raw WHERE slug = ?`)
-              .get(slug) as { data: string } | undefined;
-            if (!row) return null;
-            return JSON.parse(row.data) as Record<string, unknown>;
-          },
-          catch: (error) =>
-            new PhoneDataError(
-              `Failed to get raw phone data: ${error instanceof Error ? error.message : String(error)}`,
+        Effect.gen(function* () {
+          const rows = yield* sql`SELECT slug, data, created_at, updated_at FROM phone_data_raw WHERE slug = ${slug}`;
+          if (rows.length === 0) return null;
+          const row = rows[0];
+          const decoded = yield* Schema.decodeUnknown(RawPhoneRowSchema)(row).pipe(
+            Effect.catchTag("ParseError", (e) =>
+              quarantineRow(slug, "phone_data_raw", row, e.message).pipe(
+                Effect.as(null),
+              ),
             ),
-        }),
+          );
+          if (!decoded) return null;
+          return JSON.parse(decoded.data) as Record<string, unknown>;
+        }).pipe(Effect.mapError(mapError)),
 
       hasRaw: (slug: string) =>
-        Effect.try({
-          try: () => {
-            const row = db
-              .prepare(`SELECT 1 FROM phone_data_raw WHERE slug = ? LIMIT 1`)
-              .get(slug);
-            return row !== undefined;
-          },
-          catch: (error) =>
-            new PhoneDataError(
-              `Failed to check raw phone data: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        sql`SELECT 1 FROM phone_data_raw WHERE slug = ${slug} LIMIT 1`.pipe(
+          Effect.map((rows) => rows.length > 0),
+          Effect.mapError(mapError),
+        ),
 
       getRawCount: () =>
-        Effect.try({
-          try: () => {
-            const row = db
-              .prepare(`SELECT COUNT(*) as count FROM phone_data_raw`)
-              .get() as { count: number } | undefined;
-            return row?.count ?? 0;
-          },
-          catch: (error) =>
-            new PhoneDataError(
-              `Failed to get raw phone data count: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        sql`SELECT COUNT(*) as count FROM phone_data_raw`.pipe(
+          Effect.map((rows) => (rows[0] as { count: number })?.count ?? 0),
+          Effect.mapError(mapError),
+        ),
 
       getRawBulk: (slugs: string[]) =>
-        Effect.try({
-          try: () => {
-            if (slugs.length === 0) return [];
-            const placeholders = slugs.map(() => "?").join(",");
-            const rows = db
-              .prepare(
-                `SELECT slug, data FROM phone_data_raw WHERE slug IN (${placeholders})`,
-              )
-              .all(...slugs) as { slug: string; data: string }[];
-            return rows.map((r) => ({
-              slug: r.slug,
-              data: JSON.parse(r.data) as Record<string, unknown>,
-            }));
-          },
-          catch: (error) =>
-            new PhoneDataError(
-              `Failed to get bulk raw phone data: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        Effect.gen(function* () {
+          if (slugs.length === 0) return [];
+          const rows = yield* sql`SELECT slug, data, created_at, updated_at FROM phone_data_raw WHERE slug IN ${sql.in(slugs)}`;
+          const results: Array<{ slug: string; data: Record<string, unknown> }> = [];
+          for (const row of rows) {
+            const decoded = yield* Schema.decodeUnknown(RawPhoneRowSchema)(row).pipe(
+              Effect.catchTag("ParseError", (e) =>
+                quarantineRow((row as { slug: string }).slug, "phone_data_raw", row, e.message).pipe(
+                  Effect.as(null),
+                ),
+              ),
+            );
+            if (decoded) {
+              results.push({
+                slug: decoded.slug,
+                data: JSON.parse(decoded.data) as Record<string, unknown>,
+              });
+            }
+          }
+          return results;
+        }).pipe(Effect.mapError(mapError)),
 
       save: (slug: string, data: Record<string, unknown>) =>
-        Effect.try({
-          try: () => {
-            db.prepare(
-              `INSERT INTO phone_data (slug, data, created_at, updated_at)
-               VALUES (?, ?, unixepoch(), unixepoch())
-               ON CONFLICT(slug) DO UPDATE SET
-                 data = excluded.data,
-                 updated_at = unixepoch()`,
-            ).run(slug, JSON.stringify(data));
-          },
-          catch: (error) =>
-            new PhoneDataError(
-              `Failed to save phone data: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        sql`
+          INSERT INTO phone_data (slug, data, created_at, updated_at)
+          VALUES (${slug}, ${JSON.stringify(data)}, unixepoch(), unixepoch())
+          ON CONFLICT(slug) DO UPDATE SET
+            data = excluded.data,
+            updated_at = unixepoch()
+        `.pipe(
+          Effect.asVoid,
+          Effect.mapError(mapError),
+        ),
 
       get: (slug: string) =>
-        Effect.try({
-          try: () => {
-            const row = db
-              .prepare(`SELECT data FROM phone_data WHERE slug = ?`)
-              .get(slug) as { data: string } | undefined;
-            if (!row) return null;
-            return JSON.parse(row.data) as Record<string, unknown>;
-          },
-          catch: (error) =>
-            new PhoneDataError(
-              `Failed to get phone data: ${error instanceof Error ? error.message : String(error)}`,
+        Effect.gen(function* () {
+          const rows = yield* sql`SELECT slug, data, created_at, updated_at FROM phone_data WHERE slug = ${slug}`;
+          if (rows.length === 0) return null;
+          const row = rows[0];
+          const decoded = yield* Schema.decodeUnknown(PhoneRowSchema)(row).pipe(
+            Effect.catchTag("ParseError", (e) =>
+              quarantineRow(slug, "phone_data", row, e.message).pipe(
+                Effect.as(null),
+              ),
             ),
-        }),
+          );
+          if (!decoded) return null;
+          return JSON.parse(decoded.data) as Record<string, unknown>;
+        }).pipe(Effect.mapError(mapError)),
 
       has: (slug: string) =>
-        Effect.try({
-          try: () => {
-            const row = db
-              .prepare(`SELECT 1 FROM phone_data WHERE slug = ? LIMIT 1`)
-              .get(slug);
-            return row !== undefined;
-          },
-          catch: (error) =>
-            new PhoneDataError(
-              `Failed to check phone data: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        sql`SELECT 1 FROM phone_data WHERE slug = ${slug} LIMIT 1`.pipe(
+          Effect.map((rows) => rows.length > 0),
+          Effect.mapError(mapError),
+        ),
 
       getCount: () =>
-        Effect.try({
-          try: () => {
-            const row = db
-              .prepare(`SELECT COUNT(*) as count FROM phone_data`)
-              .get() as { count: number } | undefined;
-            return row?.count ?? 0;
-          },
-          catch: (error) =>
-            new PhoneDataError(
-              `Failed to get phone data count: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        sql`SELECT COUNT(*) as count FROM phone_data`.pipe(
+          Effect.map((rows) => (rows[0] as { count: number })?.count ?? 0),
+          Effect.mapError(mapError),
+        ),
 
       getSlugsNeedingExtraction: () =>
-        Effect.try({
-          try: () => {
-            const rows = db
-              .prepare(
-                `SELECT r.slug FROM raw_html r
-                 LEFT JOIN phone_data_raw p ON r.slug = p.slug
-                 WHERE p.slug IS NULL`,
-              )
-              .all() as { slug: string }[];
-            return rows.map((r) => r.slug);
-          },
-          catch: (error) =>
-            new PhoneDataError(
-              `Failed to get slugs needing extraction: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        sql`
+          SELECT r.slug FROM raw_html r
+          LEFT JOIN phone_data_raw p ON r.slug = p.slug
+          WHERE p.slug IS NULL
+        `.pipe(
+          Effect.map((rows) => rows.map((r) => (r as { slug: string }).slug)),
+          Effect.mapError(mapError),
+        ),
 
       getSlugsNeedingAi: () =>
-        Effect.try({
-          try: () => {
-            const rows = db
-              .prepare(
-                `SELECT r.slug FROM phone_data_raw r
-                 LEFT JOIN phone_data p ON r.slug = p.slug
-                 WHERE p.slug IS NULL`,
-              )
-              .all() as { slug: string }[];
-            return rows.map((r) => r.slug);
-          },
-          catch: (error) =>
-            new PhoneDataError(
-              `Failed to get slugs needing AI: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        sql`
+          SELECT r.slug FROM phone_data_raw r
+          LEFT JOIN phone_data p ON r.slug = p.slug
+          WHERE p.slug IS NULL
+        `.pipe(
+          Effect.map((rows) => rows.map((r) => (r as { slug: string }).slug)),
+          Effect.mapError(mapError),
+        ),
 
       getRawDataSlugs: () =>
-        Effect.try({
-          try: () => {
-            const rows = db
-              .prepare(`SELECT slug FROM phone_data_raw`)
-              .all() as {
-              slug: string;
-            }[];
-            return rows.map((r) => r.slug);
-          },
-          catch: (error) =>
-            new PhoneDataError(
-              `Failed to get raw data slugs: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        sql`SELECT slug FROM phone_data_raw`.pipe(
+          Effect.map((rows) => rows.map((r) => (r as { slug: string }).slug)),
+          Effect.mapError(mapError),
+        ),
 
       getAiDataSlugs: () =>
-        Effect.try({
-          try: () => {
-            const rows = db.prepare(`SELECT slug FROM phone_data`).all() as {
-              slug: string;
-            }[];
-            return rows.map((r) => r.slug);
-          },
-          catch: (error) =>
-            new PhoneDataError(
-              `Failed to get AI data slugs: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        }),
+        sql`SELECT slug FROM phone_data`.pipe(
+          Effect.map((rows) => rows.map((r) => (r as { slug: string }).slug)),
+          Effect.mapError(mapError),
+        ),
     });
   }),
 );

@@ -4,7 +4,6 @@ import { SearchServiceKimovil } from "../services/search-kimovil";
 import { BrowserServiceLive } from "../services/browser";
 import { OpenAIServiceLive } from "../services/openai";
 import { ScrapeServiceKimovil } from "../services/scrape-kimovil";
-import { DatabaseServiceLive } from "../services/db";
 import { HtmlCacheServiceLive } from "../services/html-cache";
 import { JobQueueServiceLive } from "../services/job-queue";
 import { DeviceServiceLive } from "../services/device";
@@ -20,9 +19,9 @@ const SqlLayer = SchemaLive.pipe(Layer.provideMerge(SqlClientLive));
 const DataLayer = Layer.mergeAll(
   HtmlCacheServiceLive,
   JobQueueServiceLive,
-  DeviceServiceLive,
   PhoneDataServiceLive,
-).pipe(Layer.provide(DatabaseServiceLive));
+  DeviceServiceLive,
+).pipe(Layer.provide(SqlLayer));
 
 const ScrapeServiceLayer = ScrapeServiceKimovil.pipe(
   Layer.provide(BrowserServiceLive),

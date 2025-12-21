@@ -4,9 +4,10 @@ import {
   SlugCrawlerServiceLive,
 } from "./src/services/slug-crawler";
 import { DeviceServiceLive } from "./src/services/device";
-import { DatabaseServiceLive } from "./src/services/db";
+import { SqlClientLive, SchemaLive } from "./src/sql";
 
-const DeviceLayer = DeviceServiceLive.pipe(Layer.provide(DatabaseServiceLive));
+const SqlLayer = SchemaLive.pipe(Layer.provideMerge(SqlClientLive));
+const DeviceLayer = DeviceServiceLive.pipe(Layer.provide(SqlLayer));
 const MainLayer = SlugCrawlerServiceLive.pipe(Layer.provide(DeviceLayer));
 
 const program = Effect.gen(function* () {
