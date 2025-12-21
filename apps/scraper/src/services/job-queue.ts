@@ -23,6 +23,9 @@ export interface JobQueueItem {
   completedAt: number | null;
   errorMessage: string | null;
   lastErrorCode: string | null;
+  source: string;
+  dataKind: string;
+  scrapeId: number | null;
 }
 
 export interface Job {
@@ -40,6 +43,8 @@ export interface Job {
   queuedCount: number | null;
   batchRequestId: string | null;
   batchStatus: string | null;
+  source: string;
+  dataKind: string;
 }
 
 export interface JobStats {
@@ -69,6 +74,8 @@ export interface JobQueueService {
     filter?: string | null;
     totalCount?: number | null;
     queuedCount?: number | null;
+    source?: string;
+    dataKind?: string;
   }) => Effect.Effect<Job, JobQueueError>;
 
   readonly getJob: (id: string) => Effect.Effect<Job | null, JobQueueError>;
@@ -93,11 +100,22 @@ export interface JobQueueService {
     jobType: JobType,
     mode: ScrapeMode,
     slugs: string[],
-    maxAttempts?: number,
+    options?: {
+      maxAttempts?: number;
+      source?: string;
+      dataKind?: string;
+    },
   ) => Effect.Effect<{ queued: number }, JobQueueError>;
 
   readonly claimNextJobQueueItem: (
     jobId: string,
+    jobType?: JobType,
+  ) => Effect.Effect<JobQueueItem | null, JobQueueError>;
+
+  readonly claimNextByPipeline: (
+    jobId: string,
+    source: string,
+    dataKind: string,
     jobType?: JobType,
   ) => Effect.Effect<JobQueueItem | null, JobQueueError>;
 
@@ -199,6 +217,9 @@ type QueueRow = {
   completed_at: number | null;
   error_message: string | null;
   last_error_code: string | null;
+  source: string;
+  data_kind: string;
+  scrape_id: number | null;
 };
 
 const mapQueueRow = (row: QueueRow): JobQueueItem => ({
@@ -217,6 +238,9 @@ const mapQueueRow = (row: QueueRow): JobQueueItem => ({
   completedAt: row.completed_at,
   errorMessage: row.error_message,
   lastErrorCode: row.last_error_code ?? null,
+  source: row.source ?? "kimovil",
+  dataKind: row.data_kind ?? "specs",
+  scrapeId: row.scrape_id ?? null,
 });
 
 type JobRow = {
@@ -234,6 +258,8 @@ type JobRow = {
   queued_count: number | null;
   batch_request_id: string | null;
   batch_status: string | null;
+  source: string;
+  data_kind: string;
 };
 
 const mapJobRow = (row: JobRow): Job => ({
@@ -251,6 +277,8 @@ const mapJobRow = (row: JobRow): Job => ({
   queuedCount: row.queued_count,
   batchRequestId: row.batch_request_id ?? null,
   batchStatus: row.batch_status ?? null,
+  source: row.source ?? "kimovil",
+  dataKind: row.data_kind ?? "specs",
 });
 
 const wrapSqlError = (error: SqlError.SqlError): JobQueueError =>
@@ -264,9 +292,11 @@ export const JobQueueServiceLive = Layer.effect(
     return JobQueueService.of({
       createJob: (input) =>
         Effect.gen(function* () {
+          const source = input.source ?? "kimovil";
+          const dataKind = input.dataKind ?? "specs";
           yield* sql`
-            INSERT INTO jobs (id, job_type, mode, ai_mode, status, filter, created_at, total_count, queued_count)
-            VALUES (${input.id}, ${input.jobType}, ${input.mode}, ${input.aiMode ?? null}, 'pending', ${input.filter ?? null}, unixepoch(), ${input.totalCount ?? null}, ${input.queuedCount ?? null})
+            INSERT INTO jobs (id, job_type, mode, ai_mode, status, filter, created_at, total_count, queued_count, source, data_kind)
+            VALUES (${input.id}, ${input.jobType}, ${input.mode}, ${input.aiMode ?? null}, 'pending', ${input.filter ?? null}, unixepoch(), ${input.totalCount ?? null}, ${input.queuedCount ?? null}, ${source}, ${dataKind})
           `;
           const rows = yield* sql<JobRow>`SELECT * FROM jobs WHERE id = ${input.id}`;
           const row = rows[0];
@@ -353,14 +383,17 @@ export const JobQueueServiceLive = Layer.effect(
         jobType: JobType,
         mode: ScrapeMode,
         slugs: string[],
-        maxAttempts = 5,
+        options,
       ) =>
         sql.withTransaction(
           Effect.gen(function* () {
+            const maxAttempts = options?.maxAttempts ?? 5;
+            const source = options?.source ?? "kimovil";
+            const dataKind = options?.dataKind ?? "specs";
             for (const slug of slugs) {
               yield* sql`
-                INSERT OR IGNORE INTO job_queue (slug, job_id, job_type, mode, status, max_attempts, created_at, updated_at)
-                VALUES (${slug}, ${jobId}, ${jobType}, ${mode}, 'pending', ${maxAttempts}, unixepoch(), unixepoch())
+                INSERT OR IGNORE INTO job_queue (slug, job_id, job_type, mode, status, max_attempts, created_at, updated_at, source, data_kind)
+                VALUES (${slug}, ${jobId}, ${jobType}, ${mode}, 'pending', ${maxAttempts}, unixepoch(), unixepoch(), ${source}, ${dataKind})
               `;
             }
             const countRows = yield* sql<{ count: number }>`
@@ -410,6 +443,54 @@ export const JobQueueServiceLive = Layer.effect(
             if ((countRows[0]?.count ?? 0) === 0) return null;
 
             // Re-fetch to get fresh timestamps
+            const updatedRows = yield* sql<QueueRow>`SELECT * FROM job_queue WHERE id = ${row.id}`;
+            const updatedRow = updatedRows[0];
+            if (!updatedRow) return null;
+            return mapQueueRow(updatedRow);
+          }),
+        ).pipe(Effect.mapError(wrapSqlError)),
+
+      claimNextByPipeline: (jobId: string, source: string, dataKind: string, jobType?: JobType) =>
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const selectRows = jobType
+              ? yield* sql<QueueRow>`
+                  SELECT * FROM job_queue
+                  WHERE status = 'pending'
+                    AND job_id = ${jobId}
+                    AND job_type = ${jobType}
+                    AND source = ${source}
+                    AND data_kind = ${dataKind}
+                    AND (next_attempt_at IS NULL OR next_attempt_at <= unixepoch())
+                  ORDER BY created_at ASC
+                  LIMIT 1
+                `
+              : yield* sql<QueueRow>`
+                  SELECT * FROM job_queue
+                  WHERE status = 'pending'
+                    AND job_id = ${jobId}
+                    AND source = ${source}
+                    AND data_kind = ${dataKind}
+                    AND (next_attempt_at IS NULL OR next_attempt_at <= unixepoch())
+                  ORDER BY created_at ASC
+                  LIMIT 1
+                `;
+
+            const row = selectRows[0];
+            if (!row) return null;
+
+            yield* sql`
+              UPDATE job_queue
+              SET status = 'running',
+                  started_at = unixepoch(),
+                  updated_at = unixepoch(),
+                  next_attempt_at = NULL
+              WHERE id = ${row.id} AND status = 'pending'
+            `;
+
+            const countRows = yield* sql<{ count: number }>`SELECT changes() as count`;
+            if ((countRows[0]?.count ?? 0) === 0) return null;
+
             const updatedRows = yield* sql<QueueRow>`SELECT * FROM job_queue WHERE id = ${row.id}`;
             const updatedRow = updatedRows[0];
             if (!updatedRow) return null;

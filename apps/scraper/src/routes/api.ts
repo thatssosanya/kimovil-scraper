@@ -365,6 +365,9 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           completedAt: null,
           errorMessage: null,
           lastErrorCode: null,
+          source: "kimovil",
+          dataKind: "specs",
+          scrapeId: null,
         };
         await bulkJobManager.runQueueItem(
           dummyItem,
@@ -411,6 +414,9 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           completedAt: null,
           errorMessage: null,
           lastErrorCode: null,
+          source: "kimovil",
+          dataKind: "specs",
+          scrapeId: null,
         };
         await bulkJobManager.runQueueItem(
           dummyItem,
