@@ -21,16 +21,33 @@ cd apps/ws-web && npm run dev
 
 ## Architecture
 - **Monorepo**: Turborepo, workspaces in `apps/*` and `packages/*`
-- **Apps**: `scraper` (Elysia + Node adapter + Effect backend), `ws-web` (SolidJS + Vite + Tailwind v4 frontend)
-- **Packages**: `@repo/scraper-protocol` (Effect Schema msgs), `@repo/scraper-domain` (services), `@repo/typescript-config`
-- **Stack**: TypeScript 5.9, Effect 3.x, ESLint v9, Prettier
+- **Apps**: `scraper` (Elysia + native http.Server + Effect backend), `ws-web` (SolidJS + Vite + Tailwind v4 frontend)
+- **Packages**: `@repo/scraper-protocol` (Effect Schema msgs), `@repo/scraper-domain` (services + domain models), `@repo/typescript-config`
+- **Stack**: TypeScript 5.9, Effect 3.x, @effect/sql, ESLint v9, Prettier
+
+## Database Layer
+- **@effect/sql**: All DB access via `SqlClient` from `apps/scraper/src/sql/`
+- **Schema**: `apps/scraper/src/sql/schema.ts` — auto-migrates on startup
+- **Quarantine**: Corrupted data goes to `quarantine` table instead of crashing
+- **Tables**: `jobs`, `job_queue`, `raw_html`, `scrape_verification`, `phone_data_raw`, `phone_data`, `kimovil_devices`, `kimovil_prefix_state`
+- **Multi-source ready**: `raw_html` and `scrape_verification` support `source` column (default: `"kimovil"`)
+
+## Effect Patterns
+- **ManagedRuntime**: `LiveRuntime` in `apps/scraper/src/layers/live.ts` — memoized, single instance
+- **Layer composition**: Services composed via `Layer.provide()` / `Layer.mergeAll()`
+- **Typed errors**: Each service has its own error class with `cause` for stack preservation
+- **Resource safety**: Browser uses `Effect.acquireRelease` for cleanup on errors
+- **Transactions**: Multi-step DB ops wrapped in `sql.withTransaction()`
 
 ## Scraper Services
 - **SearchService**: Kimovil autocomplete API search
 - **ScrapeService**: Full phone data scraping via Playwright + Bright Data (or local browser)
-- **GeminiService**: Data normalization/translation using **gemini-3-flash-preview** (~25s per phone)
-- **StorageService**: SQLite cache for raw HTML (`./scraper-cache.sqlite`)
-- **BrowserService**: Playwright browser lifecycle
+- **OpenAIService**: Data normalization/translation using **gemini-3-flash-preview** (~25s per phone)
+- **HtmlCacheService**: SQLite cache for raw HTML with verification status
+- **PhoneDataService**: Raw + AI-normalized phone data storage with quarantine fallback
+- **JobQueueService**: Job and queue item management with transactions and race guards
+- **DeviceService**: Kimovil device registry and prefix crawler state
+- **BrowserService**: Playwright browser lifecycle with `acquireRelease`
 
 ## Scraping Pipeline
 1. **Browser** launches (local or Bright Data) — ~1-2s
@@ -40,24 +57,27 @@ cd apps/ws-web && npm run dev
 5. **Normalize** via Gemini (translate to Russian, clean features) — **~25s with Gemini 3 Flash**
 6. **Return** PhoneData to frontend
 
+## Job Types
+- `scrape`: Full scrape (HTML + raw extraction + AI normalization)
+- `process_raw`: Extract raw data from cached HTML
+- `process_ai`: Run AI normalization on raw data
+
 ## Fast Scrape (No AI)
 - Uses `scrapeFast` to fetch and save raw HTML only (no Gemini).
 - Validates HTML before saving (bot placeholders and missing structure are rejected).
 
 ## Bulk Scraping
-- **Endpoints**:
-  - `POST /api/scrape/bulk` (starts a bulk job; `mode` must be `fast`)
-  - `GET /api/scrape/bulk/:id` (job status + queue stats)
-- **Queue**: job-scoped items in `scrape_queue` with retry/backoff fields.
-- **Tables**: `bulk_jobs` + extended `scrape_queue` columns (attempt, max_attempts, next_attempt_at, job_id).
-- **UI**: ws-web can trigger server-side bulk jobs and poll status.
+- **WebSocket methods**: `bulk.start`, `bulk.subscribe`, `bulk.pause`, `bulk.resume`, `bulk.setWorkers`
+- **Queue**: job-scoped items in `job_queue` with retry/backoff fields
+- **Tables**: `jobs` (job metadata) + `job_queue` (individual items with attempt tracking)
+- **Max attempts**: Enforced in `rescheduleQueueItem` — items marked `error` when exhausted
+- **Race guards**: `claimNextQueueItem` uses transactions + `changes()` check
 
 ## Gemini Integration
 - **Model**: `gemini-3-flash-preview` via Vercel AI SDK (@ai-sdk/google)
 - **Input**: Only fields needing AI processing (~500 tokens): displayFeatures, cameraFeatures, materials, colors, cpu, camera types
 - **Output**: Translated/normalized JSON via structured output (generateObject)
 - **Retries**: Exponential backoff (1s, 2s, 4s) on failure
-- Uses Vercel AI SDK's `generateObject` with Zod schema for type-safe structured output
 
 ## Environment Variables (scraper)
 Create `apps/scraper/.env`:
@@ -79,8 +99,13 @@ BULK_RETRY_MAX_MS=900000
 
 ## Phone Data Storage
 - **Tables**: `phone_data_raw` (extracted), `phone_data` (AI-normalized)
-- **Format**: JSON stored as TEXT, parsed on read
-- **Methods**: `savePhoneDataRaw`, `getPhoneDataRaw`, `hasPhoneDataRaw`, `getPhoneDataRawCount` (same for AI data)
+- **Format**: JSON stored as TEXT, decoded via Effect Schema on read
+- **Quarantine**: Malformed JSON or schema failures quarantined instead of throwing
+
+## WebSocket Server
+- **Implementation**: Native `ws` package attached to http.Server (not Elysia adapter)
+- **Reason**: Elysia's node adapter conflicts with ws upgrade handling
+- **Path**: `/ws` on port 1488
 
 ## Web UI Features
 - Real-time progress streaming via WebSocket
@@ -111,7 +136,16 @@ BULK_RETRY_MAX_MS=900000
 
 ## Code Style
 - **TypeScript**: Strict mode, explicit types preferred
+- **Effect**: Use `Effect.gen` with `yield*`, typed errors, Layer composition
+- **Errors**: Always include `cause` when wrapping errors
+- **SQL**: Use `@effect/sql` template literals, wrap multi-step ops in transactions
 - **Imports**: Named imports from libraries (e.g., `import { createSignal } from "solid-js"`)
 - **Naming**: camelCase for variables/functions, PascalCase for components
 - **Formatting**: Use Prettier (runs on save); ESLint for linting
 - **Components**: SolidJS functional components with TypeScript; Tailwind for styling
+
+## Known Limitations (Future Work)
+- **Multi-source**: Job queue and phone data tables don't have `source` column yet
+- **Postgres**: SQLite-specific SQL (PRAGMA, INSERT OR REPLACE, last_insert_rowid) needs conversion
+- **Scheduled jobs**: No cron/scheduler; jobs are manually triggered
+- **Pipe-delimited fields**: Some domain fields still use `|`-separated strings instead of arrays
