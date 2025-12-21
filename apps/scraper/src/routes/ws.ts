@@ -1,7 +1,7 @@
 import { Elysia } from "elysia";
 import { Effect, Stream } from "effect";
 import { Schema } from "@effect/schema";
-import type { LiveLayerType } from "../layers/live";
+import type { LiveRuntimeType } from "../layers/live";
 import {
   Request,
   Response,
@@ -71,7 +71,6 @@ const getDefaultFilter = (jobType: StorageJobType): string => {
 };
 
 const createHandlers = (
-  liveLayer: LiveLayerType,
   bulkJobManager: BulkJobManager,
 ): Record<string, StreamHandler> => ({
   "health.check": (request, ws) =>
@@ -599,10 +598,10 @@ const createHandlers = (
 });
 
 export const createWsRoute = (
-  liveLayer: LiveLayerType,
+  runtime: LiveRuntimeType,
   bulkJobManager: BulkJobManager,
 ) => {
-  const handlers = createHandlers(liveLayer, bulkJobManager);
+  const handlers = createHandlers(bulkJobManager);
 
   return new Elysia().ws("/ws", {
     open(ws: Ws) {
@@ -656,13 +655,7 @@ export const createWsRoute = (
         );
       });
 
-      Effect.runPromise(
-        program.pipe(Effect.provide(liveLayer)) as Effect.Effect<
-          void,
-          never,
-          never
-        >,
-      ).catch((error) => {
+      runtime.runPromise(program).catch((error) => {
         console.error("Unhandled error:", error);
       });
     },

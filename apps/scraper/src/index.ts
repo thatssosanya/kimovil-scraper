@@ -7,7 +7,7 @@ import { config } from "./config";
 import { log } from "./utils/logger";
 
 // Core infrastructure
-import { LiveLayer, LiveRuntime } from "./layers/live";
+import { LiveRuntime } from "./layers/live";
 import { BulkJobManager } from "./services/bulk-job";
 
 // Routes
@@ -20,8 +20,8 @@ const bulkJobManager = new BulkJobManager(LiveRuntime);
 // Create server
 const app = new Elysia({ adapter: node() })
   .use(cors())
-  .use(createApiRoutes(LiveLayer, bulkJobManager))
-  .use(createWsRoute(LiveLayer, bulkJobManager))
+  .use(createApiRoutes(LiveRuntime, bulkJobManager))
+  .use(createWsRoute(LiveRuntime, bulkJobManager))
   .listen(config.port);
 
 // Startup

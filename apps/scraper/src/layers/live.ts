@@ -42,3 +42,5 @@ export type LiveLayerType = typeof LiveLayer;
 
 // Memoized runtime - use this instead of Effect.provide(LiveLayer) for shared state
 export const LiveRuntime = ManagedRuntime.make(LiveLayer);
+
+export type LiveRuntimeType = typeof LiveRuntime;
