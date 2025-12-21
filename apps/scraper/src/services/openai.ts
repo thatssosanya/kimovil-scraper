@@ -7,11 +7,6 @@ import {
   CameraTypeSchema,
   CameraFeaturesArraySchema,
   Phone,
-  Sku,
-  Benchmark,
-  NormalizedCamera,
-  FingerprintPositionSchema,
-  UsbTypeSchema,
 } from "@repo/scraper-domain";
 import type { PhoneData, RawPhoneData } from "@repo/scraper-domain";
 
@@ -136,55 +131,12 @@ const MinimalAIResponseSchema = Schema.Struct({
   cameras: Schema.Array(
     Schema.Struct({
       type: CameraTypeSchema,
-      features: Schema.optional(
-        Schema.NullOr(Schema.Union(CameraFeaturesArraySchema, Schema.Literal(""))),
-      ),
+      features: Schema.NullOr(CameraFeaturesArraySchema),
     }),
   ),
 });
 
-// Full phone schema using domain types
-const PhoneSchema = Schema.Struct({
-  slug: Schema.String,
-  name: Schema.String,
-  brand: Schema.String,
-  aliases: Schema.String,
-  releaseDate: Schema.NullOr(Schema.String),
-  height_mm: Schema.NullOr(Schema.Number),
-  width_mm: Schema.NullOr(Schema.Number),
-  thickness_mm: Schema.NullOr(Schema.Number),
-  weight_g: Schema.NullOr(Schema.Number),
-  materials: Schema.String,
-  ipRating: Schema.NullOr(Schema.String),
-  colors: Schema.String,
-  size_in: Schema.NullOr(Schema.Number),
-  displayType: Schema.NullOr(Schema.String),
-  resolution: Schema.NullOr(Schema.String),
-  aspectRatio: Schema.NullOr(Schema.String),
-  ppi: Schema.NullOr(Schema.Number),
-  displayFeatures: Schema.String,
-  cpu: Schema.NullOr(Schema.String),
-  cpuManufacturer: Schema.NullOr(Schema.String),
-  cpuCores: Schema.NullOr(Schema.String),
-  gpu: Schema.NullOr(Schema.String),
-  sdSlot: Schema.NullOr(Schema.Boolean),
-  skus: Schema.Array(Sku),
-  fingerprintPosition: Schema.NullOr(FingerprintPositionSchema),
-  benchmarks: Schema.Array(Benchmark),
-  nfc: Schema.NullOr(Schema.Boolean),
-  bluetooth: Schema.NullOr(Schema.String),
-  sim: Schema.String,
-  simCount: Schema.Number,
-  usb: Schema.NullOr(UsbTypeSchema),
-  headphoneJack: Schema.NullOr(Schema.Boolean),
-  batteryCapacity_mah: Schema.NullOr(Schema.Number),
-  batteryFastCharging: Schema.NullOr(Schema.Boolean),
-  batteryWattage: Schema.NullOr(Schema.Number),
-  cameras: Schema.Array(NormalizedCamera),
-  cameraFeatures: Schema.String,
-  os: Schema.NullOr(Schema.String),
-  osSkin: Schema.NullOr(Schema.String),
-});
+// Use domain Phone schema directly (shapes are identical)
 
 const toPipeString = (value: unknown): string => {
   if (Array.isArray(value)) return value.join("|");
@@ -192,7 +144,7 @@ const toPipeString = (value: unknown): string => {
   return "";
 };
 
-const decodePhoneData = Schema.decodeUnknown(PhoneSchema);
+const decodePhoneData = Schema.decodeUnknown(Phone);
 const decodeMinimalResponse = Schema.decodeUnknown(MinimalAIResponseSchema);
 
 const extractFieldsForAI = (data: RawPhoneData) => ({

@@ -47,9 +47,7 @@ export class NormalizedCamera extends Schema.Class<NormalizedCamera>(
   aperture_fstop: Schema.NullOr(Schema.String),
   sensor: Schema.NullOr(Schema.String),
   type: CameraTypeSchema,
-  features: Schema.optional(
-    Schema.NullOr(Schema.Union(CameraFeaturesArraySchema, Schema.Literal(""))),
-  ),
+  features: Schema.NullOr(CameraFeaturesArraySchema),
 }) {}
 
 export class Sku extends Schema.Class<Sku>("Sku")({

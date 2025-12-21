@@ -619,7 +619,11 @@ export const JobQueueServiceLive = Layer.effect(
             }
             return mapQueueRow(row);
           }
-        }).pipe(Effect.mapError(wrapSqlError)),
+        }).pipe(
+          Effect.mapError((e) =>
+            e instanceof JobQueueError ? e : wrapSqlError(e),
+          ),
+        ),
 
       getQueueItem: (id: number) =>
         sql<QueueRow>`SELECT * FROM job_queue WHERE id = ${id}`.pipe(
