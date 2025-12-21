@@ -1,5 +1,8 @@
 import { Layer, ManagedRuntime } from "effect";
 import { FetchHttpClient } from "@effect/platform";
+
+import "../sources/kimovil";
+
 import { SearchServiceKimovil } from "../services/search-kimovil";
 import { BrowserServiceLive } from "../services/browser";
 import { OpenAIServiceLive } from "../services/openai";
@@ -19,15 +22,21 @@ const SearchServiceLayer = SearchServiceKimovil.pipe(
 
 const SqlLayer = SchemaLive.pipe(Layer.provideMerge(SqlClientLive));
 
-const DataLayer = Layer.mergeAll(
+const CoreDataLayer = Layer.mergeAll(
   HtmlCacheServiceLive,
   JobQueueServiceLive,
-  PhoneDataServiceLive,
   DeviceServiceLive,
   DeviceRegistryServiceLive,
   EntityDataServiceLive,
   ScrapeRecordServiceLive,
 ).pipe(Layer.provide(SqlLayer));
+
+const PhoneDataLayer = PhoneDataServiceLive.pipe(
+  Layer.provide(CoreDataLayer),
+  Layer.provide(SqlLayer),
+);
+
+const DataLayer = Layer.mergeAll(CoreDataLayer, PhoneDataLayer);
 
 const ScrapeServiceLayer = ScrapeServiceKimovil.pipe(
   Layer.provide(BrowserServiceLive),

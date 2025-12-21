@@ -1,6 +1,8 @@
 import { Effect, Layer, Context, Schema } from "effect";
 import { SqlClient } from "@effect/sql";
 import { safeStringify } from "../utils/safe-stringify";
+import { DeviceRegistryService } from "./device-registry";
+import { EntityDataService } from "./entity-data";
 
 export class PhoneDataError extends Error {
   readonly _tag = "PhoneDataError";
@@ -55,6 +57,16 @@ export interface PhoneDataService {
   readonly getRawDataSlugs: () => Effect.Effect<string[], PhoneDataError>;
 
   readonly getAiDataSlugs: () => Effect.Effect<string[], PhoneDataError>;
+
+  readonly saveRawWithEntity: (
+    slug: string,
+    data: Record<string, unknown>,
+  ) => Effect.Effect<void, PhoneDataError>;
+
+  readonly saveWithEntity: (
+    slug: string,
+    data: Record<string, unknown>,
+  ) => Effect.Effect<void, PhoneDataError>;
 }
 
 export const PhoneDataService =
@@ -87,6 +99,8 @@ export const PhoneDataServiceLive = Layer.effect(
   PhoneDataService,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const deviceRegistry = yield* DeviceRegistryService;
+    const entityData = yield* EntityDataService;
 
     const quarantineRow = (
       slug: string,
@@ -261,6 +275,55 @@ export const PhoneDataServiceLive = Layer.effect(
           Effect.map((rows) => rows.map((r) => (r as { slug: string }).slug)),
           Effect.mapError(mapError),
         ),
+
+      saveRawWithEntity: (slug: string, data: Record<string, unknown>) =>
+        Effect.gen(function* () {
+          yield* sql`
+            INSERT INTO phone_data_raw (slug, data, created_at, updated_at)
+            VALUES (${slug}, ${JSON.stringify(data)}, unixepoch(), unixepoch())
+            ON CONFLICT(slug) DO UPDATE SET
+              data = excluded.data,
+              updated_at = unixepoch()
+          `;
+
+          const device = yield* deviceRegistry.getDeviceBySlug(slug).pipe(
+            Effect.catchAll(() => Effect.succeed(null)),
+          );
+          if (device) {
+            yield* entityData
+              .saveRawData({
+                deviceId: device.id,
+                source: "kimovil",
+                dataKind: "specs",
+                data,
+              })
+              .pipe(Effect.catchAll(() => Effect.void));
+          }
+        }).pipe(Effect.asVoid, Effect.mapError(mapError)),
+
+      saveWithEntity: (slug: string, data: Record<string, unknown>) =>
+        Effect.gen(function* () {
+          yield* sql`
+            INSERT INTO phone_data (slug, data, created_at, updated_at)
+            VALUES (${slug}, ${JSON.stringify(data)}, unixepoch(), unixepoch())
+            ON CONFLICT(slug) DO UPDATE SET
+              data = excluded.data,
+              updated_at = unixepoch()
+          `;
+
+          const device = yield* deviceRegistry.getDeviceBySlug(slug).pipe(
+            Effect.catchAll(() => Effect.succeed(null)),
+          );
+          if (device) {
+            yield* entityData
+              .saveFinalData({
+                deviceId: device.id,
+                dataKind: "specs",
+                data,
+              })
+              .pipe(Effect.catchAll(() => Effect.void));
+          }
+        }).pipe(Effect.asVoid, Effect.mapError(mapError)),
     });
   }),
 );
