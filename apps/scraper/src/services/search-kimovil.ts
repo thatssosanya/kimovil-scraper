@@ -1,7 +1,7 @@
 import { Layer, Effect, Stream, Schedule, Ref } from "effect";
-import { HttpClient } from "@effect/platform";
 import { SearchService, SearchError, SearchEvent } from "@repo/scraper-domain";
 import { SearchResult, SearchOption } from "@repo/scraper-protocol";
+import { BrowserService } from "./browser";
 
 const MAX_RETRIES = 3;
 
@@ -16,7 +16,7 @@ interface KimovilResponse {
 export const SearchServiceKimovil = Layer.effect(
   SearchService,
   Effect.gen(function* () {
-    const httpClient = yield* HttpClient.HttpClient;
+    const browserService = yield* BrowserService;
 
     return {
       search: (query: string) =>
@@ -31,30 +31,23 @@ export const SearchServiceKimovil = Layer.effect(
               // Build kimovil API URL
               const url = `https://www.kimovil.com/_json/autocomplete_devicemodels_joined.json?device_type=0&name=${encodeURIComponent(query)}`;
 
-              // Make HTTP request with browser-like headers
-              const response = yield* httpClient.get(url, {
-                headers: {
-                  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                  "Accept": "application/json, text/plain, */*",
-                  "Accept-Language": "en-US,en;q=0.9",
-                  "Referer": "https://www.kimovil.com/en/",
-                  "Origin": "https://www.kimovil.com",
-                },
-              }).pipe(
-                Effect.flatMap((res) => res.json),
-                Effect.timeout("10 seconds"),
-                Effect.catchAll((error) =>
-                  Effect.fail(
-                    new SearchError(
-                      `Kimovil API request failed (attempt ${attempt}): ${error}`,
-                      { cause: error },
-                    )
-                  )
-                )
+              // Make request via persistent stealth browser page
+              const data = yield* browserService.withPersistentStealthPage((page) =>
+                Effect.tryPromise({
+                  try: async () => {
+                    const result = await page.evaluate(async (url: string) => {
+                      const res = await fetch(url, { credentials: "include" });
+                      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                      return await res.json();
+                    }, url);
+                    return result as KimovilResponse;
+                  },
+                  catch: (error) =>
+                    new SearchError(`Kimovil API request failed (attempt ${attempt}): ${error}`, {
+                      cause: error,
+                    }),
+                })
               );
-
-              // Parse and validate response
-              const data = response as KimovilResponse;
               
               if (!data.results || !Array.isArray(data.results)) {
                 return yield* Effect.fail(

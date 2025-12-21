@@ -1,5 +1,4 @@
 import { Layer, ManagedRuntime } from "effect";
-import { FetchHttpClient } from "@effect/platform";
 
 import "../sources/kimovil";
 
@@ -17,7 +16,7 @@ import { ScrapeRecordServiceLive } from "../services/scrape-record";
 import { SqlClientLive, SchemaLive } from "../sql";
 
 const SearchServiceLayer = SearchServiceKimovil.pipe(
-  Layer.provide(FetchHttpClient.layer),
+  Layer.provide(BrowserServiceLive),
 );
 
 const SqlLayer = SchemaLive.pipe(Layer.provideMerge(SqlClientLive));
