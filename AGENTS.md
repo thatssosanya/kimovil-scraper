@@ -144,8 +144,55 @@ BULK_RETRY_MAX_MS=900000
 - **Formatting**: Use Prettier (runs on save); ESLint for linting
 - **Components**: SolidJS functional components with TypeScript; Tailwind for styling
 
+## Multi-Source Architecture
+
+### Core Concepts
+- **Device**: Canonical device registry (source-agnostic)
+- **DeviceSource**: Links devices to external sources (kimovil, gsmarena, etc.)
+- **Scrape**: Individual scrape attempts with lifecycle tracking
+- **EntityData**: Source-specific raw data + normalized final data
+- **Pipeline**: (source, dataKind) → stage handlers
+
+### Tables
+| Table | Purpose |
+|-------|---------|
+| `devices` | Canonical device registry |
+| `device_sources` | Links to external sources |
+| `scrapes` | Scrape attempt tracking |
+| `entity_data_raw` | Source-specific extracted data |
+| `entity_data` | Normalized/merged data |
+| `price_quotes` | Price data (multi-row per device) |
+
+### Services
+| Service | Responsibility |
+|---------|---------------|
+| `DeviceRegistryService` | Device + source link management |
+| `EntityDataService` | Raw + final data storage |
+| `ScrapeRecordService` | Scrape lifecycle |
+| `JobQueueService` | Extended with source/dataKind |
+
+### Pipeline Registry
+Register pipelines in `src/sources/{source}/specs-pipeline.ts`:
+```typescript
+registerPipeline({
+  source: "kimovil",
+  dataKind: "specs",
+  stages: {
+    scrape: scrapeHandler,
+    process_raw: processRawHandler,
+    process_ai: processAiHandler,
+  },
+});
+```
+
+### Adding a New Source
+1. Create `src/sources/{source}/` folder
+2. Implement stage handlers for each pipeline stage
+3. Register pipeline in `specs-pipeline.ts` (or similar)
+4. Import in `src/sources/{source}/index.ts`
+5. The import in `layers/live.ts` triggers registration
+
 ## Known Limitations (Future Work)
-- **Multi-source**: Job queue and phone data tables don't have `source` column yet
 - **Postgres**: SQLite-specific SQL (PRAGMA, INSERT OR REPLACE, last_insert_rowid) needs conversion
 - **Scheduled jobs**: No cron/scheduler; jobs are manually triggered
 - **Pipe-delimited fields**: Some domain fields still use `|`-separated strings instead of arrays
