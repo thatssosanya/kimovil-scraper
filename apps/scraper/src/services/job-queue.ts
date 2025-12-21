@@ -3,7 +3,7 @@ import { SqlClient, SqlError } from "@effect/sql";
 
 export type ScrapeMode = "fast" | "complex";
 export type ScrapeStatus = "pending" | "running" | "done" | "error";
-export type BulkJobStatus = "pending" | "running" | "paused" | "done" | "error";
+export type BulkJobStatus = "pending" | "running" | "pausing" | "paused" | "done" | "error";
 export type JobType = "scrape" | "process_raw" | "process_ai";
 export type AiMode = "realtime" | "batch";
 

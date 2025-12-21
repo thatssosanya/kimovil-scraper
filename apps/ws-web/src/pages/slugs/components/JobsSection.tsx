@@ -1,11 +1,11 @@
 import { Show, For } from "solid-js";
-import type { JobEntry, OptimisticStatus } from "../hooks/useBulkJobs";
+import type { JobEntry } from "../hooks/useBulkJobs";
 import type { BulkJobInfo } from "../types";
 
-type DisplayStatus = BulkJobInfo["status"] | OptimisticStatus;
+type DisplayStatus = BulkJobInfo["status"];
 
 function getDisplayStatus(item: JobEntry): DisplayStatus {
-  return item.optimisticStatus ?? item.job.status;
+  return item.job.status;
 }
 
 interface JobsSectionProps {
@@ -85,7 +85,7 @@ export function JobsSection(props: JobsSectionProps) {
               <tbody class="divide-y divide-slate-800">
                 <For each={props.allJobs}>
                   {(item) => {
-                    const status = () => item.optimisticStatus ?? item.job.status;
+                    const status = () => item.job.status;
                     return (
                       <tr
                         class={`cursor-pointer transition-colors ${
@@ -332,8 +332,7 @@ export function JobsSection(props: JobsSectionProps) {
         {/* Selected Job Detail Panel - the kept view */}
         <Show when={props.selectedJob}>
           {(() => {
-            const selectedStatus = () =>
-              props.selectedJob!.optimisticStatus ?? props.selectedJob!.job.status;
+            const selectedStatus = () => props.selectedJob!.job.status;
             return (
               <div class="mt-4 bg-slate-800/50 border border-slate-700 rounded-xl p-5 animate-in slide-in-from-top-2 duration-200">
                 <div class="flex items-start justify-between mb-4">

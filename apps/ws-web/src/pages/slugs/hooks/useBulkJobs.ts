@@ -15,12 +15,9 @@ interface UseBulkJobsOptions {
   onJobComplete: () => void;
 }
 
-export type OptimisticStatus = "pausing" | "resuming";
-
 export interface JobEntry {
   job: BulkJobInfo;
   stats: BulkJobStats;
-  optimisticStatus?: OptimisticStatus;
 }
 
 export function useBulkJobs(options: UseBulkJobsOptions) {
@@ -134,7 +131,6 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
               const idx = allJobs.findIndex((item) => item.job.id === data.result.job.id);
               if (idx >= 0) {
                 setAllJobs(idx, "job", data.result.job);
-                setAllJobs(idx, "optimisticStatus", undefined);
               }
               if (bulkJob()?.id === data.result.job.id) {
                 setBulkJob((prev) => ({ ...prev!, ...data.result.job }));
@@ -177,15 +173,6 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
               if (evt.stats) {
                 setAllJobs(idx, "stats", evt.stats);
               }
-              const current = allJobs[idx];
-              if (
-                current.optimisticStatus &&
-                evt.job.status &&
-                ((current.optimisticStatus === "pausing" && evt.job.status === "paused") ||
-                  (current.optimisticStatus === "resuming" && evt.job.status === "running"))
-              ) {
-                setAllJobs(idx, "optimisticStatus", undefined);
-              }
             }
 
             if (bulkJob() && bulkJob()!.id === evt.job.id) {
@@ -218,7 +205,6 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
             if (idx >= 0) {
               setAllJobs(idx, "job", "status", evt.status);
               setAllJobs(idx, "stats", evt.stats);
-              setAllJobs(idx, "optimisticStatus", undefined);
             }
 
             if (bulkJob() && bulkJob()!.id === evt.jobId) {
@@ -239,10 +225,6 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
 
   const pauseJob = (jobId: string) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const idx = allJobs.findIndex((item) => item.job.id === jobId);
-    if (idx >= 0) {
-      setAllJobs(idx, "optimisticStatus", "pausing");
-    }
     ws.send(
       JSON.stringify({
         id: "req-pause",
@@ -254,10 +236,6 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
 
   const resumeJob = (jobId: string) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const idx = allJobs.findIndex((item) => item.job.id === jobId);
-    if (idx >= 0) {
-      setAllJobs(idx, "optimisticStatus", "resuming");
-    }
     ws.send(
       JSON.stringify({
         id: "req-resume",

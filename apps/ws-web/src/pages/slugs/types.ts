@@ -70,7 +70,7 @@ export interface BulkJobInfo {
   jobType?: JobType;
   mode: "fast" | "complex" | null;
   aiMode?: AiMode | null;
-  status: "pending" | "running" | "paused" | "done" | "error";
+  status: "pending" | "running" | "pausing" | "paused" | "done" | "error";
   filter: string | null;
   createdAt: number;
   startedAt: number | null;

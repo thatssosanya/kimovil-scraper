@@ -1,22 +1,21 @@
-import type { JobEntry, OptimisticStatus } from "../../hooks/useBulkJobs";
+import type { JobEntry } from "../../hooks/useBulkJobs";
 import type { BulkJobInfo, BulkJobStats } from "../../types";
 
-export type DisplayStatus = BulkJobInfo["status"] | OptimisticStatus;
+export type DisplayStatus = BulkJobInfo["status"];
 
 export type { JobEntry };
 
 export function getDisplayStatus(item: JobEntry): DisplayStatus {
-  return item.optimisticStatus ?? item.job.status;
+  return item.job.status;
 }
 
 export function isActiveStatus(status: DisplayStatus): boolean {
-  return ["running", "paused", "pausing", "resuming"].includes(status);
+  return ["running", "paused", "pausing"].includes(status);
 }
 
 export function statusLabel(status: DisplayStatus, hasErrors: boolean): string {
   if (status === "done" && hasErrors) return "done w/ errors";
   if (status === "pausing") return "pausing…";
-  if (status === "resuming") return "resuming…";
   return status;
 }
 
@@ -31,7 +30,7 @@ export function progressFraction(stats: BulkJobStats): string {
 }
 
 export function statusPillClass(status: DisplayStatus, hasErrors: boolean): string {
-  if (status === "running" || status === "resuming") {
+  if (status === "running") {
     return "bg-indigo-500/10 text-indigo-400 border-indigo-500/20 animate-pulse";
   }
   if (status === "paused" || status === "pausing") {
@@ -50,7 +49,7 @@ export function statusPillClass(status: DisplayStatus, hasErrors: boolean): stri
 }
 
 export function statusDotClass(status: DisplayStatus): string {
-  if (status === "running" || status === "resuming") {
+  if (status === "running") {
     return "bg-indigo-400 animate-pulse";
   }
   if (status === "pausing") {

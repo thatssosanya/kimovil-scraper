@@ -409,7 +409,7 @@ const createHandlers = (
         );
       });
 
-      yield* jobQueue.updateJobStatus(params.jobId, "paused");
+      yield* jobQueue.updateJobStatus(params.jobId, "pausing");
 
       const updatedJob = yield* jobQueue.getJob(params.jobId);
       const result = new BulkControlResult({
@@ -439,7 +439,7 @@ const createHandlers = (
 
       bulkJobManager.broadcastJobUpdate(
         params.jobId,
-        "paused",
+        "pausing",
         state.workerCount,
       );
     }),

@@ -179,7 +179,7 @@ export class BulkJobManager {
 
   broadcastJobUpdate(
     jobId: string,
-    status: "pending" | "running" | "paused" | "done" | "error",
+    status: "pending" | "running" | "pausing" | "paused" | "done" | "error",
     workerCount?: number,
     stats?: StatsWithTimeout
   ) {
@@ -546,6 +546,8 @@ export class BulkJobManager {
       const isComplete = stats.pending === 0 && stats.running === 0;
 
       if (state.paused && !isComplete) {
+        await Effect.runPromise(jobQueue.updateJobStatus(jobId, "paused"));
+        this.broadcastJobUpdate(jobId, "paused", state.workerCount, stats);
         log.info(tag, `⏸ Workers stopped (paused after ${totalDuration})`);
         return;
       }
@@ -593,7 +595,7 @@ export class BulkJobManager {
       const { jobQueue } = await this.getServices();
       const allJobs = await Effect.runPromise(jobQueue.getAllJobs());
       const stuckJobs = allJobs.filter(
-        (j) => j.status === "running" || j.status === "paused"
+        (j) => j.status === "running" || j.status === "pausing" || j.status === "paused"
       );
 
       if (stuckJobs.length === 0) {

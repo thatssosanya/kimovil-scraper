@@ -233,7 +233,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
         job_type TEXT NOT NULL DEFAULT 'scrape' CHECK (job_type IN ('scrape', 'process_raw', 'process_ai')),
         mode TEXT NOT NULL CHECK (mode IN ('fast', 'complex')),
         ai_mode TEXT CHECK (ai_mode IS NULL OR ai_mode IN ('realtime', 'batch')),
-        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'paused', 'done', 'error')),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'pausing', 'paused', 'done', 'error')),
         filter TEXT,
         created_at INTEGER NOT NULL DEFAULT (unixepoch()),
         started_at INTEGER,
