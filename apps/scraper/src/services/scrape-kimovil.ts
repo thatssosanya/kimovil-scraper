@@ -147,11 +147,15 @@ const backgroundRefresh = (
     ),
   );
 
-const toDelimited = (arr: string[] | null | undefined): string =>
-  Array.isArray(arr) ? arr.join("|") : "";
+const toDelimited = (val: string | string[] | null | undefined): string => {
+  if (typeof val === "string") return val;
+  return Array.isArray(val) ? val.join("|") : "";
+};
 
-const toDelimitedOrNull = (arr: string[] | null | undefined): string | null =>
-  Array.isArray(arr) && arr.length > 0 ? arr.join("|") : null;
+const toDelimitedOrNull = (val: string | string[] | null | undefined): string | null => {
+  if (typeof val === "string") return val.length > 0 ? val : null;
+  return Array.isArray(val) && val.length > 0 ? val.join("|") : null;
+};
 
 const mapFingerprintPosition = (
   pos: string | null,

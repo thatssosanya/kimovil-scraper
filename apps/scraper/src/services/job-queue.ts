@@ -654,14 +654,20 @@ export const JobQueueServiceLive = Layer.effect(
         ).pipe(Effect.mapError(wrapSqlError)),
 
       startQueueItem: (id: number) =>
-        sql`
-          UPDATE job_queue
-          SET status = 'running',
-              started_at = unixepoch(),
-              updated_at = unixepoch(),
-              next_attempt_at = NULL
-          WHERE id = ${id}
-        `.pipe(Effect.asVoid, Effect.mapError(wrapSqlError)),
+        Effect.gen(function* () {
+          yield* sql`
+            UPDATE job_queue
+            SET status = 'running',
+                started_at = unixepoch(),
+                updated_at = unixepoch(),
+                next_attempt_at = NULL
+            WHERE id = ${id} AND status = 'pending'
+          `;
+          const countRows = yield* sql<{ count: number }>`SELECT changes() as count`;
+          if ((countRows[0]?.count ?? 0) === 0) {
+            throw new JobQueueError(`Failed to claim queue item ${id}: already claimed or not pending`);
+          }
+        }).pipe(Effect.mapError(wrapSqlError)),
 
       getNextPendingQueueItem: () =>
         sql<QueueRow>`

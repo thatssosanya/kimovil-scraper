@@ -1,11 +1,10 @@
 import { Effect, Stream, Context } from "effect";
-import type { ManagedRuntime, Layer } from "effect";
 import { StreamEvent, BulkJobStats } from "@repo/scraper-protocol";
 import { ScrapeService, ScrapeEvent } from "@repo/scraper-domain";
 import type { RawPhoneData } from "@repo/scraper-domain";
 import { config } from "../config";
 import { log } from "../utils/logger";
-import type { LiveLayerType } from "../layers/live";
+import type { LiveRuntimeType } from "../layers/live";
 import { sleep, formatDuration, createRateLimiter } from "../utils/helpers";
 import { classifyScrapeError } from "../utils/errors";
 import { HtmlCacheService as HtmlCacheTag } from "./html-cache";
@@ -19,11 +18,6 @@ import { BrowserService } from "./browser";
 import { OpenAIService } from "./openai";
 import { extractPhoneData, getHtmlValidationError } from "./scrape-kimovil";
 import { ScrapeResult } from "@repo/scraper-protocol";
-
-type LiveRuntimeType = ManagedRuntime.ManagedRuntime<
-  Layer.Layer.Success<LiveLayerType>,
-  never
->;
 
 export type Ws = { send: (data: string) => void };
 

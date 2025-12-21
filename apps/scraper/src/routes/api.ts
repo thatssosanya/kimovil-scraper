@@ -7,12 +7,9 @@ import { PhoneDataService } from "../services/phone-data";
 import { JobQueueService, type ScrapeMode } from "../services/job-queue";
 import { BulkJobManager } from "../services/bulk-job";
 import { log } from "../utils/logger";
-import type { LiveRuntimeType } from "../layers/live";
+import { LiveRuntime } from "../layers/live";
 
-export const createApiRoutes = (
-  runtime: LiveRuntimeType,
-  bulkJobManager: BulkJobManager,
-) =>
+export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
   new Elysia({ prefix: "/api" })
     .get("/slugs", async ({ query }) => {
       const program = Effect.gen(function* () {
@@ -48,7 +45,7 @@ export const createApiRoutes = (
         aiDataSlugs,
         rawDataCount,
         aiDataCount,
-      } = await runtime.runPromise(program);
+      } = await LiveRuntime.runPromise(program);
 
       const corruptedSet = new Set(corruptedSlugs);
       const validSet = new Set(validSlugs);
@@ -116,7 +113,7 @@ export const createApiRoutes = (
         const pendingCount = yield* deviceService.getPendingPrefixCount();
         return { devices: deviceCount, pendingPrefixes: pendingCount };
       });
-      return runtime.runPromise(program);
+      return LiveRuntime.runPromise(program);
     })
     .post("/scrape/queue", async ({ body }) => {
       const { slug, mode } = body as { slug: string; mode: ScrapeMode };
@@ -132,7 +129,7 @@ export const createApiRoutes = (
         return yield* jobQueue.queueScrape(slug, mode);
       });
 
-      const item = await runtime.runPromise(program);
+      const item = await LiveRuntime.runPromise(program);
 
       void (async () => {
         const servicesProgram = Effect.gen(function* () {
@@ -143,8 +140,8 @@ export const createApiRoutes = (
           return { htmlCache, phoneData, jobQueue, scrapeService };
         });
         const { htmlCache, phoneData, jobQueue, scrapeService } =
-          await runtime.runPromise(servicesProgram);
-        await runtime.runPromise(jobQueue.startQueueItem(item.id));
+          await LiveRuntime.runPromise(servicesProgram);
+        await LiveRuntime.runPromise(jobQueue.startQueueItem(item.id));
         await bulkJobManager.runQueueItem(
           item,
           { htmlCache, phoneData, jobQueue },
@@ -160,7 +157,7 @@ export const createApiRoutes = (
         const html = yield* htmlCache.getRawHtml(params.slug);
         return { slug: params.slug, html };
       });
-      return runtime.runPromise(program);
+      return LiveRuntime.runPromise(program);
     })
     .delete("/scrape/html/:slug", async ({ params }) => {
       const program = Effect.gen(function* () {
@@ -168,7 +165,7 @@ export const createApiRoutes = (
         yield* jobQueue.clearScrapeData(params.slug);
         return { success: true, slug: params.slug };
       });
-      return runtime.runPromise(program);
+      return LiveRuntime.runPromise(program);
     })
     .get("/scrape/status", async ({ query }) => {
       const slugsParam = query.slugs as string;
@@ -212,7 +209,7 @@ export const createApiRoutes = (
         return results;
       });
 
-      return runtime.runPromise(program);
+      return LiveRuntime.runPromise(program);
     })
     .post("/scrape/verify", async ({ body }) => {
       const { slugs } = body as { slugs: string[] };
@@ -242,7 +239,7 @@ export const createApiRoutes = (
         return { results, summary: { total: slugs.length, corrupted, valid } };
       });
 
-      return runtime.runPromise(program);
+      return LiveRuntime.runPromise(program);
     })
     .get("/scrape/queue", async ({ query }) => {
       const status = query.status as string | undefined;
@@ -255,7 +252,7 @@ export const createApiRoutes = (
         return { items };
       });
 
-      return runtime.runPromise(program);
+      return LiveRuntime.runPromise(program);
     })
     .get("/scrape/queue/:slug", async ({ params }) => {
       const program = Effect.gen(function* () {
@@ -264,7 +261,7 @@ export const createApiRoutes = (
         return item;
       });
 
-      return runtime.runPromise(program);
+      return LiveRuntime.runPromise(program);
     })
     .get("/phone-data/raw/:slug", async ({ params }) => {
       const program = Effect.gen(function* () {
@@ -273,7 +270,7 @@ export const createApiRoutes = (
         return { slug: params.slug, data };
       });
 
-      return runtime.runPromise(program);
+      return LiveRuntime.runPromise(program);
     })
     .get("/phone-data/:slug", async ({ params }) => {
       const program = Effect.gen(function* () {
@@ -282,7 +279,7 @@ export const createApiRoutes = (
         return { slug: params.slug, data };
       });
 
-      return runtime.runPromise(program);
+      return LiveRuntime.runPromise(program);
     })
     .get("/bulk/:jobId/errors", async ({ params, query }) => {
       const limit = Math.min(500, Math.max(1, Number(query.limit) || 100));
@@ -309,7 +306,7 @@ export const createApiRoutes = (
         };
       });
 
-      return runtime.runPromise(program);
+      return LiveRuntime.runPromise(program);
     })
     .post("/scrape/run-next", async () => {
       const servicesProgram = Effect.gen(function* () {
@@ -320,8 +317,8 @@ export const createApiRoutes = (
         return { htmlCache, phoneData, jobQueue, scrapeService };
       });
       const { htmlCache, phoneData, jobQueue, scrapeService } =
-        await runtime.runPromise(servicesProgram);
-      const item = await runtime.runPromise(jobQueue.claimNextQueueItem());
+        await LiveRuntime.runPromise(servicesProgram);
+      const item = await LiveRuntime.runPromise(jobQueue.claimNextQueueItem());
       if (!item) {
         return { message: "No pending items in queue" };
       }
@@ -347,7 +344,7 @@ export const createApiRoutes = (
           return { htmlCache, phoneData, jobQueue, scrapeService };
         });
         const { htmlCache, phoneData, jobQueue, scrapeService } =
-          await runtime.runPromise(program);
+          await LiveRuntime.runPromise(program);
 
         const dummyItem = {
           id: -1,
@@ -393,7 +390,7 @@ export const createApiRoutes = (
           return { htmlCache, phoneData, jobQueue, scrapeService };
         });
         const { htmlCache, phoneData, jobQueue, scrapeService } =
-          await runtime.runPromise(program);
+          await LiveRuntime.runPromise(program);
 
         const dummyItem = {
           id: -1,

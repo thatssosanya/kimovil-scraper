@@ -115,7 +115,17 @@ export const PhoneDataServiceLive = Layer.effect(
             ),
           );
           if (!decoded) return null;
-          return JSON.parse(decoded.data) as Record<string, unknown>;
+          const parsed = yield* Effect.try({
+            try: () => JSON.parse(decoded.data) as Record<string, unknown>,
+            catch: (e) => new Error(`JSON parse failed: ${e instanceof Error ? e.message : String(e)}`),
+          }).pipe(
+            Effect.catchAll((e) =>
+              quarantineRow(slug, "phone_data_raw", decoded.data, e.message).pipe(
+                Effect.as(null),
+              ),
+            ),
+          );
+          return parsed;
         }).pipe(Effect.mapError(mapError)),
 
       hasRaw: (slug: string) =>
@@ -178,7 +188,17 @@ export const PhoneDataServiceLive = Layer.effect(
             ),
           );
           if (!decoded) return null;
-          return JSON.parse(decoded.data) as Record<string, unknown>;
+          const parsed = yield* Effect.try({
+            try: () => JSON.parse(decoded.data) as Record<string, unknown>,
+            catch: (e) => new Error(`JSON parse failed: ${e instanceof Error ? e.message : String(e)}`),
+          }).pipe(
+            Effect.catchAll((e) =>
+              quarantineRow(slug, "phone_data", decoded.data, e.message).pipe(
+                Effect.as(null),
+              ),
+            ),
+          );
+          return parsed;
         }).pipe(Effect.mapError(mapError)),
 
       has: (slug: string) =>

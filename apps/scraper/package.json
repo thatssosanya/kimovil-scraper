@@ -27,12 +27,14 @@
     "elysia": "^1.4.0",
     "openai": "^4.77.0",
     "playwright": "^1.49.1",
+    "ws": "^8.18.3",
     "zod": "^4.2.1"
   },
   "devDependencies": {
     "@effect/vitest": "^0.27.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.2",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.19.2",
     "vitest": "^2.1.8"
   }

@@ -1,7 +1,8 @@
-import { Elysia } from "elysia";
+import { WebSocketServer, WebSocket } from "ws";
+import type { Server } from "http";
 import { Effect, Stream } from "effect";
 import { Schema } from "@effect/schema";
-import type { LiveRuntimeType } from "../layers/live";
+import { LiveRuntime } from "../layers/live";
 import {
   Request,
   Response,
@@ -597,25 +598,57 @@ const createHandlers = (
     }),
 });
 
-export const createWsRoute = (
-  runtime: LiveRuntimeType,
-  bulkJobManager: BulkJobManager,
-) => {
-  const handlers = createHandlers(bulkJobManager);
-
-  return new Elysia().ws("/ws", {
-    open(ws: Ws) {
-      console.log("Client connected");
+function wrapWs(socket: WebSocket): Ws {
+  return {
+    send: (data: string) => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(data);
+      }
     },
+  };
+}
 
-    message(ws: Ws, message: unknown) {
+export function createWsServer(
+  httpServer: Server,
+  bulkJobManager: BulkJobManager,
+) {
+  const handlers = createHandlers(bulkJobManager);
+  const wss = new WebSocketServer({ noServer: true });
+
+  httpServer.on("upgrade", (request, socket, head) => {
+    const pathname = new URL(
+      request.url ?? "",
+      `http://${request.headers.host}`,
+    ).pathname;
+
+    if (pathname === "/ws") {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit("connection", ws, request);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
+
+  wss.on("connection", (socket: WebSocket) => {
+    console.log("Client connected");
+    const ws = wrapWs(socket);
+
+    socket.on("error", (err) => {
+      console.error("Socket error:", err);
+    });
+
+    socket.on("message", (data: Buffer | string) => {
       const program = Effect.gen(function* () {
-        let parsed: unknown = message;
-        if (typeof message === "string") {
-          parsed = JSON.parse(message);
-        } else if (Buffer.isBuffer(message)) {
-          parsed = JSON.parse(message.toString());
+        let parsed: unknown;
+        if (typeof data === "string") {
+          parsed = JSON.parse(data);
+        } else if (Buffer.isBuffer(data)) {
+          parsed = JSON.parse(data.toString());
+        } else {
+          parsed = JSON.parse(String(data));
         }
+
         const request = yield* Schema.decodeUnknown(Request)(parsed);
 
         const handler = handlers[request.method];
@@ -631,7 +664,7 @@ export const createWsRoute = (
           return;
         }
 
-        yield* handler(request, ws).pipe(
+        yield* (handler(request, ws) as Effect.Effect<void, unknown, never>).pipe(
           Effect.catchAll((error) =>
             Effect.gen(function* () {
               const errorCode =
@@ -655,15 +688,17 @@ export const createWsRoute = (
         );
       });
 
-      runtime.runPromise(program).catch((error) => {
+      LiveRuntime.runPromise(program).catch((error) => {
         console.error("Unhandled error:", error);
       });
-    },
+    });
 
-    close(ws: Ws) {
-      console.log("Client disconnected");
+    socket.on("close", (code, reason) => {
+      console.log(`Client disconnected: code=${code}, reason=${reason?.toString() || "none"}`);
       bulkJobManager.unsubscribeAll(ws);
       bulkJobManager.unsubscribeFromList(ws);
-    },
+    });
   });
-};
+
+  return wss;
+}

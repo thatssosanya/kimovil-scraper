@@ -1,4 +1,5 @@
 import "dotenv/config";
+import http from "http";
 import { Elysia } from "elysia";
 import { node } from "@elysiajs/node";
 import { cors } from "@elysiajs/cors";
@@ -6,24 +7,65 @@ import { cors } from "@elysiajs/cors";
 import { config } from "./config";
 import { log } from "./utils/logger";
 
-// Core infrastructure
 import { LiveRuntime } from "./layers/live";
 import { BulkJobManager } from "./services/bulk-job";
 
-// Routes
 import { createApiRoutes } from "./routes/api";
-import { createWsRoute } from "./routes/ws";
+import { createWsServer } from "./routes/ws-server";
 
-// Initialize runtime state with memoized runtime
 const bulkJobManager = new BulkJobManager(LiveRuntime);
 
-// Create server
-const app = new Elysia({ adapter: node() })
-  .use(cors())
-  .use(createApiRoutes(LiveRuntime, bulkJobManager))
-  .use(createWsRoute(LiveRuntime, bulkJobManager))
-  .listen(config.port);
+// Create Elysia app WITHOUT the node adapter - we'll own the http.Server ourselves
+const app = new Elysia()
+  .use(cors({ origin: true, credentials: true }))
+  .use(createApiRoutes(bulkJobManager));
 
-// Startup
-log.banner();
-bulkJobManager.resumeStuckJobs();
+// Create our own http.Server and route requests to Elysia
+const httpServer = http.createServer((req, res) => {
+  // Elysia's fetch handler expects a Request object
+  const protocol = "http";
+  const url = new URL(req.url ?? "/", `${protocol}://${req.headers.host}`);
+  
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (value) headers.set(key, Array.isArray(value) ? value.join(", ") : value);
+  }
+
+  const body = ["GET", "HEAD"].includes(req.method ?? "GET") ? undefined : req;
+
+  const request = new Request(url.toString(), {
+    method: req.method,
+    headers,
+    body: body as BodyInit | undefined,
+    // @ts-expect-error - duplex is needed for streaming bodies
+    duplex: "half",
+  });
+
+  app
+    .handle(request)
+    .then(async (response) => {
+      res.writeHead(response.status, Object.fromEntries(response.headers));
+      if (response.body) {
+        const reader = response.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(value);
+        }
+      }
+      res.end();
+    })
+    .catch((err) => {
+      console.error("Request error:", err);
+      res.writeHead(500);
+      res.end("Internal Server Error");
+    });
+});
+
+// Attach WebSocket server to our http.Server (no conflict with Elysia now)
+createWsServer(httpServer, bulkJobManager);
+
+httpServer.listen(config.port, () => {
+  log.banner();
+  bulkJobManager.resumeStuckJobs();
+});
