@@ -61,6 +61,25 @@ export class Benchmark extends Schema.Class<Benchmark>("Benchmark")({
   score: Schema.Number,
 }) {}
 
+export const CpuCoreRoleSchema = Schema.Literal(
+  "performance",
+  "efficiency",
+  "balanced",
+  "unknown",
+);
+export type CpuCoreRole = typeof CpuCoreRoleSchema.Type;
+
+export class CpuCoreCluster extends Schema.Class<CpuCoreCluster>(
+  "CpuCoreCluster",
+)({
+  count: Schema.Number,
+  maxFreqMhz: Schema.NullOr(Schema.Number),
+  label: Schema.NullOr(Schema.String),
+  role: CpuCoreRoleSchema,
+  rawGroup: Schema.String,
+  index: Schema.Number,
+}) {}
+
 // JSON transformers for SQLite storage (arrays stored as JSON TEXT)
 
 export const JsonFromString = <A, I>(
@@ -127,6 +146,7 @@ export class RawPhone extends Schema.Class<RawPhone>("RawPhone")({
   cpu: Schema.NullOr(Schema.String),
   cpuManufacturer: Schema.NullOr(Schema.String),
   cpuCores: Schema.NullOr(Schema.Array(Schema.String)),
+  cpuCoreClusters: Schema.NullOr(Schema.Array(CpuCoreCluster)),
   gpu: Schema.NullOr(Schema.String),
   sdSlot: Schema.NullOr(Schema.Boolean),
   skus: Schema.Array(Sku),
@@ -191,6 +211,7 @@ export class Phone extends Schema.Class<Phone>("Phone")({
   cpu: Schema.NullOr(Schema.String), // cleaned
   cpuManufacturer: Schema.NullOr(Schema.String),
   cpuCores: Schema.NullOr(Schema.Array(Schema.String)),
+  cpuCoreClusters: Schema.NullOr(Schema.Array(CpuCoreCluster)),
   gpu: Schema.NullOr(Schema.String),
   sdSlot: Schema.NullOr(Schema.Boolean),
   skus: Schema.Array(Sku),
@@ -239,6 +260,7 @@ export type CameraData = typeof Camera.Type;
 export type NormalizedCameraData = typeof NormalizedCamera.Type;
 export type SkuData = typeof Sku.Type;
 export type BenchmarkData = typeof Benchmark.Type;
+export type CpuCoreClusterData = typeof CpuCoreCluster.Type;
 export type RawPhoneData = typeof RawPhone.Type;
 export type PhoneData = typeof Phone.Type;
 export type RawPhoneRowData = typeof RawPhoneRow.Type;

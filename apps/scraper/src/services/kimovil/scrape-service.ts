@@ -8,6 +8,7 @@ import {
   SingleCameraData,
   Sku,
   Benchmark,
+  CpuCoreCluster,
 } from "@repo/scraper-protocol";
 import { BrowserService, BrowserError } from "../browser";
 import { HtmlCacheService, HtmlCacheError } from "../html-cache";
@@ -221,6 +222,14 @@ const buildPhoneData = (
     cpu: string | null;
     cpuManufacturer: string | null;
     cpuCores: string[] | null;
+    cpuCoreClusters: Array<{
+      count: number;
+      maxFreqMhz: number | null;
+      label: string | null;
+      role: "performance" | "efficiency" | "balanced" | "unknown";
+      rawGroup: string;
+      index: number;
+    }> | null;
     gpu: string | null;
     sdSlot: boolean | null;
     skus: Array<{
@@ -274,6 +283,17 @@ const buildPhoneData = (
     cpu: nd.cpu,
     cpuManufacturer: nd.cpuManufacturer,
     cpuCores: nd.cpuCores,
+    cpuCoreClusters: nd.cpuCoreClusters?.map(
+      (c) =>
+        new CpuCoreCluster({
+          count: c.count,
+          maxFreqMhz: c.maxFreqMhz,
+          label: c.label,
+          role: c.role,
+          rawGroup: c.rawGroup,
+          index: c.index,
+        }),
+    ) ?? null,
     gpu: nd.gpu,
     sdSlot: nd.sdSlot,
     skus: nd.skus.map(

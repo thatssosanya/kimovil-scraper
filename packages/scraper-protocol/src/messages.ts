@@ -185,6 +185,25 @@ export class Benchmark extends Schema.Class<Benchmark>("Benchmark")({
   score: Schema.Number,
 }) {}
 
+export const CpuCoreRoleSchema = Schema.Literal(
+  "performance",
+  "efficiency",
+  "balanced",
+  "unknown",
+);
+export type CpuCoreRole = typeof CpuCoreRoleSchema.Type;
+
+export class CpuCoreCluster extends Schema.Class<CpuCoreCluster>(
+  "CpuCoreCluster",
+)({
+  count: Schema.Number,
+  maxFreqMhz: Schema.NullOr(Schema.Number),
+  label: Schema.NullOr(Schema.String),
+  role: CpuCoreRoleSchema,
+  rawGroup: Schema.String,
+  index: Schema.Number,
+}) {}
+
 export class PhoneData extends Schema.Class<PhoneData>("PhoneData")({
   // essentials
   slug: Schema.String,
@@ -215,6 +234,7 @@ export class PhoneData extends Schema.Class<PhoneData>("PhoneData")({
   cpu: Schema.NullOr(Schema.String),
   cpuManufacturer: Schema.NullOr(Schema.String),
   cpuCores: Schema.NullOr(Schema.Array(Schema.String)),
+  cpuCoreClusters: Schema.NullOr(Schema.Array(CpuCoreCluster)),
   gpu: Schema.NullOr(Schema.String),
   sdSlot: Schema.NullOr(Schema.Boolean),
   skus: Schema.Array(Sku),

@@ -1,7 +1,8 @@
 import { Effect, Option } from "effect";
 import { Page } from "playwright";
 import { SingleCameraData, Sku, Benchmark } from "@repo/scraper-protocol";
-import { getCpuCores, parseReleaseDate, getSoftware } from "./parsers";
+import { getCpuCores, getCpuCoreClusters, parseReleaseDate, getSoftware } from "./parsers";
+import type { CpuCoreCluster } from "./parsers";
 import {
   ExtractionContext,
   ExtractionError,
@@ -42,6 +43,7 @@ export interface RawPhoneData {
   cpu: string | null;
   cpuManufacturer: string | null;
   cpuCores: string[] | null;
+  cpuCoreClusters: CpuCoreCluster[] | null;
   gpu: string | null;
   sdSlot: boolean | null;
   skus: Sku[];
@@ -281,6 +283,7 @@ export const extractPhoneDataAsync = async (
     'section.container-sheet-hardware h3:has-text("Processor") + .k-dltable tr:has-text("CPU") td'
   );
   const cpuCores = getCpuCores(cpuCoresText) ?? null;
+  const cpuCoreClusters = getCpuCoreClusters(cpuCoresText) ?? null;
 
   const gpu = await extractText(
     'section.container-sheet-hardware .k-dltable tr:has-text("GPU") td'
@@ -542,6 +545,7 @@ export const extractPhoneDataAsync = async (
     cpu,
     cpuManufacturer: cpuManufacturer ?? null,
     cpuCores,
+    cpuCoreClusters,
     gpu,
     sdSlot,
     skus,
