@@ -108,8 +108,21 @@ const migrateJobsData = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError
     Effect.asVoid,
   );
 
+const dropLegacyTables = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.all([
+    sql.unsafe(`DROP TABLE IF EXISTS bulk_jobs`),
+    sql.unsafe(`DROP TABLE IF EXISTS scrape_queue`),
+  ]).pipe(
+    Effect.tap(() => Effect.logInfo("Dropped legacy tables (bulk_jobs, scrape_queue)")),
+    Effect.asVoid,
+  );
+
 const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlError> =>
   Effect.gen(function* () {
+    // PRAGMA settings are run once at schema init. WAL mode persists in the database file
+    // and busy_timeout is set per-connection but we only have one connection in this app.
     yield* sql.unsafe(`PRAGMA journal_mode = WAL`);
     yield* sql.unsafe(`PRAGMA busy_timeout = 5000`);
 
@@ -199,7 +212,11 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_jobs_job_type ON jobs(job_type)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_jobs_batch_request ON jobs(batch_request_id)`);
 
-    yield* migrateJobsData(sql);
+    // Data migrations wrapped for atomicity - if one fails, rollback
+    yield* sql.withTransaction(migrateJobsData(sql));
+
+    // Drop legacy tables after successful data migration
+    yield* dropLegacyTables(sql);
 
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS kimovil_devices (

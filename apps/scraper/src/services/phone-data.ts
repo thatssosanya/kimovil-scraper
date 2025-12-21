@@ -1,5 +1,6 @@
 import { Effect, Layer, Context, Schema } from "effect";
 import { SqlClient } from "@effect/sql";
+import { safeStringify } from "../utils/safe-stringify";
 
 export class PhoneDataError extends Error {
   readonly _tag = "PhoneDataError";
@@ -86,7 +87,7 @@ export const PhoneDataServiceLive = Layer.effect(
     ) =>
       sql`
         INSERT INTO quarantine (slug, source_table, data, error)
-        VALUES (${slug}, ${sourceTable}, ${JSON.stringify(data)}, ${error})
+        VALUES (${slug}, ${sourceTable}, ${safeStringify(data)}, ${error})
       `.pipe(Effect.asVoid, Effect.ignore);
 
     return PhoneDataService.of({
