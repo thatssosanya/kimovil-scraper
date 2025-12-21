@@ -1,5 +1,6 @@
 import { Effect, Layer } from "effect";
 import { SqlClient, SqlError } from "@effect/sql";
+import { createHash } from "crypto";
 
 const tableExists = (
   sql: SqlClient.SqlClient,
@@ -118,6 +119,58 @@ const dropLegacyTables = (
     Effect.tap(() => Effect.logInfo("Dropped legacy tables (bulk_jobs, scrape_queue)")),
     Effect.asVoid,
   );
+
+const generateDeviceId = (slug: string): string =>
+  createHash("sha256").update(slug).digest("hex").slice(0, 16);
+
+interface KimovilDeviceRow {
+  id: string;
+  slug: string;
+  name: string;
+  brand: string | null;
+  first_seen: number;
+  last_seen: number;
+}
+
+const migrateKimovilDevices = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    const devicesCount = yield* getRowCount(sql, "devices");
+    const kimovilCount = yield* getRowCount(sql, "kimovil_devices");
+
+    if (devicesCount > 0 || kimovilCount === 0) {
+      return;
+    }
+
+    yield* Effect.logInfo(`Migrating ${kimovilCount} devices from kimovil_devices`);
+
+    const kimovilDevices = (yield* sql.unsafe(
+      `SELECT id, slug, name, brand, first_seen, last_seen FROM kimovil_devices`,
+    )) as KimovilDeviceRow[];
+
+    let migrated = 0;
+    for (const row of kimovilDevices) {
+      const deviceId = generateDeviceId(row.slug);
+
+      yield* sql`
+        INSERT OR IGNORE INTO devices (id, slug, name, brand, created_at, updated_at)
+        VALUES (${deviceId}, ${row.slug}, ${row.name}, ${row.brand}, ${row.first_seen}, ${row.last_seen})
+      `;
+
+      yield* sql`
+        INSERT OR IGNORE INTO device_sources (device_id, source, external_id, url, status, first_seen, last_seen)
+        VALUES (${deviceId}, 'kimovil', ${row.slug}, NULL, 'active', ${row.first_seen}, ${row.last_seen})
+      `;
+
+      migrated++;
+      if (migrated % 1000 === 0) {
+        yield* Effect.logInfo(`Migrated ${migrated}/${kimovilCount} devices`);
+      }
+    }
+
+    yield* Effect.logInfo(`Completed migration: ${migrated} devices from kimovil_devices`);
+  });
 
 const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlError> =>
   Effect.gen(function* () {
@@ -395,6 +448,8 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_entity_data_raw_device ON entity_data_raw(device_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_entity_data_device ON entity_data(device_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_sources_device ON device_sources(device_id)`);
+
+    yield* sql.withTransaction(migrateKimovilDevices(sql));
 
     yield* Effect.logInfo("Schema initialized");
   });
