@@ -409,7 +409,11 @@ export const JobQueueServiceLive = Layer.effect(
             const countRows = yield* sql<{ count: number }>`SELECT changes() as count`;
             if ((countRows[0]?.count ?? 0) === 0) return null;
 
-            return mapQueueRow({ ...row, status: "running" });
+            // Re-fetch to get fresh timestamps
+            const updatedRows = yield* sql<QueueRow>`SELECT * FROM job_queue WHERE id = ${row.id}`;
+            const updatedRow = updatedRows[0];
+            if (!updatedRow) return null;
+            return mapQueueRow(updatedRow);
           }),
         ).pipe(Effect.mapError(wrapSqlError)),
 
@@ -438,45 +442,71 @@ export const JobQueueServiceLive = Layer.effect(
         error: string,
         errorCode?: string,
       ) =>
-        sql`
-          UPDATE job_queue
-          SET status = 'pending',
-              attempt = attempt + 1,
-              next_attempt_at = ${nextAttemptAt},
-              updated_at = unixepoch(),
-              error_message = ${error},
-              last_error_code = ${errorCode ?? null}
-          WHERE id = ${id}
-        `.pipe(Effect.asVoid, Effect.mapError(wrapSqlError)),
+        Effect.gen(function* () {
+          // Check if max attempts exceeded
+          const rows = yield* sql<QueueRow>`SELECT * FROM job_queue WHERE id = ${id}`;
+          const row = rows[0];
+          if (!row) return;
+
+          if (row.attempt + 1 >= row.max_attempts) {
+            // Max attempts reached, mark as error
+            yield* sql`
+              UPDATE job_queue
+              SET status = 'error',
+                  attempt = attempt + 1,
+                  completed_at = unixepoch(),
+                  updated_at = unixepoch(),
+                  error_message = ${error},
+                  last_error_code = ${errorCode ?? null}
+              WHERE id = ${id}
+            `;
+          } else {
+            // Still have retries left
+            yield* sql`
+              UPDATE job_queue
+              SET status = 'pending',
+                  attempt = attempt + 1,
+                  next_attempt_at = ${nextAttemptAt},
+                  updated_at = unixepoch(),
+                  error_message = ${error},
+                  last_error_code = ${errorCode ?? null}
+              WHERE id = ${id}
+            `;
+          }
+        }).pipe(Effect.mapError(wrapSqlError)),
 
       resetStuckQueueItems: (jobId: string) =>
-        Effect.gen(function* () {
-          yield* sql`
-            UPDATE job_queue
-            SET status = 'pending', started_at = NULL, updated_at = unixepoch()
-            WHERE job_id = ${jobId} AND status = 'running'
-          `;
-          const countRows = yield* sql<{ count: number }>`SELECT changes() as count`;
-          return countRows[0]?.count ?? 0;
-        }).pipe(Effect.mapError(wrapSqlError)),
+        sql.withTransaction(
+          Effect.gen(function* () {
+            yield* sql`
+              UPDATE job_queue
+              SET status = 'pending', started_at = NULL, updated_at = unixepoch()
+              WHERE job_id = ${jobId} AND status = 'running'
+            `;
+            const countRows = yield* sql<{ count: number }>`SELECT changes() as count`;
+            return countRows[0]?.count ?? 0;
+          }),
+        ).pipe(Effect.mapError(wrapSqlError)),
 
       resetErrorQueueItems: (jobId: string) =>
-        Effect.gen(function* () {
-          yield* sql`
-            UPDATE job_queue
-            SET status = 'pending',
-                started_at = NULL,
-                completed_at = NULL,
-                attempt = 0,
-                next_attempt_at = NULL,
-                error_message = NULL,
-                last_error_code = NULL,
-                updated_at = unixepoch()
-            WHERE job_id = ${jobId} AND status = 'error'
-          `;
-          const countRows = yield* sql<{ count: number }>`SELECT changes() as count`;
-          return countRows[0]?.count ?? 0;
-        }).pipe(Effect.mapError(wrapSqlError)),
+        sql.withTransaction(
+          Effect.gen(function* () {
+            yield* sql`
+              UPDATE job_queue
+              SET status = 'pending',
+                  started_at = NULL,
+                  completed_at = NULL,
+                  attempt = 0,
+                  next_attempt_at = NULL,
+                  error_message = NULL,
+                  last_error_code = NULL,
+                  updated_at = unixepoch()
+              WHERE job_id = ${jobId} AND status = 'error'
+            `;
+            const countRows = yield* sql<{ count: number }>`SELECT changes() as count`;
+            return countRows[0]?.count ?? 0;
+          }),
+        ).pipe(Effect.mapError(wrapSqlError)),
 
       getErrorQueueItems: (jobId: string, limit = 100) =>
         sql<QueueRow>`
@@ -571,7 +601,9 @@ export const JobQueueServiceLive = Layer.effect(
               SELECT * FROM job_queue WHERE job_id = ${jobId} AND slug = ${slug}
             `;
             const row = rows[0];
-            if (!row) throw new Error("Failed to get inserted queue item");
+            if (!row) {
+              return yield* Effect.fail(new JobQueueError("Failed to get inserted queue item"));
+            }
             return mapQueueRow(row);
           } else {
             yield* sql`
@@ -582,7 +614,9 @@ export const JobQueueServiceLive = Layer.effect(
               SELECT * FROM job_queue WHERE rowid = last_insert_rowid()
             `;
             const row = rows[0];
-            if (!row) throw new Error("Failed to get inserted queue item");
+            if (!row) {
+              return yield* Effect.fail(new JobQueueError("Failed to get inserted queue item"));
+            }
             return mapQueueRow(row);
           }
         }).pipe(Effect.mapError(wrapSqlError)),
@@ -649,7 +683,11 @@ export const JobQueueServiceLive = Layer.effect(
             const countRows = yield* sql<{ count: number }>`SELECT changes() as count`;
             if ((countRows[0]?.count ?? 0) === 0) return null;
 
-            return mapQueueRow({ ...row, status: "running" });
+            // Re-fetch to get fresh timestamps
+            const updatedRows = yield* sql<QueueRow>`SELECT * FROM job_queue WHERE id = ${row.id}`;
+            const updatedRow = updatedRows[0];
+            if (!updatedRow) return null;
+            return mapQueueRow(updatedRow);
           }),
         ).pipe(Effect.mapError(wrapSqlError)),
 
