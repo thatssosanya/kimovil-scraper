@@ -56,6 +56,7 @@ const httpServer = http.createServer((req, res) => {
       res.end();
     })
     .catch((err) => {
+      // console used here - outside Effect runtime (http error handler)
       console.error("Request error:", err);
       res.writeHead(500);
       res.end("Internal Server Error");

@@ -3,15 +3,13 @@ import { chromium, Browser, Page } from "playwright";
 
 const PLAYWRIGHT_TIMEOUT = 120_000;
 
+const pagesWithRouteHandler = new WeakSet<Page>();
+
 export class BrowserError extends Error {
   readonly _tag = "BrowserError";
 }
 
 export interface BrowserService {
-  /** @deprecated Prefer createBrowserScoped for automatic cleanup */
-  readonly createBrowser: () => Effect.Effect<Browser, BrowserError>;
-  /** @deprecated Prefer createLocalBrowserScoped for automatic cleanup */
-  readonly createLocalBrowser: () => Effect.Effect<Browser, BrowserError>;
   /** Scoped browser with automatic cleanup on scope close */
   readonly createBrowserScoped: () => Effect.Effect<
     Browser,
@@ -43,61 +41,6 @@ const logBrowserError = (message: string, error: unknown) =>
 export const BrowserServiceLive = Layer.succeed(
   BrowserService,
   BrowserService.of({
-    createBrowser: () =>
-      Effect.gen(function* () {
-        const useLocal =
-          (process.env.LOCAL_PLAYWRIGHT ?? "").toLowerCase() === "true";
-        if (useLocal) {
-          const browser = yield* Effect.tryPromise({
-            try: () => chromium.launch({ headless: false }),
-            catch: (error) =>
-              new BrowserError(
-                `Failed to create browser: ${error instanceof Error ? error.message : String(error)}`,
-              ),
-          });
-          yield* logBrowser("Launched local headful Chromium");
-          return browser;
-        }
-
-        const wsEndpoint = process.env.BRD_WSENDPOINT;
-        if (!wsEndpoint) {
-          return yield* Effect.fail(
-            new BrowserError("BRD_WSENDPOINT is not available in env"),
-          );
-        }
-
-        yield* logBrowser(`Attempting CDP connection to: ${wsEndpoint}`);
-        const browser = yield* Effect.tryPromise({
-          try: () =>
-            chromium.connectOverCDP(wsEndpoint, {
-              timeout: PLAYWRIGHT_TIMEOUT,
-              headers: {
-                "User-Agent":
-                  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-              },
-            }),
-          catch: (error) =>
-            new BrowserError(
-              `Failed to create browser: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        });
-        yield* logBrowser("Connected to Bright Data scraping browser");
-        return browser;
-      }),
-
-    createLocalBrowser: () =>
-      Effect.gen(function* () {
-        const browser = yield* Effect.tryPromise({
-          try: () => chromium.launch({ headless: true }),
-          catch: (error) =>
-            new BrowserError(
-              `Failed to create local browser: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        });
-        yield* logBrowser("Launched local headless Chromium (for cache parsing)");
-        return browser;
-      }),
-
     createBrowserScoped: () =>
       Effect.acquireRelease(
         Effect.gen(function* () {
@@ -167,22 +110,26 @@ export const BrowserServiceLive = Layer.succeed(
           ),
       ),
 
-    abortExtraResources: (page: Page) =>
-      Effect.tryPromise({
+    abortExtraResources: (page: Page) => {
+      if (pagesWithRouteHandler.has(page)) {
+        return Effect.void;
+      }
+      return Effect.tryPromise({
         try: async () => {
           await page.route("**/*", (route) => {
             const resourceType = route.request().resourceType();
-            // Only allow document type (HTML), abort everything else
             return resourceType !== "document"
               ? route.abort()
               : route.continue();
           });
+          pagesWithRouteHandler.add(page);
         },
         catch: (error) =>
           new BrowserError(
             `Failed to set up resource abort: ${error instanceof Error ? error.message : String(error)}`,
           ),
-      }),
+      });
+    },
   }),
 );
 

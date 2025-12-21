@@ -1,5 +1,10 @@
 import { config } from "../config";
 
+/**
+ * Simple console-based logger for non-Effect contexts.
+ * Used for startup banners, BulkJobManager, and other code paths
+ * that run outside Effect's runtime. Services use Effect.log* instead.
+ */
 export const log = {
   info: (tag: string, msg: string) =>
     console.log(`[${new Date().toLocaleTimeString()}] [${tag}] ${msg}`),

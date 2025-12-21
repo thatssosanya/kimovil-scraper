@@ -4,6 +4,11 @@ import { safeStringify } from "../utils/safe-stringify";
 
 export class PhoneDataError extends Error {
   readonly _tag = "PhoneDataError";
+  cause?: Error;
+  constructor(message: string, options?: { cause?: Error }) {
+    super(message);
+    if (options?.cause) this.cause = options.cause;
+  }
 }
 
 export interface PhoneDataService {
@@ -55,10 +60,14 @@ export interface PhoneDataService {
 export const PhoneDataService =
   Context.GenericTag<PhoneDataService>("PhoneDataService");
 
-const mapError = (error: unknown): PhoneDataError =>
-  error instanceof PhoneDataError
-    ? error
-    : new PhoneDataError(error instanceof Error ? error.message : String(error));
+const mapError = (error: unknown): PhoneDataError => {
+  if (error instanceof PhoneDataError) return error;
+  const wrapped = new PhoneDataError(
+    error instanceof Error ? error.message : String(error),
+    error instanceof Error ? { cause: error } : undefined,
+  );
+  return wrapped;
+};
 
 const RawPhoneRowSchema = Schema.Struct({
   slug: Schema.String,
@@ -88,7 +97,7 @@ export const PhoneDataServiceLive = Layer.effect(
       sql`
         INSERT INTO quarantine (slug, source_table, data, error)
         VALUES (${slug}, ${sourceTable}, ${safeStringify(data)}, ${error})
-      `.pipe(Effect.asVoid, Effect.ignore);
+      `.pipe(Effect.ignore);
 
     return PhoneDataService.of({
       saveRaw: (slug: string, data: Record<string, unknown>) =>

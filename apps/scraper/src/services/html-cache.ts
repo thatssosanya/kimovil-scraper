@@ -9,6 +9,11 @@ export interface RawHtmlCacheHit {
 
 export class HtmlCacheError extends Error {
   readonly _tag = "HtmlCacheError";
+  cause?: Error;
+  constructor(message: string, options?: { cause?: Error }) {
+    super(message);
+    if (options?.cause) this.cause = options.cause;
+  }
 }
 
 export interface HtmlCacheService {
@@ -75,7 +80,10 @@ export const HtmlCacheService =
 
 const wrapError = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, HtmlCacheError> =>
   Effect.mapError(effect, (e) =>
-    new HtmlCacheError(e instanceof Error ? e.message : String(e))
+    new HtmlCacheError(
+      e instanceof Error ? e.message : String(e),
+      e instanceof Error ? { cause: e } : undefined,
+    )
   );
 
 export const HtmlCacheServiceLive = Layer.effect(
