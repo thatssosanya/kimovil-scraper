@@ -7,6 +7,7 @@ import {
   createEffect,
 } from "solid-js";
 import { Request } from "@repo/scraper-protocol";
+import { Header } from "./components/Header";
 import "./App.css";
 
 interface SearchOption {
@@ -217,53 +218,13 @@ function App() {
   };
 
   return (
-    <div class="min-h-screen bg-slate-950 text-slate-200 p-6 md:p-12 font-sans selection:bg-indigo-500/30">
-      <div class="max-w-5xl mx-auto space-y-8">
-        {/* Header */}
-        <header class="flex items-center justify-between pb-6 border-b border-slate-800/60">
-          <div>
-            <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent tracking-tight">
-              Kimovil Scraper
-            </h1>
-            <p class="text-slate-400 mt-1 text-sm md:text-base">
-              Extract and normalize phone specifications via AI
-            </p>
-          </div>
-          <div class="flex flex-col items-end gap-3">
-            <div class="flex items-center gap-3">
-              <span class="text-xs font-medium text-slate-500 uppercase tracking-wider">
-                System
-              </span>
-              <div
-                class={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border ${
-                  status() === "Connected"
-                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                    : "bg-rose-500/10 border-rose-500/20 text-rose-400"
-                }`}
-              >
-                <span
-                  class={`w-2 h-2 rounded-full ${status() === "Connected" ? "bg-emerald-500 animate-pulse" : "bg-rose-500"}`}
-                ></span>
-                {status()}
-              </div>
-            </div>
-            <div class="flex gap-2">
-              <button
-                class="text-xs font-medium bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-400 px-3 py-1.5 rounded-lg transition-all border border-slate-700/50 cursor-pointer disabled:opacity-50"
-                onClick={sendHealthCheck}
-                disabled={status() !== "Connected"}
-              >
-                Health Check
-              </button>
-              <a
-                href="/slugs"
-                class="text-xs font-medium bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 px-3 py-1.5 rounded-lg transition-all border border-indigo-500/20 flex items-center gap-1.5"
-              >
-                View Database →
-              </a>
-            </div>
-          </div>
-        </header>
+    <div class="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-indigo-500/30">
+      <Header 
+        currentPage="scraper" 
+        status={status()} 
+        onHealthCheck={sendHealthCheck} 
+      />
+      <div class="max-w-5xl mx-auto space-y-8 p-6 md:px-12 md:py-6">
 
         {/* Search Section */}
         <section class="max-w-2xl mx-auto w-full relative group">

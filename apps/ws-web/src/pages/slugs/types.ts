@@ -12,11 +12,7 @@ export interface SlugsResponse {
   total: number;
   filtered: number;
   devices: Device[];
-  stats: {
-    corrupted: number;
-    valid: number;
-    scraped: number;
-  };
+  stats: ScrapeStats;
 }
 
 export interface Stats {
@@ -174,6 +170,6 @@ export interface ScrapeStats {
   corrupted: number;
   valid: number;
   scraped: number;
-  rawData: number;
-  aiData: number;
+  rawData?: number;
+  aiData?: number;
 }

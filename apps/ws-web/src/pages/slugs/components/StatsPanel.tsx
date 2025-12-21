@@ -195,7 +195,7 @@ export function StatsPanel(props: StatsPanelProps) {
               />
               <StatCard
                 label="Raw Data"
-                value={props.scrapeStats!.rawData}
+                value={props.scrapeStats!.rawData ?? 0}
                 color="cyan"
                 icon="code"
                 sublabel="Extracted"
@@ -204,7 +204,7 @@ export function StatsPanel(props: StatsPanelProps) {
               />
               <StatCard
                 label="AI Data"
-                value={props.scrapeStats!.aiData}
+                value={props.scrapeStats!.aiData ?? 0}
                 color="violet"
                 icon="sparkle"
                 sublabel="Normalized"

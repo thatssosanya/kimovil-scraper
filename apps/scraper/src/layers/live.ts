@@ -2,27 +2,41 @@ import { Layer } from "effect";
 import { FetchHttpClient } from "@effect/platform";
 import { SearchServiceKimovil } from "../services/search-kimovil";
 import { BrowserServiceLive } from "../services/browser";
-import { StorageServiceLive } from "../services/storage";
 import { OpenAIServiceLive } from "../services/openai";
 import { ScrapeServiceKimovil } from "../services/scrape-kimovil";
+import { DatabaseServiceLive } from "../services/db";
+import { HtmlCacheServiceLive } from "../services/html-cache";
+import { JobQueueServiceLive } from "../services/job-queue";
+import { DeviceServiceLive } from "../services/device";
+import { PhoneDataServiceLive } from "../services/phone-data";
+import { SqlClientLive, SchemaLive } from "../sql";
 
-// Search service with HTTP client
 const SearchServiceLayer = SearchServiceKimovil.pipe(
   Layer.provide(FetchHttpClient.layer),
 );
 
-// Scrape service depends on Browser, Storage, and OpenAI services
+const SqlLayer = SchemaLive.pipe(Layer.provideMerge(SqlClientLive));
+
+const DataLayer = Layer.mergeAll(
+  HtmlCacheServiceLive,
+  JobQueueServiceLive,
+  DeviceServiceLive,
+  PhoneDataServiceLive,
+).pipe(Layer.provide(DatabaseServiceLive));
+
 const ScrapeServiceLayer = ScrapeServiceKimovil.pipe(
   Layer.provide(BrowserServiceLive),
-  Layer.provide(StorageServiceLive),
+  Layer.provide(DataLayer),
   Layer.provide(OpenAIServiceLive),
 );
 
-// Compose all service layers - include all services at top level for direct access
 export const LiveLayer = Layer.mergeAll(
   SearchServiceLayer,
   ScrapeServiceLayer,
-  StorageServiceLive,
   BrowserServiceLive,
   OpenAIServiceLive,
+  DataLayer,
+  SqlLayer,
 );
+
+export type LiveLayerType = typeof LiveLayer;

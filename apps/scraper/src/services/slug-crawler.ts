@@ -1,7 +1,7 @@
 import { Effect, Layer, Context } from "effect";
 import { chromium, Page, Browser, BrowserContext } from "playwright";
 import { createHash } from "crypto";
-import { StorageService, StorageError } from "./storage";
+import { DeviceService, DeviceError } from "./device";
 
 const MAX_PREFIX_LENGTH = 12;
 const MAX_RESULTS_THRESHOLD = 8;
@@ -27,10 +27,13 @@ interface AutocompleteResponse {
 }
 
 export interface SlugCrawlerService {
-  readonly runFullCrawl: () => Effect.Effect<void, SlugCrawlerError | StorageError>;
+  readonly runFullCrawl: () => Effect.Effect<
+    void,
+    SlugCrawlerError | DeviceError
+  >;
   readonly getCrawlStats: () => Effect.Effect<
     { devices: number; pendingPrefixes: number },
-    StorageError
+    DeviceError
   >;
 }
 
@@ -43,11 +46,41 @@ const randomJitter = () => Math.random() * REQUEST_JITTER_MS;
 
 const inferBrand = (name: string): string | null => {
   const brands = [
-    "Samsung", "Apple", "Xiaomi", "Redmi", "POCO", "OnePlus", "Huawei",
-    "OPPO", "Vivo", "Realme", "Google", "Motorola", "Nokia", "Sony",
-    "LG", "Asus", "ZTE", "Honor", "Lenovo", "Nothing", "Infinix",
-    "Tecno", "TCL", "Meizu", "HTC", "Alcatel", "BlackBerry", "Doogee",
-    "Ulefone", "Oukitel", "Cubot", "Umidigi", "Wiko", "BLU", "Micromax",
+    "Samsung",
+    "Apple",
+    "Xiaomi",
+    "Redmi",
+    "POCO",
+    "OnePlus",
+    "Huawei",
+    "OPPO",
+    "Vivo",
+    "Realme",
+    "Google",
+    "Motorola",
+    "Nokia",
+    "Sony",
+    "LG",
+    "Asus",
+    "ZTE",
+    "Honor",
+    "Lenovo",
+    "Nothing",
+    "Infinix",
+    "Tecno",
+    "TCL",
+    "Meizu",
+    "HTC",
+    "Alcatel",
+    "BlackBerry",
+    "Doogee",
+    "Ulefone",
+    "Oukitel",
+    "Cubot",
+    "Umidigi",
+    "Wiko",
+    "BLU",
+    "Micromax",
   ];
   const lowerName = name.toLowerCase();
   for (const brand of brands) {
@@ -68,16 +101,16 @@ const isValidChildPrefix = (prefix: string): boolean => {
 
 const isPrefixWorthExpanding = (prefix: string, depth: number): boolean => {
   if (depth >= MAX_PREFIX_LENGTH) return false;
-  
+
   // Don't expand pure numeric prefixes beyond depth 3 (e.g., "123x")
   if (/^\d+$/.test(prefix) && depth > 3) return false;
-  
+
   // Don't expand prefixes ending with space + short suffix
   if (/\s[a-z0-9]$/.test(prefix) && depth > 4) return false;
-  
+
   // Don't expand if prefix has multiple spaces (model number patterns like "note 10 pro")
   if ((prefix.match(/ /g) || []).length >= 2) return false;
-  
+
   return true;
 };
 
@@ -128,18 +161,20 @@ const getSmartChildPrefixes = (
 export const SlugCrawlerServiceLive = Layer.effect(
   SlugCrawlerService,
   Effect.gen(function* () {
-    const storage = yield* StorageService;
+    const deviceService = yield* DeviceService;
 
     // In-memory cache of known slugs to detect new devices
     const knownSlugs = new Set<string>();
 
-    const loadKnownSlugs = (): Effect.Effect<void, StorageError> =>
+    const loadKnownSlugs = (): Effect.Effect<void, DeviceError> =>
       Effect.gen(function* () {
-        const devices = yield* storage.getAllDevices();
+        const devices = yield* deviceService.getAllDevices();
         for (const d of devices) {
           knownSlugs.add(d.slug);
         }
-        console.log(`[Crawler] Loaded ${knownSlugs.size} known slugs into memory`);
+        console.log(
+          `[Crawler] Loaded ${knownSlugs.size} known slugs into memory`,
+        );
       });
 
     const fetchAutocompleteWithRetry = async (
@@ -169,7 +204,9 @@ export const SlugCrawlerServiceLive = Layer.effect(
             const data = JSON.parse(response.text) as AutocompleteResponse;
             return data.results || [];
           } catch {
-            console.log(`\n[Crawler] Invalid JSON for "${prefix}", retrying...`);
+            console.log(
+              `\n[Crawler] Invalid JSON for "${prefix}", retrying...`,
+            );
             await sleep(2000);
             continue;
           }
@@ -186,7 +223,10 @@ export const SlugCrawlerServiceLive = Layer.effect(
       page: Page,
       prefix: string,
       depth: number,
-    ): Effect.Effect<{ total: number; newDevices: number }, SlugCrawlerError | StorageError> =>
+    ): Effect.Effect<
+      { total: number; newDevices: number },
+      SlugCrawlerError | DeviceError
+    > =>
       Effect.gen(function* () {
         const results = yield* Effect.tryPromise({
           try: () => fetchAutocompleteWithRetry(page, prefix),
@@ -210,11 +250,14 @@ export const SlugCrawlerServiceLive = Layer.effect(
             knownSlugs.add(slug);
             newDevices++;
             // Generate same hash as storage uses
-            const id = createHash("sha256").update(slug).digest("hex").slice(0, 16);
+            const id = createHash("sha256")
+              .update(slug)
+              .digest("hex")
+              .slice(0, 16);
             newlyAdded.push({ id, name });
           }
 
-          yield* storage.upsertDevice({
+          yield* deviceService.upsertDevice({
             slug,
             name,
             brand,
@@ -246,7 +289,7 @@ export const SlugCrawlerServiceLive = Layer.effect(
             for (const child of smartChildren) {
               const childDepth = child.length;
               if (isPrefixWorthExpanding(child, childDepth)) {
-                yield* storage.enqueuePrefix(child, childDepth);
+                yield* deviceService.enqueuePrefix(child, childDepth);
               }
             }
           } else {
@@ -254,14 +297,17 @@ export const SlugCrawlerServiceLive = Layer.effect(
             for (const c of CHARSET) {
               const child = prefix + c;
               const childDepth = child.length;
-              if (isValidChildPrefix(child) && isPrefixWorthExpanding(child, childDepth)) {
-                yield* storage.enqueuePrefix(child, childDepth);
+              if (
+                isValidChildPrefix(child) &&
+                isPrefixWorthExpanding(child, childDepth)
+              ) {
+                yield* deviceService.enqueuePrefix(child, childDepth);
               }
             }
           }
         }
 
-        yield* storage.markPrefixDone(prefix, count);
+        yield* deviceService.markPrefixDone(prefix, count);
 
         return { total: count, newDevices };
       });
@@ -307,10 +353,10 @@ export const SlugCrawlerServiceLive = Layer.effect(
           // Load existing slugs into memory for deduplication
           yield* loadKnownSlugs();
 
-          const pendingCount = yield* storage.getPendingPrefixCount();
+          const pendingCount = yield* deviceService.getPendingPrefixCount();
           if (pendingCount === 0) {
             console.log("[Crawler] No pending prefixes, seeding initial...");
-            yield* storage.seedInitialPrefixes();
+            yield* deviceService.seedInitialPrefixes();
           }
 
           const { browser, page } = yield* Effect.tryPromise({
@@ -326,14 +372,14 @@ export const SlugCrawlerServiceLive = Layer.effect(
 
           const crawlLoop = Effect.gen(function* () {
             while (true) {
-              const nextPrefix = yield* storage.getNextPendingPrefix();
+              const nextPrefix = yield* deviceService.getNextPendingPrefix();
               if (!nextPrefix) {
                 console.log("\n[Crawler] No more pending prefixes, done!");
                 break;
               }
 
               const { prefix, depth } = nextPrefix;
-              const pendingLeft = yield* storage.getPendingPrefixCount();
+              const pendingLeft = yield* deviceService.getPendingPrefixCount();
 
               process.stdout.write(
                 `\r[Crawler] "${prefix}" (d${depth}) | ${processed} done, ${pendingLeft} pending, ${knownSlugs.size} devices, +${totalNewDevices} new   `,
@@ -361,8 +407,8 @@ export const SlugCrawlerServiceLive = Layer.effect(
 
       getCrawlStats: () =>
         Effect.gen(function* () {
-          const devices = yield* storage.getDeviceCount();
-          const pendingPrefixes = yield* storage.getPendingPrefixCount();
+          const devices = yield* deviceService.getDeviceCount();
+          const pendingPrefixes = yield* deviceService.getPendingPrefixCount();
           return { devices, pendingPrefixes };
         }),
     };

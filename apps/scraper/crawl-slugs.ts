@@ -1,8 +1,13 @@
 import { Effect, Layer } from "effect";
-import { SlugCrawlerService, SlugCrawlerServiceLive } from "./src/services/slug-crawler";
-import { StorageServiceLive } from "./src/services/storage";
+import {
+  SlugCrawlerService,
+  SlugCrawlerServiceLive,
+} from "./src/services/slug-crawler";
+import { DeviceServiceLive } from "./src/services/device";
+import { DatabaseServiceLive } from "./src/services/db";
 
-const MainLayer = SlugCrawlerServiceLive.pipe(Layer.provide(StorageServiceLive));
+const DeviceLayer = DeviceServiceLive.pipe(Layer.provide(DatabaseServiceLive));
+const MainLayer = SlugCrawlerServiceLive.pipe(Layer.provide(DeviceLayer));
 
 const program = Effect.gen(function* () {
   const crawler = yield* SlugCrawlerService;

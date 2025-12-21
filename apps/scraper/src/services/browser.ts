@@ -1,4 +1,4 @@
-import { Effect, Layer, Context } from "effect";
+import { Effect, Layer, Context, Scope } from "effect";
 import { chromium, Browser, Page } from "playwright";
 
 const PLAYWRIGHT_TIMEOUT = 120_000;
@@ -8,8 +8,22 @@ export class BrowserError extends Error {
 }
 
 export interface BrowserService {
+  /** @deprecated Prefer createBrowserScoped for automatic cleanup */
   readonly createBrowser: () => Effect.Effect<Browser, BrowserError>;
+  /** @deprecated Prefer createLocalBrowserScoped for automatic cleanup */
   readonly createLocalBrowser: () => Effect.Effect<Browser, BrowserError>;
+  /** Scoped browser with automatic cleanup on scope close */
+  readonly createBrowserScoped: () => Effect.Effect<
+    Browser,
+    BrowserError,
+    Scope.Scope
+  >;
+  /** Scoped local browser with automatic cleanup on scope close */
+  readonly createLocalBrowserScoped: () => Effect.Effect<
+    Browser,
+    BrowserError,
+    Scope.Scope
+  >;
   readonly abortExtraResources: (
     page: Page,
   ) => Effect.Effect<void, BrowserError>;
@@ -68,6 +82,68 @@ export const BrowserServiceLive = Layer.succeed(
             `Failed to create local browser: ${error instanceof Error ? error.message : String(error)}`,
           ),
       }),
+
+    createBrowserScoped: () =>
+      Effect.acquireRelease(
+        Effect.tryPromise({
+          try: async () => {
+            const useLocal =
+              (process.env.LOCAL_PLAYWRIGHT ?? "").toLowerCase() === "true";
+            if (useLocal) {
+              const browser = await chromium.launch({ headless: false });
+              console.log("[Browser] Launched local headful Chromium (scoped)");
+              return browser;
+            }
+
+            const wsEndpoint = process.env.BRD_WSENDPOINT;
+            if (!wsEndpoint) {
+              throw new Error("BRD_WSENDPOINT is not available in env");
+            }
+
+            console.log("[Browser] Attempting CDP connection to:", wsEndpoint);
+            const browser = await chromium.connectOverCDP(wsEndpoint, {
+              timeout: PLAYWRIGHT_TIMEOUT,
+              headers: {
+                "User-Agent":
+                  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+              },
+            });
+            console.log("[Browser] Connected to Bright Data (scoped)");
+            return browser;
+          },
+          catch: (error) =>
+            new BrowserError(
+              `Failed to create browser: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+        (browser) =>
+          Effect.promise(() =>
+            browser.close().catch((e) => {
+              console.error("[Browser] Error closing browser:", e);
+            }),
+          ),
+      ),
+
+    createLocalBrowserScoped: () =>
+      Effect.acquireRelease(
+        Effect.tryPromise({
+          try: async () => {
+            const browser = await chromium.launch({ headless: true });
+            console.log("[Browser] Launched local headless Chromium (scoped)");
+            return browser;
+          },
+          catch: (error) =>
+            new BrowserError(
+              `Failed to create local browser: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        }),
+        (browser) =>
+          Effect.promise(() =>
+            browser.close().catch((e) => {
+              console.error("[Browser] Error closing local browser:", e);
+            }),
+          ),
+      ),
 
     abortExtraResources: (page: Page) =>
       Effect.tryPromise({

@@ -31,8 +31,16 @@ export const SearchServiceKimovil = Layer.effect(
               // Build kimovil API URL
               const url = `https://www.kimovil.com/_json/autocomplete_devicemodels_joined.json?device_type=0&name=${encodeURIComponent(query)}`;
 
-              // Make HTTP request
-              const response = yield* httpClient.get(url).pipe(
+              // Make HTTP request with browser-like headers
+              const response = yield* httpClient.get(url, {
+                headers: {
+                  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                  "Accept": "application/json, text/plain, */*",
+                  "Accept-Language": "en-US,en;q=0.9",
+                  "Referer": "https://www.kimovil.com/en/",
+                  "Origin": "https://www.kimovil.com",
+                },
+              }).pipe(
                 Effect.flatMap((res) => res.json),
                 Effect.timeout("10 seconds"),
                 Effect.catchAll((error) =>

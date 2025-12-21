@@ -1,7 +1,8 @@
-import { createSignal, onMount, onCleanup, createMemo } from "solid-js";
+import { createSignal, onMount, onCleanup, createMemo, Show } from "solid-js";
 import type { FilterType } from "./types";
 import { useSlugsApi } from "./hooks/useSlugsApi";
 import { useBulkJobs } from "./hooks/useBulkJobs";
+import { Header } from "../../components/Header";
 import { StatsPanel } from "./components/StatsPanel";
 import { SearchBar } from "./components/SearchBar";
 import { BulkStartPanel } from "./components/BulkStartPanel";
@@ -229,69 +230,114 @@ export default function Slugs() {
   };
 
   return (
-    <div class="min-h-screen bg-slate-950 text-slate-200 p-6 md:p-12 font-sans selection:bg-indigo-500/30">
-      <div class="max-w-7xl mx-auto space-y-8">
-        {/* Header */}
-        <div class="flex items-center justify-between">
-          <div>
-            <h1 class="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent tracking-tight">
-              Device Database
-            </h1>
-            <p class="text-slate-400 mt-1">Manage and scrape device slugs</p>
-          </div>
-          <a
-            href="/"
-            class="group flex items-center gap-2 text-sm font-medium bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white px-4 py-2 rounded-lg transition-all border border-slate-800 hover:border-slate-700"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-4 w-4 group-hover:-translate-x-1 transition-transform"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M10 19l-7-7m0 0l7-7m-7 7h18"
-              />
-            </svg>
-            Back to Scraper
-          </a>
-        </div>
+    <div class="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-indigo-500/30">
+      <Header 
+        currentPage="database" 
+        status={bulkJobs.wsConnected() ? "Connected" : "Disconnected"}
+      />
+      <div class="max-w-7xl mx-auto space-y-8 p-6 md:px-12 md:py-6">
 
         {/* Collapsible Jobs Section */}
-        <div class="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+        <div 
+          class={`
+            relative group/jobs rounded-2xl overflow-hidden transition-all duration-500
+            bg-gradient-to-b from-slate-900/90 to-slate-900/70 backdrop-blur-xl
+            border border-slate-700/40
+            ${jobsExpanded() ? "shadow-2xl shadow-indigo-500/5" : "shadow-lg shadow-slate-950/50"}
+            ${bulkJobs.allJobs().filter(j => j.job.status === "running").length > 0 ? "ring-1 ring-indigo-500/20" : ""}
+          `}
+        >
+          {/* Subtle gradient overlay for depth */}
+          <div class="absolute inset-0 bg-gradient-to-br from-indigo-500/[0.02] via-transparent to-cyan-500/[0.02] pointer-events-none" />
+          
+          {/* Active job ambient glow */}
+          <Show when={bulkJobs.allJobs().filter(j => j.job.status === "running").length > 0}>
+            <div class="absolute -inset-px bg-gradient-to-r from-indigo-500/10 via-cyan-500/5 to-indigo-500/10 rounded-2xl blur-xl opacity-50 animate-pulse pointer-events-none" />
+          </Show>
+          
           <button
             onClick={() => setJobsExpanded((v) => !v)}
-            class="w-full flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-slate-800/30 transition-colors"
+            class="relative w-full flex items-center justify-between px-5 py-4 cursor-pointer transition-all duration-300 hover:bg-slate-800/20"
           >
-            <div class="flex items-center gap-3">
-              <div class="p-1.5 bg-indigo-500/10 rounded-lg">
-                <svg class="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+            <div class="flex items-center gap-4">
+              {/* Icon with gradient background */}
+              <div class={`
+                relative p-2.5 rounded-xl transition-all duration-300
+                ${jobsExpanded() 
+                  ? "bg-gradient-to-br from-indigo-500/20 to-cyan-500/10 shadow-lg shadow-indigo-500/10" 
+                  : "bg-slate-800/60 group-hover/jobs:bg-slate-800/80"
+                }
+              `}>
+                <svg 
+                  class={`w-5 h-5 transition-colors duration-300 ${jobsExpanded() ? "text-indigo-300" : "text-slate-400 group-hover/jobs:text-slate-300"}`} 
+                  fill="none" 
+                  viewBox="0 0 24 24" 
+                  stroke="currentColor" 
+                  stroke-width="1.5"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
                 </svg>
               </div>
-              <span class="text-sm font-medium text-slate-200">Bulk Jobs</span>
-              <Show when={bulkJobs.allJobs().filter(j => j.status === "running").length > 0}>
-                <span class="bg-indigo-500/10 text-indigo-400 text-xs px-2 py-0.5 rounded-full border border-indigo-500/20 animate-pulse">
-                  {bulkJobs.allJobs().filter(j => j.status === "running").length} running
+              
+              <div class="flex flex-col items-start">
+                <div class="flex items-center gap-3">
+                  <span class={`text-sm font-semibold tracking-wide transition-colors duration-300 ${jobsExpanded() ? "text-white" : "text-slate-200 group-hover/jobs:text-white"}`}>
+                    Bulk Jobs
+                  </span>
+                  <Show when={bulkJobs.allJobs().filter(j => j.job.status === "running").length > 0}>
+                    <span class="relative flex items-center gap-1.5 bg-gradient-to-r from-indigo-500/15 to-cyan-500/15 text-indigo-300 text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border border-indigo-400/20">
+                      <span class="relative flex h-2 w-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-400"></span>
+                      </span>
+                      {bulkJobs.allJobs().filter(j => j.job.status === "running").length} running
+                    </span>
+                  </Show>
+                  <Show when={bulkJobs.allJobs().filter(j => j.job.status === "paused").length > 0}>
+                    <span class="flex items-center gap-1.5 bg-amber-500/10 text-amber-400 text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border border-amber-500/20">
+                      {bulkJobs.allJobs().filter(j => j.job.status === "paused").length} paused
+                    </span>
+                  </Show>
+                </div>
+                <span class="text-[11px] text-slate-500 font-medium mt-0.5">
+                  {bulkJobs.allJobs().length === 0 
+                    ? "No active jobs" 
+                    : `${bulkJobs.allJobs().length} job${bulkJobs.allJobs().length !== 1 ? "s" : ""} total`
+                  }
                 </span>
-              </Show>
+              </div>
             </div>
-            <svg
-              class={`w-5 h-5 text-slate-400 transition-transform duration-200 ${jobsExpanded() ? "rotate-180" : ""}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="2"
-            >
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
+            
+            {/* Expand indicator */}
+            <div class={`
+              flex items-center gap-2 transition-all duration-300
+              ${jobsExpanded() ? "opacity-60" : "opacity-40 group-hover/jobs:opacity-70"}
+            `}>
+              <span class="text-[10px] uppercase tracking-widest text-slate-500 font-semibold hidden sm:block">
+                {jobsExpanded() ? "Collapse" : "Expand"}
+              </span>
+              <div class={`
+                p-1.5 rounded-lg transition-all duration-300
+                ${jobsExpanded() ? "bg-slate-700/50 rotate-180" : "bg-slate-800/50 group-hover/jobs:bg-slate-700/50"}
+              `}>
+                <svg
+                  class="w-4 h-4 text-slate-400 transition-transform duration-300"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
           </button>
+          
           <Show when={jobsExpanded()}>
-            <div class="px-4 pb-4 space-y-4 border-t border-slate-800/50">
+            <div class="relative px-5 pb-5 pt-4 space-y-5 border-t border-slate-700/30 animate-in slide-in-from-top-2 fade-in duration-300">
+              {/* Decorative line accent */}
+              <div class="absolute top-0 left-5 right-5 h-px bg-gradient-to-r from-transparent via-indigo-500/20 to-transparent" />
+              
               <BulkStartPanel
                 wsConnected={bulkJobs.wsConnected()}
                 bulkJobLoading={bulkJobs.bulkJobLoading()}

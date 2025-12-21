@@ -323,7 +323,7 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
                   <EmptyStateWithAction
                     title="No raw data"
                     description={canProcessRaw() ? "HTML is available - you can extract structured data from it" : "Raw data hasn't been extracted yet"}
-                    canProcess={canProcessRaw()}
+                    canProcess={!!canProcessRaw()}
                   >
                     <ProcessButton
                       variant="raw"
@@ -354,7 +354,7 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
                   <EmptyStateWithAction
                     title="No AI data"
                     description={canProcessAi() ? "Raw data is available - you can normalize it using AI" : "This data hasn't been processed by AI yet"}
-                    canProcess={canProcessAi()}
+                    canProcess={!!canProcessAi()}
                   >
                     <ProcessButton
                       variant="ai"
