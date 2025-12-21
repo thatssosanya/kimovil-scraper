@@ -1,5 +1,5 @@
-import { Effect, Layer, Context, Scope } from "effect";
-import { chromium, Browser, Page } from "playwright";
+import { Effect, Layer, Context, Scope, Ref, Option } from "effect";
+import { chromium, Browser, BrowserContext, Page } from "playwright";
 
 const PLAYWRIGHT_TIMEOUT = 120_000;
 
@@ -7,6 +7,12 @@ const pagesWithRouteHandler = new WeakSet<Page>();
 
 export class BrowserError extends Error {
   readonly _tag = "BrowserError";
+}
+
+export interface StealthSession {
+  readonly browser: Browser;
+  readonly context: BrowserContext;
+  readonly page: Page;
 }
 
 export interface BrowserService {
@@ -25,6 +31,10 @@ export interface BrowserService {
   readonly abortExtraResources: (
     page: Page,
   ) => Effect.Effect<void, BrowserError>;
+  /** Use a persistent stealth browser page with exclusive access */
+  readonly withPersistentStealthPage: <A, E, R>(
+    use: (page: Page) => Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E | BrowserError, R>;
 }
 
 export const BrowserService =
@@ -38,98 +48,130 @@ const logBrowserError = (message: string, error: unknown) =>
     Effect.annotateLogs({ service: "Browser" }),
   );
 
-export const BrowserServiceLive = Layer.succeed(
+export const BrowserServiceLive = Layer.scoped(
   BrowserService,
-  BrowserService.of({
-    createBrowserScoped: () =>
-      Effect.acquireRelease(
-        Effect.gen(function* () {
-          const useLocal =
-            (process.env.LOCAL_PLAYWRIGHT ?? "").toLowerCase() === "true";
-          if (useLocal) {
+  Effect.gen(function* () {
+    const sessionRef = yield* Ref.make<Option.Option<StealthSession>>(
+      Option.none(),
+    );
+
+    yield* Effect.addFinalizer(() =>
+      Effect.gen(function* () {
+        const maybeSession = yield* Ref.get(sessionRef);
+        if (Option.isSome(maybeSession)) {
+          const session = maybeSession.value;
+          yield* Effect.promise(() => session.browser.close()).pipe(
+            Effect.catchAll((e) =>
+              logBrowserError("Error closing stealth browser", e),
+            ),
+          );
+          yield* logBrowser("Closed persistent stealth browser");
+        }
+      }),
+    );
+
+    return BrowserService.of({
+      createBrowserScoped: () =>
+        Effect.acquireRelease(
+          Effect.gen(function* () {
+            const useLocal =
+              (process.env.LOCAL_PLAYWRIGHT ?? "").toLowerCase() === "true";
+            if (useLocal) {
+              const browser = yield* Effect.tryPromise({
+                try: () => chromium.launch({ headless: false }),
+                catch: (error) =>
+                  new BrowserError(
+                    `Failed to create browser: ${error instanceof Error ? error.message : String(error)}`,
+                  ),
+              });
+              yield* logBrowser("Launched local headful Chromium (scoped)");
+              return browser;
+            }
+
+            const wsEndpoint = process.env.BRD_WSENDPOINT;
+            if (!wsEndpoint) {
+              return yield* Effect.fail(
+                new BrowserError("BRD_WSENDPOINT is not available in env"),
+              );
+            }
+
+            yield* logBrowser(`Attempting CDP connection to: ${wsEndpoint}`);
             const browser = yield* Effect.tryPromise({
-              try: () => chromium.launch({ headless: false }),
+              try: () =>
+                chromium.connectOverCDP(wsEndpoint, {
+                  timeout: PLAYWRIGHT_TIMEOUT,
+                  headers: {
+                    "User-Agent":
+                      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                  },
+                }),
               catch: (error) =>
                 new BrowserError(
                   `Failed to create browser: ${error instanceof Error ? error.message : String(error)}`,
                 ),
             });
-            yield* logBrowser("Launched local headful Chromium (scoped)");
+            yield* logBrowser("Connected to Bright Data (scoped)");
             return browser;
-          }
-
-          const wsEndpoint = process.env.BRD_WSENDPOINT;
-          if (!wsEndpoint) {
-            return yield* Effect.fail(
-              new BrowserError("BRD_WSENDPOINT is not available in env"),
-            );
-          }
-
-          yield* logBrowser(`Attempting CDP connection to: ${wsEndpoint}`);
-          const browser = yield* Effect.tryPromise({
-            try: () =>
-              chromium.connectOverCDP(wsEndpoint, {
-                timeout: PLAYWRIGHT_TIMEOUT,
-                headers: {
-                  "User-Agent":
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-                },
-              }),
-            catch: (error) =>
-              new BrowserError(
-                `Failed to create browser: ${error instanceof Error ? error.message : String(error)}`,
+          }),
+          (browser) =>
+            Effect.promise(() => browser.close()).pipe(
+              Effect.catchAll((e) =>
+                logBrowserError("Error closing browser", e),
               ),
-          });
-          yield* logBrowser("Connected to Bright Data (scoped)");
-          return browser;
-        }),
-        (browser) =>
-          Effect.promise(() => browser.close()).pipe(
-            Effect.catchAll((e) => logBrowserError("Error closing browser", e)),
-          ),
-      ),
-
-    createLocalBrowserScoped: () =>
-      Effect.acquireRelease(
-        Effect.gen(function* () {
-          const browser = yield* Effect.tryPromise({
-            try: () => chromium.launch({ headless: true }),
-            catch: (error) =>
-              new BrowserError(
-                `Failed to create local browser: ${error instanceof Error ? error.message : String(error)}`,
-              ),
-          });
-          yield* logBrowser("Launched local headless Chromium (scoped)");
-          return browser;
-        }),
-        (browser) =>
-          Effect.promise(() => browser.close()).pipe(
-            Effect.catchAll((e) =>
-              logBrowserError("Error closing local browser", e),
             ),
-          ),
-      ),
+        ),
 
-    abortExtraResources: (page: Page) => {
-      if (pagesWithRouteHandler.has(page)) {
-        return Effect.void;
-      }
-      return Effect.tryPromise({
-        try: async () => {
-          await page.route("**/*", (route) => {
-            const resourceType = route.request().resourceType();
-            return resourceType !== "document"
-              ? route.abort()
-              : route.continue();
-          });
-          pagesWithRouteHandler.add(page);
-        },
-        catch: (error) =>
+      createLocalBrowserScoped: () =>
+        Effect.acquireRelease(
+          Effect.gen(function* () {
+            const browser = yield* Effect.tryPromise({
+              try: () => chromium.launch({ headless: true }),
+              catch: (error) =>
+                new BrowserError(
+                  `Failed to create local browser: ${error instanceof Error ? error.message : String(error)}`,
+                ),
+            });
+            yield* logBrowser("Launched local headless Chromium (scoped)");
+            return browser;
+          }),
+          (browser) =>
+            Effect.promise(() => browser.close()).pipe(
+              Effect.catchAll((e) =>
+                logBrowserError("Error closing local browser", e),
+              ),
+            ),
+        ),
+
+      abortExtraResources: (page: Page) => {
+        if (pagesWithRouteHandler.has(page)) {
+          return Effect.void;
+        }
+        return Effect.tryPromise({
+          try: async () => {
+            await page.route("**/*", (route) => {
+              const resourceType = route.request().resourceType();
+              return resourceType !== "document"
+                ? route.abort()
+                : route.continue();
+            });
+            pagesWithRouteHandler.add(page);
+          },
+          catch: (error) =>
+            new BrowserError(
+              `Failed to set up resource abort: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        });
+      },
+
+      withPersistentStealthPage: <A, E, R>(
+        _use: (page: Page) => Effect.Effect<A, E, R>,
+      ): Effect.Effect<A, E | BrowserError, R> =>
+        Effect.fail(
           new BrowserError(
-            `Failed to set up resource abort: ${error instanceof Error ? error.message : String(error)}`,
+            "withPersistentStealthPage not implemented yet (Phase 2)",
           ),
-      });
-    },
+        ),
+    });
   }),
 );
 
