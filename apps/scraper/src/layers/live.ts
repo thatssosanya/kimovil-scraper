@@ -22,7 +22,8 @@ const SearchServiceLayer = SearchServiceKimovil.pipe(
 
 const SqlLayer = SchemaLive.pipe(Layer.provideMerge(SqlClientLive));
 
-const CoreDataLayer = Layer.mergeAll(
+// Base services that don't depend on each other
+const BaseDataLayer = Layer.mergeAll(
   HtmlCacheServiceLive,
   JobQueueServiceLive,
   DeviceServiceLive,
@@ -31,12 +32,10 @@ const CoreDataLayer = Layer.mergeAll(
   ScrapeRecordServiceLive,
 ).pipe(Layer.provide(SqlLayer));
 
-const PhoneDataLayer = PhoneDataServiceLive.pipe(
-  Layer.provide(CoreDataLayer),
-  Layer.provide(SqlLayer),
+// PhoneDataService depends on DeviceRegistry + EntityData, so layer it on top
+const DataLayer = BaseDataLayer.pipe(
+  Layer.provideMerge(PhoneDataServiceLive.pipe(Layer.provide(BaseDataLayer), Layer.provide(SqlLayer))),
 );
-
-const DataLayer = Layer.mergeAll(CoreDataLayer, PhoneDataLayer);
 
 const ScrapeServiceLayer = ScrapeServiceKimovil.pipe(
   Layer.provide(BrowserServiceLive),
