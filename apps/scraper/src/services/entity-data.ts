@@ -1,5 +1,6 @@
 import { Effect, Layer, Context } from "effect";
 import { SqlClient, SqlError } from "@effect/sql";
+import { safeParseJson } from "./shared/json";
 
 export class EntityDataError extends Error {
   readonly _tag = "EntityDataError";
@@ -69,14 +70,6 @@ type FinalDataRow = {
 
 const wrapSqlError = (error: SqlError.SqlError): EntityDataError =>
   new EntityDataError(error.message, error);
-
-const safeParseJson = (data: string): unknown | null => {
-  try {
-    return JSON.parse(data);
-  } catch {
-    return null;
-  }
-};
 
 export const EntityDataServiceLive = Layer.effect(
   EntityDataService,

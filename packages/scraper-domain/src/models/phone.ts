@@ -37,7 +37,7 @@ export class Camera extends Schema.Class<Camera>("Camera")({
   aperture_fstop: Schema.NullOr(Schema.String),
   sensor: Schema.NullOr(Schema.String),
   type: Schema.String,
-  features: Schema.String, // pipe-delimited or empty string
+  features: Schema.Array(Schema.String),
 }) {}
 
 export class NormalizedCamera extends Schema.Class<NormalizedCamera>(
@@ -51,7 +51,7 @@ export class NormalizedCamera extends Schema.Class<NormalizedCamera>(
 }) {}
 
 export class Sku extends Schema.Class<Sku>("Sku")({
-  marketId: Schema.String, // pipe-delimited
+  marketIds: Schema.Array(Schema.String),
   ram_gb: Schema.Number,
   storage_gb: Schema.Number,
 }) {}
@@ -102,18 +102,18 @@ export class RawPhone extends Schema.Class<RawPhone>("RawPhone")({
   // Essentials
   name: Schema.String,
   brand: Schema.String,
-  aliases: Schema.String, // pipe-delimited
+  aliases: Schema.Array(Schema.String),
   releaseDate: Schema.NullOr(Schema.String), // ISO date string
-  images: Schema.NullOr(Schema.String), // pipe-delimited URLs
+  images: Schema.NullOr(Schema.Array(Schema.String)),
 
   // Design
   height_mm: Schema.NullOr(Schema.Number),
   width_mm: Schema.NullOr(Schema.Number),
   thickness_mm: Schema.NullOr(Schema.Number),
   weight_g: Schema.NullOr(Schema.Number),
-  materials: Schema.String, // pipe-delimited
+  materials: Schema.Array(Schema.String),
   ipRating: Schema.NullOr(Schema.String),
-  colors: Schema.String, // pipe-delimited
+  colors: Schema.Array(Schema.String),
 
   // Display
   size_in: Schema.NullOr(Schema.Number),
@@ -121,12 +121,12 @@ export class RawPhone extends Schema.Class<RawPhone>("RawPhone")({
   resolution: Schema.NullOr(Schema.String),
   aspectRatio: Schema.NullOr(Schema.String),
   ppi: Schema.NullOr(Schema.Number),
-  displayFeatures: Schema.String, // pipe-delimited
+  displayFeatures: Schema.Array(Schema.String),
 
   // Hardware
   cpu: Schema.NullOr(Schema.String),
   cpuManufacturer: Schema.NullOr(Schema.String),
-  cpuCores: Schema.NullOr(Schema.String), // pipe-delimited
+  cpuCores: Schema.NullOr(Schema.Array(Schema.String)),
   gpu: Schema.NullOr(Schema.String),
   sdSlot: Schema.NullOr(Schema.Boolean),
   skus: Schema.Array(Sku),
@@ -136,7 +136,7 @@ export class RawPhone extends Schema.Class<RawPhone>("RawPhone")({
   // Connectivity
   nfc: Schema.NullOr(Schema.Boolean),
   bluetooth: Schema.NullOr(Schema.String),
-  sim: Schema.String, // pipe-delimited
+  sim: Schema.Array(Schema.String),
   simCount: Schema.Number,
   usb: Schema.NullOr(UsbTypeSchema),
   headphoneJack: Schema.NullOr(Schema.Boolean),
@@ -148,15 +148,15 @@ export class RawPhone extends Schema.Class<RawPhone>("RawPhone")({
 
   // Cameras
   cameras: Schema.Array(Camera),
-  cameraFeatures: Schema.String, // pipe-delimited
+  cameraFeatures: Schema.Array(Schema.String),
 
   // Software
   os: Schema.NullOr(Schema.String),
   osSkin: Schema.NullOr(Schema.String),
 
   // Extras
-  scores: Schema.NullOr(Schema.String), // pipe-delimited key=value
-  others: Schema.NullOr(Schema.String), // pipe-delimited
+  scores: Schema.NullOr(Schema.String), // pipe-delimited key=value (kept as string)
+  others: Schema.NullOr(Schema.Array(Schema.String)),
 }) {}
 
 // AI-normalized phone data
@@ -167,7 +167,7 @@ export class Phone extends Schema.Class<Phone>("Phone")({
   // Essentials
   name: Schema.String,
   brand: Schema.String,
-  aliases: Schema.String, // pipe-delimited
+  aliases: Schema.Array(Schema.String),
   releaseDate: Schema.NullOr(Schema.String), // ISO date string
 
   // Design
@@ -175,9 +175,9 @@ export class Phone extends Schema.Class<Phone>("Phone")({
   width_mm: Schema.NullOr(Schema.Number),
   thickness_mm: Schema.NullOr(Schema.Number),
   weight_g: Schema.NullOr(Schema.Number),
-  materials: Schema.String, // pipe-delimited, translated
+  materials: Schema.Array(Schema.String),
   ipRating: Schema.NullOr(Schema.String),
-  colors: Schema.String, // pipe-delimited, translated
+  colors: Schema.Array(Schema.String),
 
   // Display
   size_in: Schema.NullOr(Schema.Number),
@@ -185,12 +185,12 @@ export class Phone extends Schema.Class<Phone>("Phone")({
   resolution: Schema.NullOr(Schema.String),
   aspectRatio: Schema.NullOr(Schema.String),
   ppi: Schema.NullOr(Schema.Number),
-  displayFeatures: Schema.String, // pipe-delimited, normalized
+  displayFeatures: Schema.Array(Schema.String),
 
   // Hardware
   cpu: Schema.NullOr(Schema.String), // cleaned
   cpuManufacturer: Schema.NullOr(Schema.String),
-  cpuCores: Schema.NullOr(Schema.String), // pipe-delimited
+  cpuCores: Schema.NullOr(Schema.Array(Schema.String)),
   gpu: Schema.NullOr(Schema.String),
   sdSlot: Schema.NullOr(Schema.Boolean),
   skus: Schema.Array(Sku),
@@ -200,7 +200,7 @@ export class Phone extends Schema.Class<Phone>("Phone")({
   // Connectivity
   nfc: Schema.NullOr(Schema.Boolean),
   bluetooth: Schema.NullOr(Schema.String),
-  sim: Schema.String, // pipe-delimited
+  sim: Schema.Array(Schema.String),
   simCount: Schema.Number,
   usb: Schema.NullOr(UsbTypeSchema),
   headphoneJack: Schema.NullOr(Schema.Boolean),
@@ -212,7 +212,7 @@ export class Phone extends Schema.Class<Phone>("Phone")({
 
   // Cameras (with AI-normalized types)
   cameras: Schema.Array(NormalizedCamera),
-  cameraFeatures: Schema.String, // pipe-delimited, normalized
+  cameraFeatures: Schema.Array(Schema.String),
 
   // Software
   os: Schema.NullOr(Schema.String),

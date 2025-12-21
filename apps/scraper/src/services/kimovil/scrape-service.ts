@@ -9,15 +9,24 @@ import {
   Sku,
   Benchmark,
 } from "@repo/scraper-protocol";
-import { BrowserService, BrowserError } from "./browser";
-import { HtmlCacheService, HtmlCacheError } from "./html-cache";
-import { PhoneDataService, PhoneDataError } from "./phone-data";
-import { OpenAIService, OpenAIError } from "./openai";
-import { getHtmlValidationError } from "./scrape-kimovil-validators";
-import { extractPhoneData, RawPhoneData } from "./scrape-kimovil-extractors";
+import { BrowserService, BrowserError } from "../browser";
+import { HtmlCacheService, HtmlCacheError } from "../html-cache";
+import { PhoneDataService, PhoneDataError } from "../phone-data";
+import { OpenAIService, OpenAIError } from "../openai";
+import { getHtmlValidationError } from "./validators";
+import {
+  extractPhoneData,
+  extractPhoneDataAsync,
+  RawPhoneData,
+} from "./extractors";
+import type { ExtractionIssue } from "./extraction";
 
-export { getHtmlValidationError } from "./scrape-kimovil-validators";
-export { extractPhoneData, RawPhoneData } from "./scrape-kimovil-extractors";
+export { getHtmlValidationError } from "./validators";
+export {
+  extractPhoneData,
+  extractPhoneDataAsync,
+  RawPhoneData,
+} from "./extractors";
 
 const PLAYWRIGHT_TIMEOUT = 60_000;
 const RELOAD_TIMEOUT = 10_000;
@@ -25,10 +34,26 @@ const RATE_LIMIT_DELAY_MS = 2000;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 5000;
 
+const logExtractionIssues = (
+  issues: ExtractionIssue[],
+  slug: string
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    if (issues.length === 0) return;
+    for (const issue of issues) {
+      yield* Effect.logWarning(
+        `Extraction issue in ${issue.field}: ${issue.message} (strategy: ${issue.strategy})`
+      ).pipe(Effect.annotateLogs({ service: "Extractor", slug }));
+    }
+  });
+
 const scrapePhoneData = (
   page: Page,
-  slug: string,
-): Effect.Effect<{ data: RawPhoneData; fullHtml: string }, ScrapeError> =>
+  slug: string
+): Effect.Effect<
+  { data: RawPhoneData; fullHtml: string; issues: ExtractionIssue[] },
+  ScrapeError
+> =>
   Effect.gen(function* () {
     const url = `https://www.kimovil.com/en/where-to-buy-${slug}`;
     yield* Effect.tryPromise({
@@ -48,23 +73,29 @@ const scrapePhoneData = (
     const validationError = getHtmlValidationError(raw);
     if (validationError) {
       return yield* Effect.fail(
-        new ScrapeError(`Page invalid: ${validationError}`),
+        new ScrapeError(`Page invalid: ${validationError}`)
       );
     }
 
-    const data = yield* Effect.tryPromise({
-      try: () => extractPhoneData(page, slug),
-      catch: (e) => new ScrapeError(e instanceof Error ? e.message : String(e)),
-    });
+    const result = yield* extractPhoneData(page, slug).pipe(
+      Effect.mapError(
+        (e) => new ScrapeError(`Extraction failed: ${e.message}`)
+      )
+    );
 
-    return { data, fullHtml: raw };
+    yield* logExtractionIssues(result.issues, slug);
+
+    return { data: result.data, fullHtml: raw, issues: result.issues };
   });
 
 const parseFromCachedHtml = (
   page: Page,
   cachedHtml: string,
-  slug: string,
-): Effect.Effect<RawPhoneData, ScrapeError> =>
+  slug: string
+): Effect.Effect<
+  { data: RawPhoneData; issues: ExtractionIssue[] },
+  ScrapeError
+> =>
   Effect.gen(function* () {
     yield* Effect.tryPromise({
       try: () => page.setContent(cachedHtml, { waitUntil: "domcontentloaded" }),
@@ -74,14 +105,19 @@ const parseFromCachedHtml = (
     const validationError = getHtmlValidationError(cachedHtml);
     if (validationError) {
       return yield* Effect.fail(
-        new ScrapeError(`Cached page invalid: ${validationError}`),
+        new ScrapeError(`Cached page invalid: ${validationError}`)
       );
     }
 
-    return yield* Effect.tryPromise({
-      try: () => extractPhoneData(page, slug),
-      catch: (e) => new ScrapeError(e instanceof Error ? e.message : String(e)),
-    });
+    const result = yield* extractPhoneData(page, slug).pipe(
+      Effect.mapError(
+        (e) => new ScrapeError(`Extraction failed: ${e.message}`)
+      )
+    );
+
+    yield* logExtractionIssues(result.issues, slug);
+
+    return { data: result.data, issues: result.issues };
   });
 
 const createPageScoped = (
@@ -147,16 +183,6 @@ const backgroundRefresh = (
     ),
   );
 
-const toDelimited = (val: string | string[] | null | undefined): string => {
-  if (typeof val === "string") return val;
-  return Array.isArray(val) ? val.join("|") : "";
-};
-
-const toDelimitedOrNull = (val: string | string[] | null | undefined): string | null => {
-  if (typeof val === "string") return val.length > 0 ? val : null;
-  return Array.isArray(val) && val.length > 0 ? val.join("|") : null;
-};
-
 const mapFingerprintPosition = (
   pos: string | null,
 ): "screen" | "side" | "back" | null => {
@@ -171,7 +197,7 @@ const mapUsb = (usb: string | null): "USB-A" | "USB-C" | "Lightning" | null => {
 
 const buildPhoneData = (
   normalizedData: Record<string, unknown>,
-  images: string | null,
+  images: string[] | null,
 ): PhoneData => {
   const nd = normalizedData as {
     slug: string;
@@ -198,7 +224,7 @@ const buildPhoneData = (
     gpu: string | null;
     sdSlot: boolean | null;
     skus: Array<{
-      marketId: string;
+      marketIds: string[];
       ram_gb: number | null;
       storage_gb: number | null;
     }>;
@@ -206,7 +232,7 @@ const buildPhoneData = (
     benchmarks: Array<{ name: string; score: number }>;
     nfc: boolean | null;
     bluetooth: string | null;
-    sim: string | null;
+    sim: string[];
     simCount: number | null;
     usb: string | null;
     headphoneJack: boolean | null;
@@ -218,7 +244,7 @@ const buildPhoneData = (
       aperture_fstop: number | null;
       sensor: string | null;
       type: string | null;
-      features: string[];
+      features: string[] | null;
     }>;
     cameraFeatures: string[];
     os: string | null;
@@ -229,31 +255,31 @@ const buildPhoneData = (
     slug: nd.slug,
     name: nd.name,
     brand: nd.brand,
-    aliases: toDelimited(nd.aliases),
+    aliases: nd.aliases ?? [],
     releaseDate: nd.releaseDate,
     images: images,
     height_mm: nd.height_mm,
     width_mm: nd.width_mm,
     thickness_mm: nd.thickness_mm,
     weight_g: nd.weight_g,
-    materials: toDelimited(nd.materials),
+    materials: nd.materials ?? [],
     ipRating: nd.ipRating,
-    colors: toDelimited(nd.colors),
+    colors: nd.colors ?? [],
     size_in: nd.size_in,
     displayType: nd.displayType,
     resolution: nd.resolution,
     aspectRatio: nd.aspectRatio,
     ppi: nd.ppi,
-    displayFeatures: toDelimited(nd.displayFeatures),
+    displayFeatures: nd.displayFeatures ?? [],
     cpu: nd.cpu,
     cpuManufacturer: nd.cpuManufacturer,
-    cpuCores: toDelimitedOrNull(nd.cpuCores),
+    cpuCores: nd.cpuCores,
     gpu: nd.gpu,
     sdSlot: nd.sdSlot,
     skus: nd.skus.map(
       (s) =>
         new Sku({
-          marketId: s.marketId,
+          marketIds: s.marketIds ?? [],
           ram_gb: s.ram_gb ?? 0,
           storage_gb: s.storage_gb ?? 0,
         }),
@@ -264,7 +290,7 @@ const buildPhoneData = (
     ),
     nfc: nd.nfc,
     bluetooth: nd.bluetooth,
-    sim: nd.sim ?? "",
+    sim: nd.sim ?? [],
     simCount: nd.simCount ?? 0,
     usb: mapUsb(nd.usb),
     headphoneJack: nd.headphoneJack,
@@ -278,13 +304,10 @@ const buildPhoneData = (
           aperture_fstop: c.aperture_fstop != null ? String(c.aperture_fstop) : null,
           sensor: c.sensor ?? null,
           type: c.type ?? "",
-          features:
-            Array.isArray(c.features) && c.features.length > 0
-              ? c.features.join("|")
-              : "",
+          features: c.features ?? [],
         }),
     ),
-    cameraFeatures: toDelimited(nd.cameraFeatures),
+    cameraFeatures: nd.cameraFeatures ?? [],
     os: nd.os,
     osSkin: nd.osSkin,
     scores: null,
@@ -332,7 +355,7 @@ const scrapeWithCache = (
       cacheResult.ageSeconds < CACHE_MAX_AGE_SECONDS;
 
     let data: RawPhoneData | undefined;
-    let images: string | null = null;
+    let images: string[] | null = null;
 
     if (useCache) {
       const ageDays = Math.floor(cacheResult.ageSeconds / 86400);
@@ -369,10 +392,10 @@ const scrapeWithCache = (
           const page = yield* createPageScoped(browser);
           emit({ type: "progress", stage: "Парсинг из кэша", percent: 10 });
 
-          const parsedData = yield* parseFromCachedHtml(
+          const parsedResult = yield* parseFromCachedHtml(
             page,
             cacheResult.html,
-            slug,
+            slug
           );
           const parseMs = elapsed();
 
@@ -385,10 +408,10 @@ const scrapeWithCache = (
           emit({
             type: "log",
             level: "info",
-            message: `Кэш распарсен за ${parseMs}ms — ${parsedData.cameras.length} камер, ${parsedData.skus.length} SKU`,
+            message: `Кэш распарсен за ${parseMs}ms — ${parsedResult.data.cameras.length} камер, ${parsedResult.data.skus.length} SKU`,
           });
 
-          return parsedData;
+          return parsedResult.data;
         }),
       ).pipe(
         Effect.catchAll((error) => {

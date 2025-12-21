@@ -171,11 +171,11 @@ export class SingleCameraData extends Schema.Class<SingleCameraData>(
   aperture_fstop: Schema.NullOr(Schema.String),
   sensor: Schema.NullOr(Schema.String),
   type: Schema.String,
-  features: Schema.String, // |-delimited
+  features: Schema.Array(Schema.String),
 }) {}
 
 export class Sku extends Schema.Class<Sku>("Sku")({
-  marketId: Schema.String, // |-delimited
+  marketIds: Schema.Array(Schema.String),
   ram_gb: Schema.Number,
   storage_gb: Schema.Number,
 }) {}
@@ -190,18 +190,18 @@ export class PhoneData extends Schema.Class<PhoneData>("PhoneData")({
   slug: Schema.String,
   name: Schema.String,
   brand: Schema.String,
-  aliases: Schema.String, // |-delimited
+  aliases: Schema.Array(Schema.String),
   releaseDate: Schema.NullOr(Schema.String), // ISO date string
-  images: Schema.NullOr(Schema.String), // |-delimited URLs
+  images: Schema.NullOr(Schema.Array(Schema.String)),
 
   // design
   height_mm: Schema.NullOr(Schema.Number),
   width_mm: Schema.NullOr(Schema.Number),
   thickness_mm: Schema.NullOr(Schema.Number),
   weight_g: Schema.NullOr(Schema.Number),
-  materials: Schema.String, // |-delimited
+  materials: Schema.Array(Schema.String),
   ipRating: Schema.NullOr(Schema.String),
-  colors: Schema.String, // |-delimited
+  colors: Schema.Array(Schema.String),
 
   // display
   size_in: Schema.NullOr(Schema.Number),
@@ -209,12 +209,12 @@ export class PhoneData extends Schema.Class<PhoneData>("PhoneData")({
   resolution: Schema.NullOr(Schema.String),
   aspectRatio: Schema.NullOr(Schema.String),
   ppi: Schema.NullOr(Schema.Number),
-  displayFeatures: Schema.String, // |-delimited
+  displayFeatures: Schema.Array(Schema.String),
 
   // hardware
   cpu: Schema.NullOr(Schema.String),
   cpuManufacturer: Schema.NullOr(Schema.String),
-  cpuCores: Schema.NullOr(Schema.String), // |-delimited
+  cpuCores: Schema.NullOr(Schema.Array(Schema.String)),
   gpu: Schema.NullOr(Schema.String),
   sdSlot: Schema.NullOr(Schema.Boolean),
   skus: Schema.Array(Sku),
@@ -224,7 +224,7 @@ export class PhoneData extends Schema.Class<PhoneData>("PhoneData")({
   // connectivity
   nfc: Schema.NullOr(Schema.Boolean),
   bluetooth: Schema.NullOr(Schema.String),
-  sim: Schema.String, // |-delimited
+  sim: Schema.Array(Schema.String),
   simCount: Schema.Number,
   usb: Schema.NullOr(Schema.Literal("USB-A", "USB-C", "Lightning")),
   headphoneJack: Schema.NullOr(Schema.Boolean),
@@ -236,15 +236,15 @@ export class PhoneData extends Schema.Class<PhoneData>("PhoneData")({
 
   // cameras
   cameras: Schema.Array(SingleCameraData),
-  cameraFeatures: Schema.String, // |-delimited
+  cameraFeatures: Schema.Array(Schema.String),
 
   // software
   os: Schema.NullOr(Schema.String),
   osSkin: Schema.NullOr(Schema.String),
 
   // extras
-  scores: Schema.NullOr(Schema.String), // |-delimited key=value
-  others: Schema.NullOr(Schema.String), // |-delimited
+  scores: Schema.NullOr(Schema.String), // pipe-delimited key=value (kept as string)
+  others: Schema.NullOr(Schema.Array(Schema.String)),
 }) {}
 
 export class ScrapeParams extends Schema.Class<ScrapeParams>("ScrapeParams")({

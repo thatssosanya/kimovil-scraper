@@ -127,26 +127,29 @@ const StringOrArraySchema = Schema.Union(
   Schema.Array(Schema.String),
 );
 
+// Camera struct with optional features (Gemini may omit the field entirely)
+const AICameraSchema = Schema.Struct({
+  type: CameraTypeSchema,
+  features: Schema.optionalWith(Schema.NullOr(CameraFeaturesArraySchema), {
+    default: () => null,
+  }),
+});
+
 const MinimalAIResponseSchema = Schema.Struct({
   displayFeatures: StringOrArraySchema,
   cameraFeatures: StringOrArraySchema,
   materials: StringOrArraySchema,
   colors: StringOrArraySchema,
   cpu: Schema.NullOr(Schema.String),
-  cameras: Schema.Array(
-    Schema.Struct({
-      type: CameraTypeSchema,
-      features: Schema.NullOr(CameraFeaturesArraySchema),
-    }),
-  ),
+  cameras: Schema.Array(AICameraSchema),
 });
 
 // Use domain Phone schema directly (shapes are identical)
 
-const toPipeString = (value: unknown): string => {
-  if (Array.isArray(value)) return value.join("|");
-  if (typeof value === "string") return value;
-  return "";
+const toArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") return value.split("|").filter(Boolean);
+  return [];
 };
 
 const decodePhoneData = Schema.decodeUnknown(Phone);
@@ -211,21 +214,21 @@ const validateAndMerge = (
       slug: data.slug,
       name: data.name,
       brand: data.brand,
-      aliases: data.aliases,
+      aliases: toArray(data.aliases),
       releaseDate: data.releaseDate,
       height_mm: data.height_mm,
       width_mm: data.width_mm,
       thickness_mm: data.thickness_mm,
       weight_g: data.weight_g,
-      materials: toPipeString(aiResult.materials),
+      materials: toArray(aiResult.materials),
       ipRating: data.ipRating,
-      colors: toPipeString(aiResult.colors),
+      colors: toArray(aiResult.colors),
       size_in: data.size_in,
       displayType: data.displayType,
       resolution: data.resolution,
       aspectRatio: data.aspectRatio,
       ppi: data.ppi,
-      displayFeatures: toPipeString(aiResult.displayFeatures),
+      displayFeatures: toArray(aiResult.displayFeatures),
       cpu: aiResult.cpu,
       cpuManufacturer: data.cpuManufacturer,
       cpuCores: data.cpuCores,
@@ -236,7 +239,7 @@ const validateAndMerge = (
       benchmarks: data.benchmarks,
       nfc: data.nfc,
       bluetooth: data.bluetooth,
-      sim: data.sim,
+      sim: toArray(data.sim),
       simCount: data.simCount,
       usb: data.usb,
       headphoneJack: data.headphoneJack,
@@ -248,9 +251,9 @@ const validateAndMerge = (
         aperture_fstop: originalCameras[i]?.aperture_fstop ?? null,
         sensor: originalCameras[i]?.sensor ?? null,
         type: aiCam.type,
-        features: aiCam.features,
+        features: aiCam.features ?? null,
       })),
-      cameraFeatures: toPipeString(aiResult.cameraFeatures),
+      cameraFeatures: toArray(aiResult.cameraFeatures),
       os: data.os,
       osSkin: data.osSkin,
     };

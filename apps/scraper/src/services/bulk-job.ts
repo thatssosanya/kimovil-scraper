@@ -16,7 +16,7 @@ import {
 } from "./job-queue";
 import { BrowserService } from "./browser";
 import { OpenAIService } from "./openai";
-import { extractPhoneData, getHtmlValidationError } from "./scrape-kimovil";
+import { extractPhoneData, getHtmlValidationError } from "./kimovil";
 import { ScrapeResult } from "@repo/scraper-protocol";
 
 export type Ws = { send: (data: string) => void };
@@ -265,12 +265,10 @@ export class BulkJobManager {
           yield* Effect.promise(() =>
             page.setContent(html, { waitUntil: "domcontentloaded" })
           );
-          const rawData = yield* Effect.promise(() =>
-            extractPhoneData(page, slug)
-          );
+          const result = yield* extractPhoneData(page, slug);
           yield* services.phoneData.saveRaw(
             slug,
-            rawData as unknown as Record<string, unknown>
+            result.data as unknown as Record<string, unknown>
           );
         })
       )
