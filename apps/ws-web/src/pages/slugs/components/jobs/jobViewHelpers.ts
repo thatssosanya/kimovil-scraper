@@ -33,7 +33,10 @@ export function statusPillClass(status: DisplayStatus, hasErrors: boolean): stri
   if (status === "running") {
     return "bg-indigo-500/10 text-indigo-400 border-indigo-500/20 animate-pulse";
   }
-  if (status === "paused" || status === "pausing") {
+  if (status === "pausing") {
+    return "bg-amber-500/10 text-amber-400 border-amber-500/20 animate-pulse";
+  }
+  if (status === "paused") {
     return "bg-amber-500/10 text-amber-400 border-amber-500/20";
   }
   if (status === "done" && hasErrors) {

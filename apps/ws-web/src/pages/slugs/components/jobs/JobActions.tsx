@@ -27,14 +27,6 @@ export function JobActions(props: JobActionsProps) {
           Pausing…
         </button>
       </Show>
-      <Show when={props.status === "resuming"}>
-        <button
-          class="text-emerald-400/50 px-3 py-1.5 rounded-lg text-xs font-medium border border-emerald-500/10 cursor-not-allowed"
-          disabled
-        >
-          Resuming…
-        </button>
-      </Show>
       <Show when={props.status === "paused" || props.status === "error"}>
         <button
           class="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-emerald-500/20"
