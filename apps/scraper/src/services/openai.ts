@@ -3,97 +3,28 @@ import { Schema } from "@effect/schema";
 import { google } from "@ai-sdk/google";
 import { generateObject } from "ai";
 import { z } from "zod";
+import {
+  CameraTypeSchema,
+  CameraFeaturesArraySchema,
+  Phone,
+  Sku,
+  Benchmark,
+  NormalizedCamera,
+  FingerprintPositionSchema,
+  UsbTypeSchema,
+} from "@repo/scraper-domain";
+import type { PhoneData, RawPhoneData } from "@repo/scraper-domain";
 
 export class OpenAIError extends Error {
   readonly _tag = "OpenAIError";
 }
 
-// Schema for AI normalization response
-const CameraTypeSchema = Schema.Literal(
-  "ширик",
-  "зум",
-  "основная",
-  "фронтальная",
-  "lidar",
-  "макро",
-  "инфракрасная",
-);
-
-const CameraSchema = Schema.Struct({
-  resolution_mp: Schema.Number,
-  aperture_fstop: Schema.NullOr(Schema.String),
-  sensor: Schema.NullOr(Schema.String),
-  type: CameraTypeSchema,
-  features: Schema.optional(
-    Schema.NullOr(
-      Schema.Union(
-        Schema.Array(Schema.Literal("macro", "monochrome")),
-        Schema.Literal(""),
-      ),
-    ),
-  ),
-});
-
-const SkuSchema = Schema.Struct({
-  marketId: Schema.String,
-  ram_gb: Schema.Number,
-  storage_gb: Schema.Number,
-});
-
-const BenchmarkSchema = Schema.Struct({
-  name: Schema.String,
-  score: Schema.Number,
-});
-
-const NormalizedDataSchema = Schema.Struct({
-  slug: Schema.String,
-  name: Schema.String,
-  brand: Schema.String,
-  aliases: Schema.String,
-  releaseDate: Schema.NullOr(Schema.String),
-  height_mm: Schema.NullOr(Schema.Number),
-  width_mm: Schema.NullOr(Schema.Number),
-  thickness_mm: Schema.NullOr(Schema.Number),
-  weight_g: Schema.NullOr(Schema.Number),
-  materials: Schema.String,
-  ipRating: Schema.NullOr(Schema.String),
-  colors: Schema.String,
-  size_in: Schema.NullOr(Schema.Number),
-  displayType: Schema.NullOr(Schema.String),
-  resolution: Schema.NullOr(Schema.String),
-  aspectRatio: Schema.NullOr(Schema.String),
-  ppi: Schema.NullOr(Schema.Number),
-  displayFeatures: Schema.String,
-  cpu: Schema.NullOr(Schema.String),
-  cpuManufacturer: Schema.NullOr(Schema.String),
-  cpuCores: Schema.NullOr(Schema.String),
-  gpu: Schema.NullOr(Schema.String),
-  sdSlot: Schema.NullOr(Schema.Boolean),
-  skus: Schema.Array(SkuSchema),
-  fingerprintPosition: Schema.NullOr(Schema.Literal("screen", "side", "back")),
-  benchmarks: Schema.Array(BenchmarkSchema),
-  nfc: Schema.NullOr(Schema.Boolean),
-  bluetooth: Schema.NullOr(Schema.String),
-  sim: Schema.String,
-  simCount: Schema.Number,
-  usb: Schema.NullOr(Schema.Literal("USB-A", "USB-C", "Lightning")),
-  headphoneJack: Schema.NullOr(Schema.Boolean),
-  batteryCapacity_mah: Schema.NullOr(Schema.Number),
-  batteryFastCharging: Schema.NullOr(Schema.Boolean),
-  batteryWattage: Schema.NullOr(Schema.Number),
-  cameras: Schema.Array(CameraSchema),
-  cameraFeatures: Schema.String,
-  os: Schema.NullOr(Schema.String),
-  osSkin: Schema.NullOr(Schema.String),
-});
-
-export type NormalizedData = Schema.Schema.Type<typeof NormalizedDataSchema>;
-export type RawPhoneData = Record<string, unknown>;
+export type { PhoneData as NormalizedData };
 
 export interface OpenAIService {
   readonly adaptScrapedData: (
     data: RawPhoneData,
-  ) => Effect.Effect<NormalizedData, OpenAIError>;
+  ) => Effect.Effect<PhoneData, OpenAIError>;
 }
 
 export const OpenAIService = Context.GenericTag<OpenAIService>("OpenAIService");
@@ -162,7 +93,7 @@ const USER_PROMPT_TEMPLATE = `Нормализуй характеристики 
 
 {{DATA}}`;
 
-// Zod schema for Gemini structured output
+// Zod schema for Gemini structured output (must use Zod for Vercel AI SDK)
 const CameraTypeZod = z.enum([
   "ширик",
   "зум",
@@ -190,13 +121,12 @@ const MinimalAIResponseZod = z.object({
   ),
 });
 
-// Accept both string and array formats from AI
+// Effect schema for validating AI response
 const StringOrArraySchema = Schema.Union(
   Schema.String,
   Schema.Array(Schema.String),
 );
 
-// Minimal schema for AI response (only fields that need processing)
 const MinimalAIResponseSchema = Schema.Struct({
   displayFeatures: StringOrArraySchema,
   cameraFeatures: StringOrArraySchema,
@@ -207,184 +137,209 @@ const MinimalAIResponseSchema = Schema.Struct({
     Schema.Struct({
       type: CameraTypeSchema,
       features: Schema.optional(
-        Schema.NullOr(
-          Schema.Union(
-            Schema.Array(Schema.Literal("macro", "monochrome")),
-            Schema.Literal(""),
-          ),
-        ),
+        Schema.NullOr(Schema.Union(CameraFeaturesArraySchema, Schema.Literal(""))),
       ),
     }),
   ),
 });
 
-// Convert array or string to pipe-delimited string
+// Full phone schema using domain types
+const PhoneSchema = Schema.Struct({
+  slug: Schema.String,
+  name: Schema.String,
+  brand: Schema.String,
+  aliases: Schema.String,
+  releaseDate: Schema.NullOr(Schema.String),
+  height_mm: Schema.NullOr(Schema.Number),
+  width_mm: Schema.NullOr(Schema.Number),
+  thickness_mm: Schema.NullOr(Schema.Number),
+  weight_g: Schema.NullOr(Schema.Number),
+  materials: Schema.String,
+  ipRating: Schema.NullOr(Schema.String),
+  colors: Schema.String,
+  size_in: Schema.NullOr(Schema.Number),
+  displayType: Schema.NullOr(Schema.String),
+  resolution: Schema.NullOr(Schema.String),
+  aspectRatio: Schema.NullOr(Schema.String),
+  ppi: Schema.NullOr(Schema.Number),
+  displayFeatures: Schema.String,
+  cpu: Schema.NullOr(Schema.String),
+  cpuManufacturer: Schema.NullOr(Schema.String),
+  cpuCores: Schema.NullOr(Schema.String),
+  gpu: Schema.NullOr(Schema.String),
+  sdSlot: Schema.NullOr(Schema.Boolean),
+  skus: Schema.Array(Sku),
+  fingerprintPosition: Schema.NullOr(FingerprintPositionSchema),
+  benchmarks: Schema.Array(Benchmark),
+  nfc: Schema.NullOr(Schema.Boolean),
+  bluetooth: Schema.NullOr(Schema.String),
+  sim: Schema.String,
+  simCount: Schema.Number,
+  usb: Schema.NullOr(UsbTypeSchema),
+  headphoneJack: Schema.NullOr(Schema.Boolean),
+  batteryCapacity_mah: Schema.NullOr(Schema.Number),
+  batteryFastCharging: Schema.NullOr(Schema.Boolean),
+  batteryWattage: Schema.NullOr(Schema.Number),
+  cameras: Schema.Array(NormalizedCamera),
+  cameraFeatures: Schema.String,
+  os: Schema.NullOr(Schema.String),
+  osSkin: Schema.NullOr(Schema.String),
+});
+
 const toPipeString = (value: unknown): string => {
   if (Array.isArray(value)) return value.join("|");
   if (typeof value === "string") return value;
   return "";
 };
 
-const decodeNormalizedData = Schema.decodeUnknown(NormalizedDataSchema);
+const decodePhoneData = Schema.decodeUnknown(PhoneSchema);
 const decodeMinimalResponse = Schema.decodeUnknown(MinimalAIResponseSchema);
 
-// Extract only fields that need AI processing
 const extractFieldsForAI = (data: RawPhoneData) => ({
   displayFeatures: data.displayFeatures,
   cameraFeatures: data.cameraFeatures,
   materials: data.materials,
   colors: data.colors,
   cpu: data.cpu,
-  cameras:
-    (data.cameras as Array<{ type: string }>)?.map((c) => ({ type: c.type })) ??
-    [],
+  cameras: data.cameras?.map((c) => ({ type: c.type })) ?? [],
 });
 
-// Lazy initialization - only fails when actually called
+const callGeminiAPI = (
+  minimalData: ReturnType<typeof extractFieldsForAI>,
+  slug: string,
+) =>
+  Effect.tryPromise({
+    try: async () => {
+      const userPrompt = USER_PROMPT_TEMPLATE.replace(
+        "{{DATA}}",
+        JSON.stringify(minimalData),
+      );
+      const startTime = Date.now();
+      console.log(
+        `[Gemini] Starting normalization for ${slug} (~${Math.ceil(userPrompt.length / 4)} tokens)`,
+      );
+      console.log(`[Gemini] Sending:`, JSON.stringify(minimalData));
+
+      const response = await generateObject({
+        model: google("gemini-3-flash-preview"),
+        schema: MinimalAIResponseZod,
+        system: SYSTEM_PROMPT,
+        prompt: userPrompt,
+      });
+
+      const elapsed = Date.now() - startTime;
+      console.log(
+        `[Gemini] Completed in ${elapsed}ms (input: ${response.usage?.inputTokens}, output: ${response.usage?.outputTokens})`,
+      );
+      return response.object;
+    },
+    catch: (error) =>
+      new OpenAIError(
+        `Gemini API call failed: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+  });
+
+const validateAndMerge = (
+  aiResult: Schema.Schema.Type<typeof MinimalAIResponseSchema>,
+  data: RawPhoneData,
+) =>
+  Effect.gen(function* () {
+    const originalCameras = data.cameras ?? [];
+
+    const mergedData = {
+      slug: data.slug,
+      name: data.name,
+      brand: data.brand,
+      aliases: data.aliases,
+      releaseDate: data.releaseDate,
+      height_mm: data.height_mm,
+      width_mm: data.width_mm,
+      thickness_mm: data.thickness_mm,
+      weight_g: data.weight_g,
+      materials: toPipeString(aiResult.materials),
+      ipRating: data.ipRating,
+      colors: toPipeString(aiResult.colors),
+      size_in: data.size_in,
+      displayType: data.displayType,
+      resolution: data.resolution,
+      aspectRatio: data.aspectRatio,
+      ppi: data.ppi,
+      displayFeatures: toPipeString(aiResult.displayFeatures),
+      cpu: aiResult.cpu,
+      cpuManufacturer: data.cpuManufacturer,
+      cpuCores: data.cpuCores,
+      gpu: data.gpu,
+      sdSlot: data.sdSlot,
+      skus: data.skus,
+      fingerprintPosition: data.fingerprintPosition,
+      benchmarks: data.benchmarks,
+      nfc: data.nfc,
+      bluetooth: data.bluetooth,
+      sim: data.sim,
+      simCount: data.simCount,
+      usb: data.usb,
+      headphoneJack: data.headphoneJack,
+      batteryCapacity_mah: data.batteryCapacity_mah,
+      batteryFastCharging: data.batteryFastCharging,
+      batteryWattage: data.batteryWattage,
+      cameras: aiResult.cameras.map((aiCam, i) => ({
+        resolution_mp: originalCameras[i]?.resolution_mp ?? 0,
+        aperture_fstop: originalCameras[i]?.aperture_fstop ?? null,
+        sensor: originalCameras[i]?.sensor ?? null,
+        type: aiCam.type,
+        features: aiCam.features,
+      })),
+      cameraFeatures: toPipeString(aiResult.cameraFeatures),
+      os: data.os,
+      osSkin: data.osSkin,
+    };
+
+    return yield* decodePhoneData(mergedData).pipe(
+      Effect.mapError(
+        (e) => new OpenAIError(`Final validation failed: ${JSON.stringify(e)}`),
+      ),
+    );
+  });
+
+const adaptScrapedDataImpl = (data: RawPhoneData) =>
+  Effect.gen(function* () {
+    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    if (!apiKey) {
+      return yield* Effect.fail(
+        new OpenAIError("GOOGLE_GENERATIVE_AI_API_KEY is not available in env"),
+      );
+    }
+
+    const minimalData = extractFieldsForAI(data);
+    const rawResult = yield* callGeminiAPI(minimalData, data.slug);
+
+    const aiResult = yield* decodeMinimalResponse(rawResult).pipe(
+      Effect.mapError(
+        (e) => new OpenAIError(`Validation failed: ${JSON.stringify(e)}`),
+      ),
+    );
+
+    const decoded = yield* validateAndMerge(aiResult, data);
+    console.log("[Gemini] Successfully normalized data for:", data.slug);
+    return decoded;
+  }).pipe(
+    Effect.tapError((e) =>
+      Effect.sync(() => console.log(`[Gemini] Error, will retry: ${e.message}`)),
+    ),
+    Effect.retry(
+      Schedule.exponential("1 second").pipe(
+        Schedule.compose(Schedule.recurs(2)),
+      ),
+    ),
+  );
+
 export const OpenAIServiceLive = Layer.succeed(
   OpenAIService,
   OpenAIService.of({
-    adaptScrapedData: (data: RawPhoneData) =>
-      Effect.gen(function* () {
-        const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-        if (!apiKey) {
-          return yield* Effect.fail(
-            new OpenAIError(
-              "GOOGLE_GENERATIVE_AI_API_KEY is not available in env",
-            ),
-          );
-        }
-
-        // Only send fields that need AI processing
-        const minimalData = extractFieldsForAI(data);
-        const userPrompt = USER_PROMPT_TEMPLATE.replace(
-          "{{DATA}}",
-          JSON.stringify(minimalData),
-        );
-
-        const startTime = Date.now();
-        console.log(
-          `[Gemini] Starting normalization for ${data.slug} (~${Math.ceil(userPrompt.length / 4)} tokens)`,
-        );
-        console.log(`[Gemini] Sending:`, JSON.stringify(minimalData));
-
-        const result = yield* Effect.tryPromise({
-          try: async () => {
-            const response = await generateObject({
-              model: google("gemini-3-flash-preview"),
-              schema: MinimalAIResponseZod,
-              system: SYSTEM_PROMPT,
-              prompt: userPrompt,
-            });
-            const elapsed = Date.now() - startTime;
-            console.log(
-              `[Gemini] Completed in ${elapsed}ms (input: ${response.usage?.inputTokens}, output: ${response.usage?.outputTokens})`,
-            );
-            return response.object;
-          },
-          catch: (error) =>
-            new OpenAIError(
-              `Gemini API call failed: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        });
-
-        // Validate with Effect schema
-        const aiResult = yield* decodeMinimalResponse(result).pipe(
-          Effect.mapError(
-            (e) => new OpenAIError(`Validation failed: ${JSON.stringify(e)}`),
-          ),
-        );
-
-        // Merge AI result with original data (pass-through fields)
-        const originalCameras =
-          (data.cameras as Array<{
-            resolution_mp: number;
-            aperture_fstop: string | null;
-            sensor: string | null;
-          }>) ?? [];
-
-        const mergedData = {
-          slug: data.slug as string,
-          name: data.name as string,
-          brand: data.brand as string,
-          aliases: data.aliases as string,
-          releaseDate: data.releaseDate as string | null,
-          height_mm: data.height_mm as number | null,
-          width_mm: data.width_mm as number | null,
-          thickness_mm: data.thickness_mm as number | null,
-          weight_g: data.weight_g as number | null,
-          materials: toPipeString(aiResult.materials),
-          ipRating: data.ipRating as string | null,
-          colors: toPipeString(aiResult.colors),
-          size_in: data.size_in as number | null,
-          displayType: data.displayType as string | null,
-          resolution: data.resolution as string | null,
-          aspectRatio: data.aspectRatio as string | null,
-          ppi: data.ppi as number | null,
-          displayFeatures: toPipeString(aiResult.displayFeatures),
-          cpu: aiResult.cpu,
-          cpuManufacturer: data.cpuManufacturer as string | null,
-          cpuCores: data.cpuCores as string | null,
-          gpu: data.gpu as string | null,
-          sdSlot: data.sdSlot as boolean | null,
-          skus: data.skus as Array<{
-            marketId: string;
-            ram_gb: number;
-            storage_gb: number;
-          }>,
-          fingerprintPosition: data.fingerprintPosition as
-            | "screen"
-            | "side"
-            | "back"
-            | null,
-          benchmarks: data.benchmarks as Array<{ name: string; score: number }>,
-          nfc: data.nfc as boolean | null,
-          bluetooth: data.bluetooth as string | null,
-          sim: data.sim as string,
-          simCount: data.simCount as number,
-          usb: data.usb as "USB-A" | "USB-C" | "Lightning" | null,
-          headphoneJack: data.headphoneJack as boolean | null,
-          batteryCapacity_mah: data.batteryCapacity_mah as number | null,
-          batteryFastCharging: data.batteryFastCharging as boolean | null,
-          batteryWattage: data.batteryWattage as number | null,
-          cameras: aiResult.cameras.map((aiCam, i) => ({
-            resolution_mp: originalCameras[i]?.resolution_mp ?? 0,
-            aperture_fstop: originalCameras[i]?.aperture_fstop ?? null,
-            sensor: originalCameras[i]?.sensor ?? null,
-            type: aiCam.type,
-            features: aiCam.features,
-          })),
-          cameraFeatures: toPipeString(aiResult.cameraFeatures),
-          os: data.os as string | null,
-          osSkin: data.osSkin as string | null,
-        };
-
-        // Final validation
-        const decoded = yield* decodeNormalizedData(mergedData).pipe(
-          Effect.mapError(
-            (e) =>
-              new OpenAIError(`Final validation failed: ${JSON.stringify(e)}`),
-          ),
-        );
-
-        console.log("[Gemini] Successfully normalized data for:", data.slug);
-        return decoded;
-      }).pipe(
-        Effect.tapError((e) =>
-          Effect.sync(() =>
-            console.log(`[Gemini] Error, will retry: ${e.message}`),
-          ),
-        ),
-        Effect.retry(
-          Schedule.exponential("1 second").pipe(
-            Schedule.compose(Schedule.recurs(2)),
-          ),
-        ),
-      ),
+    adaptScrapedData: adaptScrapedDataImpl,
   }),
 );
 
-// Helper to convert arrays to pipe-delimited strings
 export const convertArraysToPipeDelimited = (
   obj: Record<string, unknown>,
 ): Record<string, unknown> => {
