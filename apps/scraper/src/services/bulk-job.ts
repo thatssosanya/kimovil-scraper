@@ -1,6 +1,7 @@
 import { Effect, Stream, Context } from "effect";
 import { StreamEvent, BulkJobStats } from "@repo/scraper-protocol";
 import { ScrapeService, ScrapeEvent } from "@repo/scraper-domain";
+import type { RawPhoneData } from "@repo/scraper-domain";
 import { config } from "../config";
 import { log } from "../utils/logger";
 import type { LiveLayerType } from "../layers/live";
@@ -288,7 +289,7 @@ export class BulkJobManager {
     }
 
     const normalized = await Effect.runPromise(
-      Effect.flatMap(OpenAIService, (s) => s.adaptScrapedData(rawData)).pipe(
+      Effect.flatMap(OpenAIService, (s) => s.adaptScrapedData(rawData as unknown as RawPhoneData)).pipe(
         Effect.provide(this.liveLayer)
       )
     );
