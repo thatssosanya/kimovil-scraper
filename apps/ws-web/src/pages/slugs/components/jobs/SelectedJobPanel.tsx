@@ -1,9 +1,8 @@
-import { Show, createMemo } from "solid-js";
+import { Show } from "solid-js";
 import { JobActions, JobWorkersSelect } from "./index";
 import {
   type JobEntry,
   type DisplayStatus,
-  getDisplayStatus,
   progressPercent,
   statusPillClass,
   statusLabel,
@@ -20,8 +19,8 @@ interface SelectedJobPanelProps {
 }
 
 export function SelectedJobPanel(props: SelectedJobPanelProps) {
-  const displayStatus = createMemo<DisplayStatus>(() => getDisplayStatus(props.job));
-  const percentComplete = createMemo(() => progressPercent(props.job.stats));
+  const displayStatus = (): DisplayStatus => props.job.job.status;
+  const percentComplete = () => progressPercent(props.job.stats);
   const hasErrors = () => props.job.stats.error > 0;
 
   const barColor = () => {

@@ -1,4 +1,3 @@
-import { createMemo } from "solid-js";
 import {
   JobTypeBadge,
   JobStatusBadge,
@@ -6,11 +5,7 @@ import {
   JobWorkersSelect,
   JobActions,
 } from "./index";
-import {
-  type JobEntry,
-  type DisplayStatus,
-  getDisplayStatus,
-} from "./jobViewHelpers";
+import { type JobEntry, type DisplayStatus } from "./jobViewHelpers";
 
 interface JobsRowProps {
   job: JobEntry;
@@ -24,7 +19,7 @@ interface JobsRowProps {
 }
 
 export function JobsRow(props: JobsRowProps) {
-  const displayStatus = createMemo<DisplayStatus>(() => getDisplayStatus(props.job));
+  const displayStatus = (): DisplayStatus => props.job.job.status;
 
   return (
     <tr
