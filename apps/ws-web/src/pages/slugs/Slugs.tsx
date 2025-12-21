@@ -6,7 +6,7 @@ import { Header } from "../../components/Header";
 import { StatsPanel } from "./components/StatsPanel";
 import { SearchBar } from "./components/SearchBar";
 import { BulkStartPanel } from "./components/BulkStartPanel";
-import { JobsSection } from "./components/JobsSection";
+import { JobsSection } from "./components/jobs/JobsSection";
 import { DevicesTable } from "./components/DevicesTable";
 import { SelectionBar } from "./components/SelectionBar";
 import { PhoneDataModal } from "./components/PhoneDataModal";
