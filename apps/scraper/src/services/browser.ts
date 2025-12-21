@@ -48,18 +48,86 @@ const logBrowserError = (message: string, error: unknown) =>
     Effect.annotateLogs({ service: "Browser" }),
   );
 
+const CHROME_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+const initStealthSession = Effect.gen(function* () {
+  yield* logBrowser("Launching stealth browser...");
+
+  const browser = yield* Effect.tryPromise({
+    try: () =>
+      chromium.launch({
+        headless: true,
+        args: ["--disable-blink-features=AutomationControlled"],
+      }),
+    catch: (error) =>
+      new BrowserError(
+        `Failed to launch stealth browser: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+  });
+
+  const context = yield* Effect.tryPromise({
+    try: () => browser.newContext({ userAgent: CHROME_USER_AGENT }),
+    catch: (error) =>
+      new BrowserError(
+        `Failed to create stealth context: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+  });
+
+  const page = yield* Effect.tryPromise({
+    try: () => context.newPage(),
+    catch: (error) =>
+      new BrowserError(
+        `Failed to create stealth page: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+  });
+
+  yield* Effect.tryPromise({
+    try: () =>
+      page.addInitScript(() => {
+        Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+      }),
+    catch: (error) =>
+      new BrowserError(
+        `Failed to add init script: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+  });
+
+  yield* Effect.tryPromise({
+    try: () =>
+      page.goto("https://www.kimovil.com/en/", {
+        waitUntil: "domcontentloaded",
+        timeout: 15000,
+      }),
+    catch: (error) =>
+      new BrowserError(
+        `Failed to navigate to kimovil: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+  });
+
+  yield* logBrowser("Stealth browser initialized and navigated to kimovil");
+
+  return { browser, context, page } satisfies StealthSession;
+});
+
 export const BrowserServiceLive = Layer.scoped(
   BrowserService,
   Effect.gen(function* () {
     const sessionRef = yield* Ref.make<Option.Option<StealthSession>>(
       Option.none(),
     );
+    const lock = yield* Effect.makeSemaphore(1);
 
     yield* Effect.addFinalizer(() =>
       Effect.gen(function* () {
         const maybeSession = yield* Ref.get(sessionRef);
         if (Option.isSome(maybeSession)) {
           const session = maybeSession.value;
+          yield* Effect.promise(() => session.context.close()).pipe(
+            Effect.catchAll((e) =>
+              logBrowserError("Error closing stealth context", e),
+            ),
+          );
           yield* Effect.promise(() => session.browser.close()).pipe(
             Effect.catchAll((e) =>
               logBrowserError("Error closing stealth browser", e),
@@ -164,12 +232,47 @@ export const BrowserServiceLive = Layer.scoped(
       },
 
       withPersistentStealthPage: <A, E, R>(
-        _use: (page: Page) => Effect.Effect<A, E, R>,
+        use: (page: Page) => Effect.Effect<A, E, R>,
       ): Effect.Effect<A, E | BrowserError, R> =>
-        Effect.fail(
-          new BrowserError(
-            "withPersistentStealthPage not implemented yet (Phase 2)",
-          ),
+        lock.withPermits(1)(
+          Effect.gen(function* () {
+            const maybeSession = yield* Ref.get(sessionRef);
+
+            const session: StealthSession = Option.isSome(maybeSession)
+              ? maybeSession.value
+              : yield* Effect.gen(function* () {
+                  const newSession = yield* initStealthSession;
+                  yield* Ref.set(sessionRef, Option.some(newSession));
+                  return newSession;
+                });
+
+            const result = yield* Effect.catchAll(use(session.page), (error) =>
+              Effect.gen(function* () {
+                const isBrowserError = error instanceof BrowserError;
+                const isPlaywrightError =
+                  error instanceof Error &&
+                  (error.message.includes("Target closed") ||
+                    error.message.includes("Browser closed") ||
+                    error.message.includes("Context closed") ||
+                    error.message.includes("Page closed"));
+
+                if (isBrowserError || isPlaywrightError) {
+                  yield* logBrowserError(
+                    "Browser error detected, resetting session",
+                    error,
+                  );
+                  yield* Effect.promise(() =>
+                    session.browser.close(),
+                  ).pipe(Effect.catchAll(() => Effect.void));
+                  yield* Ref.set(sessionRef, Option.none());
+                }
+
+                return yield* Effect.fail(error as E);
+              }),
+            );
+
+            return result;
+          }),
         ),
     });
   }),
