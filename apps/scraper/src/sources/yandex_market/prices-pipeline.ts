@@ -8,9 +8,19 @@ import { HtmlCacheService } from "../../services/html-cache";
 import { PriceService } from "../../services/price";
 import { EntityDataService } from "../../services/entity-data";
 
+/**
+ * Yandex price scraping is user-driven via the `yandex.scrape` WebSocket handler,
+ * not batch-processed through the job queue. This is because:
+ * 1. Yandex requires manual URL input (no automated discovery)
+ * 2. Users link devices to Yandex URLs via `yandex.link`
+ * 3. Scraping is triggered on-demand, not scheduled
+ *
+ * The scrape stage exists only to satisfy the pipeline interface.
+ * Actual scraping happens in ws-server.ts `yandex.scrape` handler.
+ */
 const scrapeHandler = (ctx: PipelineContext) =>
   Effect.gen(function* () {
-    yield* Effect.logInfo("Yandex prices scrape stage").pipe(
+    yield* Effect.logInfo("Yandex prices scrape stage (no-op: user-driven via WebSocket)").pipe(
       Effect.annotateLogs({ deviceId: ctx.deviceId, externalId: ctx.externalId }),
     );
   });
@@ -63,6 +73,7 @@ const processRawHandler = (ctx: PipelineContext) =>
         variantLabel: o.variantLabel,
         url: o.url,
         isAvailable: o.isAvailable,
+        offerId: o.offerId,
       })),
       scrapeId: ctx.scrapeId ?? undefined,
     });
