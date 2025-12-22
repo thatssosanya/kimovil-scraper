@@ -52,6 +52,7 @@ import { PriceService } from "../services/price";
 import { EntityDataService } from "../services/entity-data";
 import { DeviceRegistryService } from "../services/device-registry";
 import { parseYandexPrices } from "../sources/yandex_market/extractor";
+import { validateYandexMarketUrl } from "../sources/yandex_market/url-utils";
 
 type StreamHandler = (
   request: Request,
@@ -611,18 +612,18 @@ const createHandlers = (
         request.params,
       );
 
-      const match = params.url.match(/\/(\d+)(?:\?|$)/);
-      if (!match) {
+      const validation = validateYandexMarketUrl(params.url);
+      if (!validation.valid) {
         const result = new YandexScrapeResult({
           success: false,
-          error: "Invalid Yandex.Market URL",
+          error: validation.error,
         });
         yield* Effect.sync(() =>
           ws.send(JSON.stringify(new Response({ id: request.id, result }))),
         );
         return;
       }
-      const externalId = match[1];
+      const externalId = validation.externalId;
 
       yield* Effect.sync(() =>
         ws.send(
@@ -729,18 +730,18 @@ const createHandlers = (
         request.params,
       );
 
-      const match = params.url.match(/\/(\d+)(?:\?|$)/);
-      if (!match) {
+      const validation = validateYandexMarketUrl(params.url);
+      if (!validation.valid) {
         const result = new YandexLinkResult({
           success: false,
-          error: "Invalid Yandex.Market URL format",
+          error: validation.error,
         });
         yield* Effect.sync(() =>
           ws.send(JSON.stringify(new Response({ id: request.id, result }))),
         );
         return;
       }
-      const externalId = match[1];
+      const externalId = validation.externalId;
 
       const deviceRegistry = yield* DeviceRegistryService;
       yield* deviceRegistry.linkDeviceToSource({
