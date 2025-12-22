@@ -646,20 +646,28 @@ const createHandlers = (
       const priceService = yield* PriceService;
       const entityData = yield* EntityDataService;
 
+      const cleanUrl = validation.cleanUrl;
       const html = yield* browserService.withPersistentStealthPage((page) =>
         Effect.gen(function* () {
-          yield* Effect.promise(() =>
-            page.goto(validation.cleanUrl, { waitUntil: "domcontentloaded", timeout: 60000 }),
-          );
+          yield* Effect.tryPromise({
+            try: () => page.goto(cleanUrl, { waitUntil: "domcontentloaded", timeout: 60000 }),
+            catch: (cause) => new YandexBrowserError({ message: "Failed to navigate to Yandex page", url: cleanUrl, cause }),
+          });
 
           const finalUrl = page.url();
           const finalParsed = new URL(finalUrl);
           if (!ALLOWED_HOSTS.includes(finalParsed.hostname)) {
-            throw new Error(`Redirected to disallowed host: ${finalParsed.hostname}`);
+            return yield* Effect.fail(new YandexBrowserError({
+              message: `Redirected to disallowed host: ${finalParsed.hostname}`,
+              url: cleanUrl,
+            }));
           }
 
           yield* Effect.promise(() => page.waitForTimeout(3000));
-          return yield* Effect.promise(() => page.content());
+          return yield* Effect.tryPromise({
+            try: () => page.content(),
+            catch: (cause) => new YandexBrowserError({ message: "Failed to get page content", url: cleanUrl, cause }),
+          });
         }),
       );
 
@@ -857,11 +865,15 @@ export function createWsServer(
                 tag === "KimovilInvalidResponseError" ||
                 tag === "SearchBrowserError" ||
                 tag === "SearchRetryExhaustedError";
-              const errorCode = isSearchError
-                ? "SEARCH_FAILED"
-                : error instanceof ScrapeError
-                  ? "SCRAPE_FAILED"
-                  : "INTERNAL_ERROR";
+              const isYandexError =
+                tag === "YandexBrowserError" || tag === "YandexValidationError";
+              const errorCode = isYandexError
+                ? "YANDEX_SCRAPE_FAILED"
+                : isSearchError
+                  ? "SEARCH_FAILED"
+                  : error instanceof ScrapeError
+                    ? "SCRAPE_FAILED"
+                    : "INTERNAL_ERROR";
 
               log.error(
                 `WS:${request.method}`,
