@@ -176,6 +176,7 @@ export const PriceServiceLive = Layer.effect(
                 COUNT(*) as count
               FROM price_quotes
               WHERE device_id = ${deviceId}
+                AND is_available = 1
                 AND scraped_at >= unixepoch() - ${days * 86400}
                 AND variant_key = ${variantKey}
               GROUP BY date(scraped_at, 'unixepoch')
@@ -190,6 +191,7 @@ export const PriceServiceLive = Layer.effect(
                 COUNT(*) as count
               FROM price_quotes
               WHERE device_id = ${deviceId}
+                AND is_available = 1
                 AND scraped_at >= unixepoch() - ${days * 86400}
               GROUP BY date(scraped_at, 'unixepoch')
               ORDER BY date DESC
