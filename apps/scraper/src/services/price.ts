@@ -107,28 +107,30 @@ export const PriceServiceLive = Layer.effect(
 
     return PriceService.of({
       savePriceQuotes: (params) =>
-        Effect.gen(function* () {
-          const { deviceId, source, offers, scrapeId } = params;
-          let count = 0;
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const { deviceId, source, offers, scrapeId } = params;
+            let count = 0;
 
-          for (const offer of offers) {
-            yield* sql`
-              INSERT INTO price_quotes (
-                device_id, source, seller, seller_id, price_minor_units, currency,
-                variant_key, variant_label, url, offer_id, scraped_at, scrape_id, is_available
-              ) VALUES (
-                ${deviceId}, ${source}, ${offer.seller}, ${offer.sellerId ?? null},
-                ${offer.priceMinorUnits}, ${offer.currency},
-                ${offer.variantKey ?? null}, ${offer.variantLabel ?? null},
-                ${offer.url ?? null}, ${offer.offerId ?? null},
-                unixepoch(), ${scrapeId ?? null}, ${offer.isAvailable ? 1 : 0}
-              )
-            `;
-            count++;
-          }
+            for (const offer of offers) {
+              yield* sql`
+                INSERT INTO price_quotes (
+                  device_id, source, seller, seller_id, price_minor_units, currency,
+                  variant_key, variant_label, url, offer_id, scraped_at, scrape_id, is_available
+                ) VALUES (
+                  ${deviceId}, ${source}, ${offer.seller}, ${offer.sellerId ?? null},
+                  ${offer.priceMinorUnits}, ${offer.currency},
+                  ${offer.variantKey ?? null}, ${offer.variantLabel ?? null},
+                  ${offer.url ?? null}, ${offer.offerId ?? null},
+                  unixepoch(), ${scrapeId ?? null}, ${offer.isAvailable ? 1 : 0}
+                )
+              `;
+              count++;
+            }
 
-          return count;
-        }).pipe(
+            return count;
+          }),
+        ).pipe(
           Effect.mapError((e) =>
             e instanceof PriceServiceError ? e : wrapSqlError(e),
           ),
@@ -161,7 +163,15 @@ export const PriceServiceLive = Layer.effect(
             INSERT OR REPLACE INTO price_summary (device_id, min_price_minor_units, max_price_minor_units, currency, updated_at)
             VALUES (${deviceId}, ${row.min_price}, ${row.max_price}, ${row.currency}, unixepoch())
           `;
-        }).pipe(Effect.asVoid, Effect.mapError(wrapSqlError)),
+        }).pipe(
+          Effect.tapError((e) =>
+            Effect.logWarning("PriceService.updatePriceSummary failed").pipe(
+              Effect.annotateLogs({ deviceId, error: e }),
+            ),
+          ),
+          Effect.asVoid,
+          Effect.mapError(wrapSqlError),
+        ),
 
       getPriceHistory: (params) => {
         const { deviceId, days = 30, variantKey } = params;
@@ -206,6 +216,11 @@ export const PriceServiceLive = Layer.effect(
               maxPrice: r.max_price,
               count: r.count,
             })),
+          ),
+          Effect.tapError((e) =>
+            Effect.logWarning("PriceService.getPriceHistory failed").pipe(
+              Effect.annotateLogs({ deviceId: params.deviceId, days: params.days, error: e }),
+            ),
           ),
           Effect.mapError(wrapSqlError),
         );
@@ -260,6 +275,11 @@ export const PriceServiceLive = Layer.effect(
             })),
           };
         }).pipe(
+          Effect.tapError((e) =>
+            Effect.logWarning("PriceService.getCurrentPrices failed").pipe(
+              Effect.annotateLogs({ deviceId, error: e }),
+            ),
+          ),
           Effect.mapError((e) =>
             e instanceof PriceServiceError ? e : wrapSqlError(e),
           ),
