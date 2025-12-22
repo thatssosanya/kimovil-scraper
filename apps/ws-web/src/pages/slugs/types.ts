@@ -124,24 +124,18 @@ export interface ScrapeStats {
 // Price offer from a seller
 export interface PriceOffer {
   seller: string;
-  sellerId: string | null;
-  priceMinorUnits: number;
-  currency: string;
-  variantKey: string | null;
-  variantLabel: string | null;
-  url: string | null;
-  isAvailable: boolean;
-  offerId: string | null;
+  price: number;
+  variantKey?: string;
+  variantLabel?: string;
+  url?: string;
+  isAvailable?: boolean;
 }
 
 // Price summary for a device
 export interface PriceSummary {
-  deviceId: string;
-  minPrice: number | null;
-  maxPrice: number | null;
-  avgPrice: number | null;
+  minPrice: number;
+  maxPrice: number;
   currency: string;
-  offerCount: number;
   updatedAt: number;
   quotes: PriceOffer[];
 }

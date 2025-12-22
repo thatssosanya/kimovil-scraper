@@ -7,6 +7,7 @@ import { HtmlCacheService } from "../services/html-cache";
 import { PhoneDataService } from "../services/phone-data";
 import { JobQueueService, type ScrapeMode } from "../services/job-queue";
 import { BulkJobManager } from "../services/bulk-job";
+import { DeviceRegistryService } from "../services/device-registry";
 import { log } from "../utils/logger";
 import { LiveRuntime } from "../layers/live";
 
@@ -457,21 +458,35 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         return { success: false, error: message };
       }
     })
-    .get("/prices/:deviceId", async ({ params }) => {
+    .get("/prices/:slug", async ({ params }) => {
       const program = Effect.gen(function* () {
+        const deviceRegistry = yield* DeviceRegistryService;
         const priceService = yield* PriceService;
-        return yield* priceService.getCurrentPrices(params.deviceId);
+        
+        const device = yield* deviceRegistry.getDeviceBySlug(params.slug);
+        if (!device) {
+          return null;
+        }
+        
+        return yield* priceService.getCurrentPrices(device.id);
       });
       return LiveRuntime.runPromise(program);
     })
-    .get("/prices/:deviceId/history", async ({ params, query }) => {
+    .get("/prices/:slug/history", async ({ params, query }) => {
       const days = parseInt(query.days as string) || 30;
       const variantKey = query.variant as string | undefined;
 
       const program = Effect.gen(function* () {
+        const deviceRegistry = yield* DeviceRegistryService;
         const priceService = yield* PriceService;
+        
+        const device = yield* deviceRegistry.getDeviceBySlug(params.slug);
+        if (!device) {
+          return [];
+        }
+        
         return yield* priceService.getPriceHistory({
-          deviceId: params.deviceId,
+          deviceId: device.id,
           days,
           variantKey,
         });

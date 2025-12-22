@@ -561,16 +561,16 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
                   </Show>
 
                   {/* Has prices - show offers */}
-                  <Show when={prices() && prices()!.offerCount > 0}>
+                  <Show when={prices() && prices()!.quotes.length > 0}>
                     <div class="space-y-4">
                       {/* Summary header */}
                       <div class="flex items-center justify-between p-4 rounded-xl bg-amber-500/5 border border-amber-500/20">
                         <div>
                           <div class="text-2xl font-bold text-white">
-                            ₽{((prices()!.minPrice ?? 0) / 100).toLocaleString()} – ₽{((prices()!.maxPrice ?? 0) / 100).toLocaleString()}
+                            ₽{(prices()!.minPrice / 100).toLocaleString()} – ₽{(prices()!.maxPrice / 100).toLocaleString()}
                           </div>
                           <div class="text-sm text-slate-400 mt-1">
-                            {prices()!.offerCount} offers • Updated {new Date(prices()!.updatedAt).toLocaleDateString()}
+                            {prices()!.quotes.length} offers • Updated {new Date(prices()!.updatedAt * 1000).toLocaleDateString()}
                           </div>
                         </div>
                         <button
@@ -606,7 +606,7 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
                                 </div>
                               </div>
                               <div class="text-right">
-                                <div class="font-bold text-white">₽{(offer.priceMinorUnits / 100).toLocaleString()}</div>
+                                <div class="font-bold text-white">₽{(offer.price / 100).toLocaleString()}</div>
                                 <Show when={offer.url}>
                                   <a
                                     href={offer.url!}
@@ -626,7 +626,7 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
                   </Show>
 
                   {/* No prices yet - show link/scrape UI */}
-                  <Show when={!prices() || prices()!.offerCount === 0}>
+                  <Show when={!prices() || prices()!.quotes.length === 0}>
                     <div class="flex flex-col items-center justify-center py-16">
                       <div class="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center mb-4">
                         <svg class="h-8 w-8 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">

@@ -36,6 +36,7 @@ export interface CurrentPrices {
     price: number;
     variantKey?: string;
     url?: string;
+    isAvailable?: boolean;
   }>;
 }
 
@@ -143,7 +144,8 @@ export const PriceServiceLive = Layer.effect(
 
       updatePriceSummary: (deviceId) =>
         Effect.gen(function* () {
-          const rows = yield* sql<{
+          // Try available offers first, fall back to all offers
+          const availableRows = yield* sql<{
             min_price: number | null;
             max_price: number | null;
             currency: string | null;
@@ -159,7 +161,28 @@ export const PriceServiceLive = Layer.effect(
             LIMIT 1
           `;
 
-          const row = rows[0];
+          let row = availableRows[0];
+          
+          // Fall back to all offers if no available ones
+          if (!row || row.min_price === null) {
+            const allRows = yield* sql<{
+              min_price: number | null;
+              max_price: number | null;
+              currency: string | null;
+            }>`
+              SELECT 
+                MIN(price_minor_units) as min_price,
+                MAX(price_minor_units) as max_price,
+                currency
+              FROM price_quotes
+              WHERE device_id = ${deviceId}
+              GROUP BY currency
+              ORDER BY COUNT(*) DESC
+              LIMIT 1
+            `;
+            row = allRows[0];
+          }
+
           if (!row || row.min_price === null) {
             return;
           }
@@ -259,13 +282,24 @@ export const PriceServiceLive = Layer.effect(
             return null;
           }
 
-          const quoteRows = yield* sql<PriceQuoteRow>`
+          // Try available quotes first
+          let quoteRows = yield* sql<PriceQuoteRow>`
             SELECT * FROM price_quotes
             WHERE device_id = ${deviceId}
               AND scraped_at = ${latestScrapedAt}
               AND is_available = 1
             ORDER BY price_minor_units ASC
           `;
+
+          // Fall back to all quotes if none available
+          if (quoteRows.length === 0) {
+            quoteRows = yield* sql<PriceQuoteRow>`
+              SELECT * FROM price_quotes
+              WHERE device_id = ${deviceId}
+                AND scraped_at = ${latestScrapedAt}
+              ORDER BY price_minor_units ASC
+            `;
+          }
 
           return {
             minPrice: summary.min_price_minor_units,
@@ -277,6 +311,7 @@ export const PriceServiceLive = Layer.effect(
               price: q.price_minor_units,
               variantKey: q.variant_key ?? undefined,
               url: q.url ?? undefined,
+              isAvailable: q.is_available === 1,
             })),
           };
         }).pipe(
