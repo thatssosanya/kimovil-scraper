@@ -10,6 +10,8 @@ import type {
   PhoneDataRaw,
   PhoneDataAi,
   PhoneDataResponse,
+  PriceSummary,
+  PriceHistory,
 } from "../types";
 
 export function useSlugsApi() {
@@ -425,6 +427,37 @@ export function useSlugsApi() {
     return clearedCount;
   };
 
+  const fetchPrices = async (deviceId: string): Promise<PriceSummary | null> => {
+    try {
+      const res = await fetch(
+        `http://localhost:1488/api/prices/${encodeURIComponent(deviceId)}`,
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data;
+    } catch (error) {
+      console.error("Failed to fetch prices:", error);
+      return null;
+    }
+  };
+
+  const fetchPriceHistory = async (
+    deviceId: string,
+    days: number = 30,
+  ): Promise<PriceHistory | null> => {
+    try {
+      const res = await fetch(
+        `http://localhost:1488/api/prices/${encodeURIComponent(deviceId)}/history?days=${days}`,
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data;
+    } catch (error) {
+      console.error("Failed to fetch price history:", error);
+      return null;
+    }
+  };
+
   return {
     devices,
     total,
@@ -457,5 +490,7 @@ export function useSlugsApi() {
     fetchPhoneDataAi,
     processRaw,
     processAi,
+    fetchPrices,
+    fetchPriceHistory,
   };
 }
