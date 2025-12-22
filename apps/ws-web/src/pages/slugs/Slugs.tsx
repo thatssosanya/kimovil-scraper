@@ -463,6 +463,7 @@ export default function Slugs() {
           fetchHtml={api.openPreview}
           fetchRawData={api.fetchPhoneDataRaw}
           fetchAiData={api.fetchPhoneDataAi}
+          fetchPrices={api.fetchPrices}
           onProcessRaw={api.processRaw}
           onProcessAi={api.processAi}
           onStatusChange={() => {
