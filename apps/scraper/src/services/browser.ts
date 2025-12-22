@@ -1,5 +1,10 @@
 import { Effect, Layer, Context, Scope, Ref, Option } from "effect";
 import { chromium, Browser, BrowserContext, Page } from "playwright";
+import { existsSync, readFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const PLAYWRIGHT_TIMEOUT = 120_000;
 
@@ -51,6 +56,48 @@ const logBrowserError = (message: string, error: unknown) =>
 const CHROME_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+const YANDEX_COOKIES_PATH =
+  process.env.YANDEX_COOKIES_PATH ||
+  join(__dirname, "../../yandex-cookies.json");
+
+interface PlaywrightCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires: number;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: "Strict" | "Lax" | "None";
+}
+
+const loadYandexCookies = (): Effect.Effect<PlaywrightCookie[], never, never> =>
+  Effect.gen(function* () {
+    if (!existsSync(YANDEX_COOKIES_PATH)) {
+      yield* Effect.logDebug("Yandex cookies file not found, continuing without").pipe(
+        Effect.annotateLogs({ path: YANDEX_COOKIES_PATH }),
+      );
+      return [];
+    }
+
+    try {
+      const content = readFileSync(YANDEX_COOKIES_PATH, "utf-8");
+      const cookies: PlaywrightCookie[] = JSON.parse(content);
+      // Filter to only yandex.ru and market.yandex.ru domains
+      const filtered = cookies.filter(
+        (c) =>
+          c.domain.endsWith("yandex.ru") &&
+          (c.domain.includes("market") || c.domain === ".yandex.ru" || c.domain === "yandex.ru"),
+      );
+      return filtered;
+    } catch (e) {
+      yield* Effect.logWarning("Failed to parse Yandex cookies file").pipe(
+        Effect.annotateLogs({ path: YANDEX_COOKIES_PATH, error: e }),
+      );
+      return [];
+    }
+  });
+
 const initStealthSession: Effect.Effect<StealthSession, BrowserError> =
   Effect.gen(function* () {
     yield* logBrowser("Launching stealth browser...");
@@ -75,6 +122,19 @@ const initStealthSession: Effect.Effect<StealthSession, BrowserError> =
             `Failed to create stealth context: ${error instanceof Error ? error.message : String(error)}`,
           ),
       });
+
+      // Load Yandex cookies if available
+      const yandexCookies = yield* loadYandexCookies();
+      if (yandexCookies.length > 0) {
+        yield* Effect.tryPromise({
+          try: () => context.addCookies(yandexCookies),
+          catch: (error) =>
+            new BrowserError(
+              `Failed to add Yandex cookies: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+        });
+        yield* logBrowser(`Loaded ${yandexCookies.length} Yandex cookies`);
+      }
 
       const page = yield* Effect.tryPromise({
         try: () => context.newPage(),
