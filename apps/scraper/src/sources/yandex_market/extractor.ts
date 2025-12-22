@@ -22,6 +22,7 @@ interface ParsedOfferData {
   discountPercent?: number;
   cpaUrl?: string;
   skuId?: string;
+  isAvailable?: boolean;
 }
 
 function normalizeCurrency(currency: string): string {
@@ -83,6 +84,7 @@ function extractOffersFromBlock(block: unknown, offers: Map<string, ParsedOfferD
     }
     if (obj.cpaUrl && typeof obj.cpaUrl === "string") merged.cpaUrl = obj.cpaUrl;
     if (obj.skuId && typeof obj.skuId === "string") merged.skuId = obj.skuId;
+    if (typeof obj.isDeliveryAvailable === "boolean") merged.isAvailable = obj.isDeliveryAvailable;
 
     offers.set(obj.offerId as string, merged);
   }
@@ -164,6 +166,26 @@ function extractShopInfoFromHtml(html: string): Map<number, { shopName?: string;
   return shops;
 }
 
+function extractAvailabilityFromHtml(html: string): Map<string, boolean> {
+  const availability = new Map<string, boolean>();
+
+  const deliveryPattern = /"isDeliveryAvailable":(true|false)/g;
+  let match;
+  while ((match = deliveryPattern.exec(html)) !== null) {
+    const isAvailable = match[1] === "true";
+    const contextStart = Math.max(0, match.index - 500);
+    const contextEnd = Math.min(html.length, match.index + 500);
+    const context = html.slice(contextStart, contextEnd);
+
+    const offerIdMatch = context.match(/"offerId":"([^"]+)"/);
+    if (offerIdMatch) {
+      availability.set(offerIdMatch[1], isAvailable);
+    }
+  }
+
+  return availability;
+}
+
 function extractOldPricesFromHtml(html: string): Map<string, { oldPrice: number; discountPercent?: number }> {
   const oldPrices = new Map<string, { oldPrice: number; discountPercent?: number }>();
 
@@ -200,6 +222,7 @@ export function parseYandexPrices(html: string): YandexOffer[] {
   const actualPrices = extractActualPricesFromHtml(html);
   const shopInfo = extractShopInfoFromHtml(html);
   const oldPrices = extractOldPricesFromHtml(html);
+  const availability = extractAvailabilityFromHtml(html);
 
   const results: YandexOffer[] = [];
   const seenOffers = new Set<string>();
@@ -227,7 +250,7 @@ export function parseYandexPrices(html: string): YandexOffer[] {
       sellerId,
       priceMinorUnits: toMinorUnits(actualPriceData?.price ?? priceValue),
       currency: normalizeCurrency(data.price.currency),
-      isAvailable: true,
+      isAvailable: data.isAvailable ?? availability.get(offerId) ?? true,
     };
 
     if (oldPriceData?.oldPrice) {
