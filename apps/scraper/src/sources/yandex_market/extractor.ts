@@ -48,8 +48,14 @@ function toMinorUnits(value: string | number): number {
   return Math.round(num * 100);
 }
 
-function extractJsonBlocks(html: string): unknown[] {
-  const results: unknown[] = [];
+interface JsonExtractionResult {
+  blocks: unknown[];
+  failedCount: number;
+}
+
+function extractJsonBlocks(html: string): JsonExtractionResult {
+  const blocks: unknown[] = [];
+  let failedCount = 0;
   const patterns = [
     /<noframes data-apiary="patch">([\s\S]*?)<\/noframes>/g,
     /<script[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/g,
@@ -60,14 +66,14 @@ function extractJsonBlocks(html: string): unknown[] {
     while ((match = pattern.exec(html)) !== null) {
       try {
         const parsed = JSON.parse(match[1]);
-        results.push(parsed);
+        blocks.push(parsed);
       } catch {
-        // Skip invalid JSON blocks
+        failedCount++;
       }
     }
   }
 
-  return results;
+  return { blocks, failedCount };
 }
 
 function extractOffersFromBlock(block: unknown, offers: Map<string, ParsedOfferData>): void {
@@ -127,10 +133,14 @@ function extractActualPricesFromHtml(html: string): Map<string, { price: number;
   let match;
   while ((match = actualPricePattern.exec(html)) !== null) {
     const priceValue = parseInt(match[1].replace(/"/g, ""), 10);
-    const contextStart = Math.max(0, match.index - 500);
-    const contextEnd = Math.min(html.length, match.index + 500);
+    const contextStart = Math.max(0, match.index - 200);
+    const contextEnd = Math.min(html.length, match.index + 200);
     const context = html.slice(contextStart, contextEnd);
 
+    const offerIdMatches = context.match(/"offerId":"([^"]+)"/g);
+    if (!offerIdMatches || offerIdMatches.length !== 1) {
+      continue;
+    }
     const offerIdMatch = context.match(/"offerId":"([^"]+)"/);
     if (offerIdMatch) {
       const existing = prices.get(offerIdMatch[1]) ?? { price: priceValue };
@@ -287,7 +297,7 @@ export function parseYandexPrices(html: string): YandexOffer[] {
       sellerId,
       priceMinorUnits: toMinorUnits(actualPriceData?.price ?? priceValue),
       currency: normalizeCurrency(data.price.currency),
-      isAvailable: data.isAvailable ?? availability.get(offerId) ?? true,
+      isAvailable: data.isAvailable ?? availability.get(offerId) ?? false,
     };
 
     if (oldPriceData?.oldPrice) {
