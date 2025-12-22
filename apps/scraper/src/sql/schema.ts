@@ -494,6 +494,13 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_scrapes_device ON scrapes(device_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_scrapes_source_ext ON scrapes(source, external_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_price_quotes_device ON price_quotes(device_id, source, scraped_at)`);
+
+    // Yandex.Market price scraping columns
+    yield* ensureColumn(sql, "price_quotes", "seller_id", "TEXT");
+    yield* ensureColumn(sql, "price_quotes", "variant_key", "TEXT");
+    yield* ensureColumn(sql, "price_quotes", "variant_label", "TEXT");
+    yield* ensureColumn(sql, "price_quotes", "offer_id", "TEXT");
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_price_quotes_variant ON price_quotes(device_id, variant_key, scraped_at)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_entity_data_raw_device ON entity_data_raw(device_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_entity_data_device ON entity_data(device_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_sources_device ON device_sources(device_id)`);
