@@ -761,8 +761,46 @@ const createHandlers = (
       const externalId = validation.externalId;
 
       const deviceRegistry = yield* DeviceRegistryService;
+      const deviceService = yield* DeviceService;
+
+      // Ensure device exists in new devices table (migrate from kimovil_devices if needed)
+      const existingDevice = yield* deviceRegistry.getDeviceBySlug(params.deviceId);
+      if (!existingDevice) {
+        // Try to get from kimovil_devices and create in devices table
+        const kimovilDevice = yield* deviceService.getDevice(params.deviceId);
+        if (kimovilDevice) {
+          yield* deviceRegistry.createDevice({
+            slug: kimovilDevice.slug,
+            name: kimovilDevice.name,
+            brand: kimovilDevice.brand,
+          });
+        } else {
+          const result = new YandexLinkResult({
+            success: false,
+            error: `Device not found: ${params.deviceId}`,
+          });
+          yield* Effect.sync(() =>
+            ws.send(JSON.stringify(new Response({ id: request.id, result }))),
+          );
+          return;
+        }
+      }
+
+      // Get the device ID (might be different from slug)
+      const device = yield* deviceRegistry.getDeviceBySlug(params.deviceId);
+      if (!device) {
+        const result = new YandexLinkResult({
+          success: false,
+          error: `Failed to get device: ${params.deviceId}`,
+        });
+        yield* Effect.sync(() =>
+          ws.send(JSON.stringify(new Response({ id: request.id, result }))),
+        );
+        return;
+      }
+
       yield* deviceRegistry.linkDeviceToSource({
-        deviceId: params.deviceId,
+        deviceId: device.id,
         source: "yandex_market",
         externalId,
         url: params.url,
