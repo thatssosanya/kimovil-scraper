@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 import { Effect } from "effect";
 import { ScrapeService } from "@repo/scraper-domain";
 import { DeviceService, type KimovilDevice } from "../services/device";
+import { PriceService } from "../services/price";
 import { HtmlCacheService } from "../services/html-cache";
 import { PhoneDataService } from "../services/phone-data";
 import { JobQueueService, type ScrapeMode } from "../services/job-queue";
@@ -455,4 +456,25 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         log.error("ProcessAi", `Failed for ${slug}: ${message}`);
         return { success: false, error: message };
       }
+    })
+    .get("/prices/:deviceId", async ({ params }) => {
+      const program = Effect.gen(function* () {
+        const priceService = yield* PriceService;
+        return yield* priceService.getCurrentPrices(params.deviceId);
+      });
+      return LiveRuntime.runPromise(program);
+    })
+    .get("/prices/:deviceId/history", async ({ params, query }) => {
+      const days = parseInt(query.days as string) || 30;
+      const variantKey = query.variant as string | undefined;
+
+      const program = Effect.gen(function* () {
+        const priceService = yield* PriceService;
+        return yield* priceService.getPriceHistory({
+          deviceId: params.deviceId,
+          days,
+          variantKey,
+        });
+      });
+      return LiveRuntime.runPromise(program);
     });
