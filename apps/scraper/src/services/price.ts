@@ -131,6 +131,11 @@ export const PriceServiceLive = Layer.effect(
             return count;
           }),
         ).pipe(
+          Effect.tapError((e) =>
+            Effect.logWarning("PriceService.savePriceQuotes failed").pipe(
+              Effect.annotateLogs({ deviceId: params.deviceId, source: params.source, error: e }),
+            ),
+          ),
           Effect.mapError((e) =>
             e instanceof PriceServiceError ? e : wrapSqlError(e),
           ),

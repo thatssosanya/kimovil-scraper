@@ -52,7 +52,8 @@ import { PriceService } from "../services/price";
 import { EntityDataService } from "../services/entity-data";
 import { DeviceRegistryService } from "../services/device-registry";
 import { parseYandexPrices } from "../sources/yandex_market/extractor";
-import { validateYandexMarketUrl } from "../sources/yandex_market/url-utils";
+import { ALLOWED_HOSTS, validateYandexMarketUrl } from "../sources/yandex_market/url-utils";
+import { YandexBrowserError } from "../sources/yandex_market/errors";
 
 type StreamHandler = (
   request: Request,
@@ -648,8 +649,15 @@ const createHandlers = (
       const html = yield* browserService.withPersistentStealthPage((page) =>
         Effect.gen(function* () {
           yield* Effect.promise(() =>
-            page.goto(params.url, { waitUntil: "domcontentloaded", timeout: 60000 }),
+            page.goto(validation.cleanUrl, { waitUntil: "domcontentloaded", timeout: 60000 }),
           );
+
+          const finalUrl = page.url();
+          const finalParsed = new URL(finalUrl);
+          if (!ALLOWED_HOSTS.includes(finalParsed.hostname)) {
+            throw new Error(`Redirected to disallowed host: ${finalParsed.hostname}`);
+          }
+
           yield* Effect.promise(() => page.waitForTimeout(3000));
           return yield* Effect.promise(() => page.content());
         }),
@@ -705,6 +713,7 @@ const createHandlers = (
             variantLabel: o.variantLabel,
             url: o.url,
             isAvailable: o.isAvailable,
+            offerId: o.offerId,
           })),
         });
 

@@ -1,4 +1,4 @@
-const ALLOWED_HOSTS = ["market.yandex.ru", "m.market.yandex.ru"];
+export const ALLOWED_HOSTS = ["market.yandex.ru", "m.market.yandex.ru"];
 
 export type YandexUrlValidation =
   | { valid: true; externalId: string; cleanUrl: string }
