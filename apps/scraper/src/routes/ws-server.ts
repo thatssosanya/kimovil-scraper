@@ -702,30 +702,36 @@ const createHandlers = (
       }
 
       if (params.deviceId) {
-        yield* entityData.saveRawData({
-          deviceId: params.deviceId,
-          source: "yandex_market",
-          dataKind: "prices",
-          data: { offers, extractedAt: Date.now() },
-        });
+        // Get actual device ID from slug
+        const deviceRegistry = yield* DeviceRegistryService;
+        const device = yield* deviceRegistry.getDeviceBySlug(params.deviceId);
+        
+        if (device) {
+          yield* entityData.saveRawData({
+            deviceId: device.id,
+            source: "yandex_market",
+            dataKind: "prices",
+            data: { offers, extractedAt: Date.now() },
+          });
 
-        yield* priceService.savePriceQuotes({
-          deviceId: params.deviceId,
-          source: "yandex_market",
-          offers: offers.map((o) => ({
-            seller: o.sellerName,
-            sellerId: o.sellerId,
-            priceMinorUnits: o.priceMinorUnits,
-            currency: o.currency,
-            variantKey: o.variantKey,
-            variantLabel: o.variantLabel,
-            url: o.url,
-            isAvailable: o.isAvailable,
-            offerId: o.offerId,
-          })),
-        });
+          yield* priceService.savePriceQuotes({
+            deviceId: device.id,
+            source: "yandex_market",
+            offers: offers.map((o) => ({
+              seller: o.sellerName,
+              sellerId: o.sellerId,
+              priceMinorUnits: o.priceMinorUnits,
+              currency: o.currency,
+              variantKey: o.variantKey,
+              variantLabel: o.variantLabel,
+              url: o.url,
+              isAvailable: o.isAvailable,
+              offerId: o.offerId,
+            })),
+          });
 
-        yield* priceService.updatePriceSummary(params.deviceId);
+          yield* priceService.updatePriceSummary(device.id);
+        }
       }
 
       const prices = offers.map((o) => o.priceMinorUnits / 100);
