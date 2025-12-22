@@ -23,6 +23,20 @@ interface ParsedOfferData {
   cpaUrl?: string;
   skuId?: string;
   isAvailable?: boolean;
+  title?: string;
+}
+
+function extractVariantFromTitle(title: string): { key: string; label: string } | null {
+  const match = title.match(/(\d+)\/(\d+)\s*[Gg][Bb]/);
+  if (match) {
+    const ram = match[1];
+    const storage = match[2];
+    return {
+      key: `${ram}/${storage}`,
+      label: `${ram} GB / ${storage} GB`,
+    };
+  }
+  return null;
 }
 
 function normalizeCurrency(currency: string): string {
@@ -85,6 +99,8 @@ function extractOffersFromBlock(block: unknown, offers: Map<string, ParsedOfferD
     if (obj.cpaUrl && typeof obj.cpaUrl === "string") merged.cpaUrl = obj.cpaUrl;
     if (obj.skuId && typeof obj.skuId === "string") merged.skuId = obj.skuId;
     if (typeof obj.isDeliveryAvailable === "boolean") merged.isAvailable = obj.isDeliveryAvailable;
+    if (obj.title && typeof obj.title === "string") merged.title = obj.title;
+    if (obj.skuTitle && typeof obj.skuTitle === "string") merged.title = obj.skuTitle;
 
     offers.set(obj.offerId as string, merged);
   }
@@ -211,6 +227,26 @@ function extractOldPricesFromHtml(html: string): Map<string, { oldPrice: number;
   return oldPrices;
 }
 
+function extractTitlesFromHtml(html: string): Map<string, string> {
+  const titles = new Map<string, string>();
+
+  const titlePattern = /"(?:sku)?[Tt]itle":"([^"]+)"/g;
+  let match;
+  while ((match = titlePattern.exec(html)) !== null) {
+    const title = match[1];
+    const contextStart = Math.max(0, match.index - 500);
+    const contextEnd = Math.min(html.length, match.index + 500);
+    const context = html.slice(contextStart, contextEnd);
+
+    const offerIdMatch = context.match(/"offerId":"([^"]+)"/);
+    if (offerIdMatch) {
+      titles.set(offerIdMatch[1], title);
+    }
+  }
+
+  return titles;
+}
+
 export function parseYandexPrices(html: string): YandexOffer[] {
   const offers = new Map<string, ParsedOfferData>();
   const jsonBlocks = extractJsonBlocks(html);
@@ -223,6 +259,7 @@ export function parseYandexPrices(html: string): YandexOffer[] {
   const shopInfo = extractShopInfoFromHtml(html);
   const oldPrices = extractOldPricesFromHtml(html);
   const availability = extractAvailabilityFromHtml(html);
+  const titles = extractTitlesFromHtml(html);
 
   const results: YandexOffer[] = [];
   const seenOffers = new Set<string>();
@@ -259,9 +296,16 @@ export function parseYandexPrices(html: string): YandexOffer[] {
     if (oldPriceData?.discountPercent) {
       offer.discountPercent = oldPriceData.discountPercent;
     }
-    if (data.skuId) {
+
+    const title = data.title ?? titles.get(offerId);
+    const variant = title ? extractVariantFromTitle(title) : null;
+    if (variant) {
+      offer.variantKey = variant.key;
+      offer.variantLabel = variant.label;
+    } else if (data.skuId) {
       offer.variantKey = data.skuId;
     }
+
     if (data.cpaUrl) {
       offer.url = data.cpaUrl;
     }
