@@ -24,6 +24,10 @@ import {
   BulkResumeParams,
   BulkSetWorkersParams,
   BulkControlResult,
+  YandexScrapeParams,
+  YandexScrapeResult,
+  YandexLinkParams,
+  YandexLinkResult,
 } from "@repo/scraper-protocol";
 import {
   SearchService,
@@ -43,6 +47,11 @@ import {
 import { BulkJobManager, type Ws } from "../services/bulk-job";
 import { config } from "../config";
 import { log } from "../utils/logger";
+import { BrowserService } from "../services/browser";
+import { PriceService } from "../services/price";
+import { EntityDataService } from "../services/entity-data";
+import { DeviceRegistryService } from "../services/device-registry";
+import { parseYandexPrices } from "../sources/yandex_market/extractor";
 
 type StreamHandler = (
   request: Request,
@@ -594,6 +603,157 @@ const createHandlers = (
       });
       const response = new Response({ id: request.id, result });
       yield* Effect.sync(() => ws.send(JSON.stringify(response)));
+    }),
+
+  "yandex.scrape": (request, ws) =>
+    Effect.gen(function* () {
+      const params = yield* Schema.decodeUnknown(YandexScrapeParams)(
+        request.params,
+      );
+
+      const match = params.url.match(/\/(\d+)(?:\?|$)/);
+      if (!match) {
+        const result = new YandexScrapeResult({
+          success: false,
+          error: "Invalid Yandex.Market URL",
+        });
+        yield* Effect.sync(() =>
+          ws.send(JSON.stringify(new Response({ id: request.id, result }))),
+        );
+        return;
+      }
+      const externalId = match[1];
+
+      yield* Effect.sync(() =>
+        ws.send(
+          JSON.stringify(
+            new StreamEvent({
+              id: request.id,
+              event: {
+                type: "progress",
+                stage: "browser",
+                percent: 0,
+              },
+            }),
+          ),
+        ),
+      );
+
+      const browserService = yield* BrowserService;
+      const htmlCache = yield* HtmlCacheService;
+      const priceService = yield* PriceService;
+      const entityData = yield* EntityDataService;
+
+      const html = yield* browserService.withPersistentStealthPage((page) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(() =>
+            page.goto(params.url, { waitUntil: "domcontentloaded", timeout: 60000 }),
+          );
+          yield* Effect.promise(() => page.waitForTimeout(3000));
+          return yield* Effect.promise(() => page.content());
+        }),
+      );
+
+      yield* Effect.sync(() =>
+        ws.send(
+          JSON.stringify(
+            new StreamEvent({
+              id: request.id,
+              event: {
+                type: "progress",
+                stage: "scrape",
+                percent: 50,
+              },
+            }),
+          ),
+        ),
+      );
+
+      yield* htmlCache.saveRawHtml(externalId, html, "yandex_market");
+
+      const offers = parseYandexPrices(html);
+
+      if (offers.length === 0) {
+        const result = new YandexScrapeResult({
+          success: false,
+          error: "No prices found on page",
+        });
+        yield* Effect.sync(() =>
+          ws.send(JSON.stringify(new Response({ id: request.id, result }))),
+        );
+        return;
+      }
+
+      if (params.deviceId) {
+        yield* entityData.saveRawData({
+          deviceId: params.deviceId,
+          source: "yandex_market",
+          dataKind: "prices",
+          data: { offers, extractedAt: Date.now() },
+        });
+
+        yield* priceService.savePriceQuotes({
+          deviceId: params.deviceId,
+          source: "yandex_market",
+          offers: offers.map((o) => ({
+            seller: o.sellerName,
+            sellerId: o.sellerId,
+            priceMinorUnits: o.priceMinorUnits,
+            currency: o.currency,
+            variantKey: o.variantKey,
+            variantLabel: o.variantLabel,
+            url: o.url,
+            isAvailable: o.isAvailable,
+          })),
+        });
+
+        yield* priceService.updatePriceSummary(params.deviceId);
+      }
+
+      const prices = offers.map((o) => o.priceMinorUnits / 100);
+      const result = new YandexScrapeResult({
+        success: true,
+        priceCount: offers.length,
+        minPrice: Math.min(...prices),
+        maxPrice: Math.max(...prices),
+      });
+
+      yield* Effect.sync(() =>
+        ws.send(JSON.stringify(new Response({ id: request.id, result }))),
+      );
+    }),
+
+  "yandex.link": (request, ws) =>
+    Effect.gen(function* () {
+      const params = yield* Schema.decodeUnknown(YandexLinkParams)(
+        request.params,
+      );
+
+      const match = params.url.match(/\/(\d+)(?:\?|$)/);
+      if (!match) {
+        const result = new YandexLinkResult({
+          success: false,
+          error: "Invalid Yandex.Market URL format",
+        });
+        yield* Effect.sync(() =>
+          ws.send(JSON.stringify(new Response({ id: request.id, result }))),
+        );
+        return;
+      }
+      const externalId = match[1];
+
+      const deviceRegistry = yield* DeviceRegistryService;
+      yield* deviceRegistry.linkDeviceToSource({
+        deviceId: params.deviceId,
+        source: "yandex_market",
+        externalId,
+        url: params.url,
+      });
+
+      const result = new YandexLinkResult({ success: true, externalId });
+      yield* Effect.sync(() =>
+        ws.send(JSON.stringify(new Response({ id: request.id, result }))),
+      );
     }),
 });
 

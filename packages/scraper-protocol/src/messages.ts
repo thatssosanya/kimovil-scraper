@@ -390,3 +390,37 @@ export class BulkControlResult extends Schema.Class<BulkControlResult>(
   success: Schema.Boolean,
   job: Schema.optional(BulkJobInfo),
 }) {}
+
+// Yandex price scraping schemas
+
+export class YandexScrapeParams extends Schema.Class<YandexScrapeParams>(
+  "YandexScrapeParams",
+)({
+  url: Schema.String,
+  deviceId: Schema.optional(Schema.String),
+}) {}
+
+export class YandexScrapeResult extends Schema.Class<YandexScrapeResult>(
+  "YandexScrapeResult",
+)({
+  success: Schema.Boolean,
+  priceCount: Schema.optional(Schema.Number),
+  minPrice: Schema.optional(Schema.Number),
+  maxPrice: Schema.optional(Schema.Number),
+  error: Schema.optional(Schema.String),
+}) {}
+
+export class YandexLinkParams extends Schema.Class<YandexLinkParams>(
+  "YandexLinkParams",
+)({
+  deviceId: Schema.String,
+  url: Schema.String,
+}) {}
+
+export class YandexLinkResult extends Schema.Class<YandexLinkResult>(
+  "YandexLinkResult",
+)({
+  success: Schema.Boolean,
+  externalId: Schema.optional(Schema.String),
+  error: Schema.optional(Schema.String),
+}) {}
