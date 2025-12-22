@@ -1,4 +1,5 @@
 export interface YandexOffer {
+  offerId: string;
   sellerName: string;
   sellerId: string;
   priceMinorUnits: number;
@@ -199,10 +200,14 @@ function extractAvailabilityFromHtml(html: string): Map<string, boolean> {
   let match;
   while ((match = deliveryPattern.exec(html)) !== null) {
     const isAvailable = match[1] === "true";
-    const contextStart = Math.max(0, match.index - 500);
-    const contextEnd = Math.min(html.length, match.index + 500);
+    const contextStart = Math.max(0, match.index - 200);
+    const contextEnd = Math.min(html.length, match.index + 200);
     const context = html.slice(contextStart, contextEnd);
 
+    const offerIdMatches = context.match(/"offerId":"([^"]+)"/g);
+    if (!offerIdMatches || offerIdMatches.length !== 1) {
+      continue;
+    }
     const offerIdMatch = context.match(/"offerId":"([^"]+)"/);
     if (offerIdMatch) {
       availability.set(offerIdMatch[1], isAvailable);
@@ -259,7 +264,11 @@ function extractTitlesFromHtml(html: string): Map<string, string> {
 
 export function parseYandexPrices(html: string): YandexOffer[] {
   const offers = new Map<string, ParsedOfferData>();
-  const jsonBlocks = extractJsonBlocks(html);
+  const { blocks: jsonBlocks, failedCount } = extractJsonBlocks(html);
+
+  if (failedCount > 0) {
+    console.debug(`[yandex-extractor] ${failedCount} JSON block(s) failed to parse`);
+  }
 
   for (const block of jsonBlocks) {
     extractOffersFromBlock(block, offers);
