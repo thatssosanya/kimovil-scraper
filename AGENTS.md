@@ -6,7 +6,7 @@
 - **Lint**: `npm run lint`
 - **Type Check**: `npm run check-types`
 - **Format**: `npm run format` (Prettier on ts/tsx/md files)
-- **Test**: `cd apps/scraper && bun test` (single test: `bun test <file>`)
+- **Test**: `cd apps/scraper && npm test` (single test: `npm test -- <file>`)
 
 ## Running Locally
 ```bash
@@ -18,6 +18,77 @@ cd apps/ws-web && npm run dev
 ```
 - Scraper WebSocket: `ws://localhost:1488/ws`
 - Web UI: `http://localhost:5173`
+
+## Debug Eval Tool (IMPORTANT)
+
+**Always use this tool first when debugging app state, job issues, or service behavior.**
+
+The `debug-eval` CLI lets you query live app state by executing JS code against the running Effect runtime. Located at `apps/scraper/scripts/debug-eval.ts`.
+
+### Quick Commands
+```bash
+cd apps/scraper
+
+# Get overall stats (devices, jobs, active count)
+npx tsx scripts/debug-eval.ts stats
+
+# List all jobs
+npx tsx scripts/debug-eval.ts jobs
+
+# Filter jobs by status
+npx tsx scripts/debug-eval.ts jobs --status paused
+npx tsx scripts/debug-eval.ts jobs --status running
+
+# Get device count
+npx tsx scripts/debug-eval.ts devices
+
+# Get queue items for a specific job
+npx tsx scripts/debug-eval.ts queue <jobId>
+
+# Check cached HTML for a slug
+npx tsx scripts/debug-eval.ts html <slug>
+```
+
+### Custom Queries
+For arbitrary queries, pass raw JS code that returns a value:
+```bash
+# Count devices with raw data
+npx tsx scripts/debug-eval.ts 'return await LiveRuntime.runPromise(PhoneDataService.pipe(Effect.flatMap(s => s.getRawCount())))'
+
+# Get error queue items
+npx tsx scripts/debug-eval.ts 'return await LiveRuntime.runPromise(JobQueueService.pipe(Effect.flatMap(s => s.getErrorQueueItems())))'
+```
+
+### Using with jq
+Pipe output to `jq` for filtering/formatting:
+```bash
+npx tsx scripts/debug-eval.ts jobs | jq '.result | length'
+npx tsx scripts/debug-eval.ts jobs --status paused | jq '.result[0].id'
+npx tsx scripts/debug-eval.ts stats | jq '.result'
+```
+
+### Available Services in Eval Context
+- `Effect`, `LiveRuntime` — Effect runtime
+- `JobQueueService` — Jobs and queue management
+- `DeviceService` — Device registry
+- `DeviceRegistryService` — Multi-source device linking
+- `HtmlCacheService` — Raw HTML cache
+- `PhoneDataService` — Raw + AI phone data
+- `EntityDataService` — Multi-source entity data
+- `ScrapeRecordService` — Scrape lifecycle tracking
+- `PriceService` — Price quotes
+
+### Options
+- `--show-code` — Print generated code before running
+- `--raw` — Output only the result (no `{success, result}` wrapper)
+
+### HTTP Endpoint
+The CLI wraps `POST /debug/eval` (dev-only, disabled in production):
+```bash
+curl -s -X POST http://localhost:1488/debug/eval \
+  -H "Content-Type: application/json" \
+  -d '{"code": "return 1 + 1"}' | jq
+```
 
 ## Architecture
 - **Monorepo**: Turborepo, workspaces in `apps/*` and `packages/*`
