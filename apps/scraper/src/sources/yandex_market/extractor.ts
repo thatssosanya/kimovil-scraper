@@ -224,10 +224,14 @@ function extractOldPricesFromHtml(html: string): Map<string, { oldPrice: number;
   let match;
   while ((match = oldPricePattern.exec(html)) !== null) {
     const oldPrice = parseInt(match[1], 10);
-    const contextStart = Math.max(0, match.index - 500);
-    const contextEnd = Math.min(html.length, match.index + 500);
+    const contextStart = Math.max(0, match.index - 200);
+    const contextEnd = Math.min(html.length, match.index + 200);
     const context = html.slice(contextStart, contextEnd);
 
+    const offerIdMatches = context.match(/"offerId":"([^"]+)"/g);
+    if (!offerIdMatches || offerIdMatches.length !== 1) {
+      continue;
+    }
     const offerIdMatch = context.match(/"offerId":"([^"]+)"/);
     const discountMatch = context.match(/"discountPercent":(\d+)/);
 
@@ -249,10 +253,14 @@ function extractTitlesFromHtml(html: string): Map<string, string> {
   let match;
   while ((match = titlePattern.exec(html)) !== null) {
     const title = match[1];
-    const contextStart = Math.max(0, match.index - 500);
-    const contextEnd = Math.min(html.length, match.index + 500);
+    const contextStart = Math.max(0, match.index - 200);
+    const contextEnd = Math.min(html.length, match.index + 200);
     const context = html.slice(contextStart, contextEnd);
 
+    const offerIdMatches = context.match(/"offerId":"([^"]+)"/g);
+    if (!offerIdMatches || offerIdMatches.length !== 1) {
+      continue;
+    }
     const offerIdMatch = context.match(/"offerId":"([^"]+)"/);
     if (offerIdMatch) {
       titles.set(offerIdMatch[1], title);
@@ -302,6 +310,7 @@ export function parseYandexPrices(html: string): YandexOffer[] {
     const actualPriceData = actualPrices.get(offerId);
 
     const offer: YandexOffer = {
+      offerId,
       sellerName,
       sellerId,
       priceMinorUnits: toMinorUnits(actualPriceData?.price ?? priceValue),
