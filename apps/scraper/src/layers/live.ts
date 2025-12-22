@@ -1,6 +1,7 @@
 import { Layer, ManagedRuntime } from "effect";
 
 import "../sources/kimovil";
+import "../sources/yandex_market";
 
 import { SearchServiceKimovil } from "../services/search-kimovil";
 import { BrowserServiceLive } from "../services/browser";
@@ -13,6 +14,7 @@ import { PhoneDataServiceLive } from "../services/phone-data";
 import { DeviceRegistryServiceLive } from "../services/device-registry";
 import { EntityDataServiceLive } from "../services/entity-data";
 import { ScrapeRecordServiceLive } from "../services/scrape-record";
+import { PriceServiceLive } from "../services/price";
 import { SqlClientLive, SchemaLive } from "../sql";
 
 const SearchServiceLayer = SearchServiceKimovil.pipe(
@@ -29,6 +31,7 @@ const BaseDataLayer = Layer.mergeAll(
   DeviceRegistryServiceLive,
   EntityDataServiceLive,
   ScrapeRecordServiceLive,
+  PriceServiceLive,
 ).pipe(Layer.provide(SqlLayer));
 
 // PhoneDataService depends on DeviceRegistry + EntityData, so layer it on top
