@@ -120,3 +120,51 @@ export interface ScrapeStats {
   rawData?: number;
   aiData?: number;
 }
+
+// Price offer from a seller
+export interface PriceOffer {
+  seller: string;
+  sellerId: string | null;
+  priceMinorUnits: number;
+  currency: string;
+  variantKey: string | null;
+  variantLabel: string | null;
+  url: string | null;
+  isAvailable: boolean;
+  offerId: string | null;
+}
+
+// Price summary for a device
+export interface PriceSummary {
+  deviceId: string;
+  minPrice: number | null;
+  maxPrice: number | null;
+  avgPrice: number | null;
+  currency: string;
+  offerCount: number;
+  updatedAt: number;
+  quotes: PriceOffer[];
+}
+
+// Single point in price history
+export interface PriceHistoryEntry {
+  date: string;
+  minPrice: number;
+  avgPrice: number;
+  maxPrice: number;
+  count: number;
+}
+
+// Price history response
+export interface PriceHistory {
+  deviceId: string;
+  days: number;
+  entries: PriceHistoryEntry[];
+}
+
+// Yandex link status for a device
+export interface YandexLinkInfo {
+  isLinked: boolean;
+  externalId: string | null;
+  url: string | null;
+}
