@@ -172,6 +172,53 @@ const migrateKimovilDevices = (
     yield* Effect.logInfo(`Completed migration: ${migrated} devices from kimovil_devices`);
   });
 
+const migrateJobsStatusConstraint = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    const rows = (yield* sql`
+      SELECT sql FROM sqlite_master
+      WHERE type = 'table' AND name = 'jobs'
+    `) as Array<{ sql: string | null }>;
+
+    if (rows.length === 0 || !rows[0].sql) {
+      return;
+    }
+
+    const createSql = rows[0].sql;
+    const oldCheck =
+      "CHECK (status IN ('pending', 'running', 'paused', 'done', 'error'))";
+    const newCheck =
+      "CHECK (status IN ('pending', 'running', 'pausing', 'paused', 'done', 'error'))";
+
+    if (!createSql.includes(oldCheck)) {
+      return;
+    }
+
+    const newCreateSql = createSql.replace(oldCheck, newCheck);
+
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* sql.unsafe(`ALTER TABLE jobs RENAME TO jobs_old_status_check`);
+        yield* sql.unsafe(newCreateSql);
+
+        const columns = (yield* sql.unsafe(
+          `PRAGMA table_info(jobs_old_status_check)`,
+        )) as Array<{ name: string }>;
+        const columnList = columns.map((c) => c.name).join(", ");
+
+        yield* sql.unsafe(
+          `INSERT INTO jobs (${columnList}) SELECT ${columnList} FROM jobs_old_status_check`,
+        );
+        yield* sql.unsafe(`DROP TABLE jobs_old_status_check`);
+      }),
+    );
+
+    yield* Effect.logInfo(
+      "Migrated jobs.status CHECK constraint to include 'pausing'",
+    );
+  });
+
 const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlError> =>
   Effect.gen(function* () {
     // PRAGMA settings are run once at schema init. WAL mode persists in the database file
@@ -181,6 +228,8 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
 
     yield* migrateTableRename(sql, "scrape_queue", "job_queue");
     yield* migrateTableRename(sql, "bulk_jobs", "jobs");
+
+    yield* migrateJobsStatusConstraint(sql);
 
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS raw_html (

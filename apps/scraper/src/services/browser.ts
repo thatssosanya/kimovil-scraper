@@ -275,7 +275,13 @@ export const BrowserServiceLive = Layer.scoped(
                   );
                   yield* Effect.promise(() =>
                     session.browser.close(),
-                  ).pipe(Effect.catchAll(() => Effect.void));
+                  ).pipe(
+                    Effect.catchAll((error) =>
+                      Effect.logWarning("Browser close failed during reset").pipe(
+                        Effect.annotateLogs({ error }),
+                      ),
+                    ),
+                  );
                   yield* Ref.set(sessionRef, Option.none());
                 }
 

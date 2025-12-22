@@ -290,9 +290,9 @@ const adaptScrapedDataImpl = (data: RawPhoneData) =>
     );
     return decoded;
   }).pipe(
-    Effect.tapError((e) =>
-      Effect.logWarning(`Error, will retry: ${e.message}`).pipe(
-        Effect.annotateLogs({ service: "Gemini" }),
+    Effect.tapError((error) =>
+      Effect.logWarning("Gemini request failed, will retry").pipe(
+        Effect.annotateLogs({ service: "Gemini", error }),
       ),
     ),
     Effect.retry(

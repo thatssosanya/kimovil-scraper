@@ -692,6 +692,13 @@ export function createWsServer(
                 : error instanceof ScrapeError
                   ? "SCRAPE_FAILED"
                   : "INTERNAL_ERROR";
+
+              log.error(
+                `WS:${request.method}`,
+                `${errorCode}: ${error instanceof Error ? error.message : String(error)}`,
+                error,
+              );
+
               const errorResponse = new ErrorResponse({
                 id: request.id,
                 error: {

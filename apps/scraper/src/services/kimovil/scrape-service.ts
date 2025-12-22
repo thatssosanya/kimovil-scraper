@@ -167,10 +167,22 @@ const backgroundRefresh = (
         const { data, fullHtml } = yield* scrapePhoneData(page, slug);
         yield* deps.htmlCache
           .saveRawHtml(slug, fullHtml)
-          .pipe(Effect.catchAll(() => Effect.void));
+          .pipe(
+            Effect.catchAll((error) =>
+              Effect.logWarning("Failed to save raw HTML").pipe(
+                Effect.annotateLogs({ service: "SWR", slug, error }),
+              ),
+            ),
+          );
         yield* deps.phoneDataService
           .saveRaw(slug, data as unknown as Record<string, unknown>)
-          .pipe(Effect.catchAll(() => Effect.void));
+          .pipe(
+            Effect.catchAll((error) =>
+              Effect.logWarning("Failed to save raw data").pipe(
+                Effect.annotateLogs({ service: "SWR", slug, error }),
+              ),
+            ),
+          );
         yield* Effect.logInfo("Background refresh complete").pipe(
           Effect.annotateLogs({ service: "SWR", slug }),
         );
@@ -364,7 +376,14 @@ const scrapeWithCache = (
 
     const cacheResult = yield* deps.htmlCache
       .getRawHtmlWithAge(slug)
-      .pipe(Effect.catchAll(() => Effect.succeed(null)));
+      .pipe(
+        Effect.catchAll((error) =>
+          Effect.logWarning("Cache check failed").pipe(
+            Effect.annotateLogs({ slug, error }),
+            Effect.map(() => null),
+          ),
+        ),
+      );
     const cacheCheckMs = elapsed();
 
     const useCache =
@@ -517,7 +536,13 @@ const scrapeWithCache = (
 
           yield* deps.htmlCache
             .saveRawHtml(slug, result.fullHtml)
-            .pipe(Effect.catchAll(() => Effect.void));
+            .pipe(
+              Effect.catchAll((error) =>
+                Effect.logWarning("Failed to cache HTML").pipe(
+                  Effect.annotateLogs({ slug, error }),
+                ),
+              ),
+            );
 
           return result;
         }),
@@ -560,7 +585,13 @@ const scrapeWithCache = (
 
     yield* deps.phoneDataService
       .save(slug, phoneData as unknown as Record<string, unknown>)
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(
+        Effect.catchAll((error) =>
+          Effect.logWarning("Failed to save phone data").pipe(
+            Effect.annotateLogs({ slug, error }),
+          ),
+        ),
+      );
 
     emit(new ScrapeResult({ data: phoneData }));
 
@@ -600,7 +631,14 @@ const scrapeFastImpl = (
 
     const existingHtml = yield* deps.htmlCache
       .getRawHtml(slug)
-      .pipe(Effect.catchAll(() => Effect.succeed(null)));
+      .pipe(
+        Effect.catchAll((error) =>
+          Effect.logWarning("Cache read failed").pipe(
+            Effect.annotateLogs({ slug, error }),
+            Effect.map(() => null),
+          ),
+        ),
+      );
 
     if (existingHtml) {
       const totalMs = Date.now() - totalStart;

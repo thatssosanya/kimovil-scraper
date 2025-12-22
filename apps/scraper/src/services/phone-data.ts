@@ -305,7 +305,12 @@ export const PhoneDataServiceLive = Layer.effect(
           `;
 
           const device = yield* deviceRegistry.getDeviceBySlug(slug).pipe(
-            Effect.catchAll(() => Effect.succeed(null)),
+            Effect.catchAll((error) =>
+              Effect.logWarning("Device lookup failed").pipe(
+                Effect.annotateLogs({ slug, error }),
+                Effect.map(() => null),
+              ),
+            ),
           );
           if (device) {
             yield* entityData
@@ -315,7 +320,13 @@ export const PhoneDataServiceLive = Layer.effect(
                 dataKind: "specs",
                 data,
               })
-              .pipe(Effect.catchAll(() => Effect.void));
+              .pipe(
+                Effect.catchAll((error) =>
+                  Effect.logWarning("Entity raw data sync failed").pipe(
+                    Effect.annotateLogs({ slug, deviceId: device.id, error }),
+                  ),
+                ),
+              );
           }
         }).pipe(Effect.asVoid, Effect.mapError(mapError)),
 
@@ -330,7 +341,12 @@ export const PhoneDataServiceLive = Layer.effect(
           `;
 
           const device = yield* deviceRegistry.getDeviceBySlug(slug).pipe(
-            Effect.catchAll(() => Effect.succeed(null)),
+            Effect.catchAll((error) =>
+              Effect.logWarning("Device lookup failed").pipe(
+                Effect.annotateLogs({ slug, error }),
+                Effect.map(() => null),
+              ),
+            ),
           );
           if (device) {
             yield* entityData
@@ -339,7 +355,13 @@ export const PhoneDataServiceLive = Layer.effect(
                 dataKind: "specs",
                 data,
               })
-              .pipe(Effect.catchAll(() => Effect.void));
+              .pipe(
+                Effect.catchAll((error) =>
+                  Effect.logWarning("Entity final data sync failed").pipe(
+                    Effect.annotateLogs({ slug, deviceId: device.id, error }),
+                  ),
+                ),
+              );
           }
         }).pipe(Effect.asVoid, Effect.mapError(mapError)),
     });

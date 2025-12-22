@@ -46,28 +46,10 @@ export default function Slugs() {
     },
   });
 
-  let intervalId: ReturnType<typeof setInterval>;
-
   onMount(() => {
     api.fetchDevices("", "all", limit());
     api.fetchStats();
-    api.fetchQueueStatuses();
     bulkJobs.init();
-    intervalId = setInterval(() => {
-      api.fetchQueueStatuses();
-      const devs = api.devices();
-      const sel = selected();
-      // Fetch status for both displayed devices and selected ones
-      const slugsToFetch = new Set(devs.map((d) => d.slug));
-      for (const slug of sel) slugsToFetch.add(slug);
-      if (slugsToFetch.size > 0) {
-        api.fetchScrapeStatus(Array.from(slugsToFetch));
-      }
-    }, 2000);
-  });
-
-  onCleanup(() => {
-    clearInterval(intervalId);
   });
 
   const selectedCount = createMemo(() => selected().size);

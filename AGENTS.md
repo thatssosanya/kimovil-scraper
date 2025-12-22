@@ -137,12 +137,82 @@ BULK_RETRY_MAX_MS=900000
 ## Code Style
 - **TypeScript**: Strict mode, explicit types preferred
 - **Effect**: Use `Effect.gen` with `yield*`, typed errors, Layer composition
-- **Errors**: Always include `cause` when wrapping errors
 - **SQL**: Use `@effect/sql` template literals, wrap multi-step ops in transactions
 - **Imports**: Named imports from libraries (e.g., `import { createSignal } from "solid-js"`)
 - **Naming**: camelCase for variables/functions, PascalCase for components
 - **Formatting**: Use Prettier (runs on save); ESLint for linting
 - **Components**: SolidJS functional components with TypeScript; Tailwind for styling
+
+## Error Handling
+
+### Core Principles
+1. **Never silently swallow errors** — always log before recovering
+2. **Include `cause` when wrapping errors** — preserves stack traces
+3. **Use typed errors** — each service has its own error class with `_tag`
+
+### Effect Error Patterns
+
+**Recoverable fallback with logging:**
+```typescript
+yield* someOperation().pipe(
+  Effect.catchAll((error) =>
+    Effect.logWarning("Operation failed").pipe(
+      Effect.annotateLogs({ slug, error }),
+      Effect.map(() => fallbackValue),
+    ),
+  ),
+);
+```
+
+**Fire-and-forget with logging (no fallback needed):**
+```typescript
+yield* saveToCache(data).pipe(
+  Effect.catchAll((error) =>
+    Effect.logWarning("Cache save failed").pipe(
+      Effect.annotateLogs({ slug, error }),
+    ),
+  ),
+);
+```
+
+**Wrapping errors with cause:**
+```typescript
+class MyServiceError extends Data.TaggedError("MyServiceError")<{
+  message: string;
+  cause?: unknown;
+}> {}
+
+const mapError = (e: unknown) =>
+  new MyServiceError({
+    message: e instanceof Error ? e.message : String(e),
+    cause: e,
+  });
+
+someOperation().pipe(Effect.mapError(mapError));
+```
+
+**Top-level error handlers must log:**
+```typescript
+Effect.catchAll((error) =>
+  Effect.gen(function* () {
+    log.error("Handler", `${errorCode}: ${error.message}`, error);
+    // Then send error response to client
+  }),
+);
+```
+
+### Log Levels
+- `Effect.logError` / `log.error` — Unexpected failures, bugs, unrecoverable errors
+- `Effect.logWarning` / `log.warn` — Recoverable failures, fallbacks triggered
+- `Effect.logInfo` / `log.info` — Normal operations, progress updates
+
+### Annotations
+Use `Effect.annotateLogs` with structured fields (stable message + error object):
+```typescript
+Effect.logWarning("Entity sync failed").pipe(
+  Effect.annotateLogs({ slug, deviceId, error }),
+);
+```
 
 ## Multi-Source Architecture
 
