@@ -1,4 +1,4 @@
-import { Show, For, createSignal } from "solid-js";
+import { Show, For, createSignal, onCleanup, onMount } from "solid-js";
 import { useDevices, useSelection } from "../context/devices-table.context";
 import { DeviceRow } from "./DeviceRow";
 
@@ -6,9 +6,43 @@ const LIMIT_OPTIONS = [10, 100, 500, 1000, 10000] as const;
 
 export function DevicesTable() {
   const { devices, filtered, total, limit, setLimit, loading } = useDevices();
-  const { toggleAll, allSelected } = useSelection();
+  const { toggleAll, allSelected, handleRowClick, clearSelection } = useSelection();
 
   const [showLimitMenu, setShowLimitMenu] = createSignal(false);
+  const [focusedIndex, setFocusedIndex] = createSignal(-1);
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    const devs = devices();
+    if (devs.length === 0) return;
+
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        setFocusedIndex((i) => Math.min(i + 1, devs.length - 1));
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        setFocusedIndex((i) => Math.max(i - 1, 0));
+        break;
+      case " ":
+        e.preventDefault();
+        const idx = focusedIndex();
+        if (idx >= 0 && idx < devs.length) {
+          handleRowClick(devs[idx].slug, idx, e as unknown as MouseEvent);
+        }
+        break;
+      case "Escape":
+        e.preventDefault();
+        clearSelection();
+        setFocusedIndex(-1);
+        break;
+    }
+  };
+
+  onMount(() => {
+    document.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => document.removeEventListener("keydown", handleKeyDown));
+  });
 
   return (
     <>
@@ -101,7 +135,12 @@ export function DevicesTable() {
               <tbody class="divide-y divide-slate-800/30">
                 <For each={devices()}>
                   {(device, i) => (
-                    <DeviceRow device={device} index={i()} />
+                    <DeviceRow
+                      device={device}
+                      index={i()}
+                      focused={focusedIndex() === i()}
+                      onFocus={() => setFocusedIndex(i())}
+                    />
                   )}
                 </For>
               </tbody>

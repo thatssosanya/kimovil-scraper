@@ -345,6 +345,8 @@ export default function Slugs() {
         <DevicesTableProvider
           search={search}
           filter={filter}
+          limit={limit}
+          setLimit={setLimit}
           onFilterChange={handleFilterChange}
           onModalOpen={openModal}
         >

@@ -1,4 +1,4 @@
-import { Show, createSignal, createMemo } from "solid-js";
+import { Show, createMemo } from "solid-js";
 import { useSelection, useRowData, useActions } from "../context/devices-table.context";
 import { DataStatusIcons } from "./DataStatusIcons";
 import { RowActionsMenu } from "./RowActionsMenu";
@@ -8,6 +8,8 @@ import type { TabId } from "./TabBar";
 interface DeviceRowProps {
   device: Device;
   index: number;
+  focused?: boolean;
+  onFocus?: () => void;
 }
 
 function QueueStatusBadge(props: { status: string }) {
@@ -83,8 +85,6 @@ export function DeviceRow(props: DeviceRowProps) {
   const selection = useSelection();
   const rowData = useRowData();
   const actions = useActions();
-  
-  const [_expanded, _setExpanded] = createSignal(false);
 
   const status = () => rowData.getStatus(props.device.slug);
   const queue = () => rowData.getQueue(props.device.slug);
@@ -138,12 +138,15 @@ export function DeviceRow(props: DeviceRowProps) {
 
   return (
     <tr
+      tabIndex={0}
       class={`
-        group transition-colors duration-150 cursor-pointer
+        group transition-colors duration-150 cursor-pointer outline-none
+        ${props.focused ? "ring-2 ring-inset ring-indigo-500/50" : ""}
         ${isSelected() ? "bg-indigo-500/5" : "hover:bg-slate-800/30"}
         ${isCorrupted() ? "bg-rose-500/5" : ""}
       `}
       onClick={handleRowClick}
+      onFocus={props.onFocus}
     >
       {/* Checkbox */}
       <td class="px-4 py-2" onClick={(e) => e.stopPropagation()}>

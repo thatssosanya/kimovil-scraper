@@ -136,6 +136,8 @@ export function useActions() {
 interface DevicesTableProviderProps {
   search: Accessor<string>;
   filter: Accessor<FilterType>;
+  limit: Accessor<LimitOption>;
+  setLimit: (limit: LimitOption) => void;
   onFilterChange: (filter: FilterType) => void;
   onModalOpen: (slug: string, initialTab?: TabId) => void;
   onSelectionChange?: (slugs: string[]) => void;
@@ -151,8 +153,6 @@ export const DevicesTableProvider: ParentComponent<DevicesTableProviderProps> = 
   const api = useSlugsApi();
   const selection = createSelectionService();
 
-  const [limit, setLimitInternal] = createLimitState(500);
-
   const fetchDevices = async (
     searchQuery: string,
     filterType: FilterType,
@@ -164,7 +164,7 @@ export const DevicesTableProvider: ParentComponent<DevicesTableProviderProps> = 
   };
 
   const setLimit = (newLimit: LimitOption) => {
-    setLimitInternal(newLimit);
+    props.setLimit(newLimit);
     fetchDevices(props.search(), props.filter(), newLimit);
   };
 
@@ -172,7 +172,7 @@ export const DevicesTableProvider: ParentComponent<DevicesTableProviderProps> = 
     devices: api.devices,
     filtered: api.filtered,
     total: api.total,
-    limit,
+    limit: props.limit,
     setLimit,
     loading: api.loading,
     stats: api.stats,
@@ -252,16 +252,6 @@ export const DevicesTableProvider: ParentComponent<DevicesTableProviderProps> = 
     </DevicesContext.Provider>
   );
 };
-
-// Helper to create limit state
-import { createSignal } from "solid-js";
-
-function createLimitState(
-  initial: LimitOption,
-): [Accessor<LimitOption>, (v: LimitOption) => void] {
-  const [limit, setLimit] = createSignal<LimitOption>(initial);
-  return [limit, setLimit];
-}
 
 // Re-export for convenience
 export { useSlugsApi } from "../hooks/useSlugsApi";
