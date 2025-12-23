@@ -129,6 +129,7 @@ export interface PriceOffer {
   variantLabel?: string;
   url?: string;
   isAvailable?: boolean;
+  externalId?: string;
 }
 
 // Price summary for a device
@@ -161,4 +162,15 @@ export interface YandexLinkInfo {
   isLinked: boolean;
   externalId: string | null;
   url: string | null;
+}
+
+// Device source from device_sources table
+export interface DeviceSource {
+  deviceId: string;
+  source: string;
+  externalId: string;
+  url: string | null;
+  status: string;
+  firstSeen: number;
+  lastSeen: number;
 }

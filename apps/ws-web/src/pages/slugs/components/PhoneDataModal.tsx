@@ -1,7 +1,8 @@
-import { createSignal, createEffect, Show, on, For } from "solid-js";
+import { createSignal, createEffect, Show, on } from "solid-js";
 import { TabBar, type TabId } from "./TabBar";
 import { JsonViewer } from "./JsonViewer";
-import type { PhoneDataRaw, PhoneDataAi, ScrapeStatus, PriceSummary } from "../types";
+import { PricesTab } from "./prices";
+import type { PhoneDataRaw, PhoneDataAi, ScrapeStatus, PriceSummary, DeviceSource } from "../types";
 
 interface PhoneDataModalProps {
   slug: string | null;
@@ -14,6 +15,7 @@ interface PhoneDataModalProps {
   onProcessAi?: (slug: string) => Promise<{ success: boolean; error?: string }>;
   onStatusChange?: () => void;
   fetchPrices?: (deviceId: string) => Promise<PriceSummary | null>;
+  fetchDeviceSources?: (slug: string, source?: string) => Promise<DeviceSource[]>;
 }
 
 interface ProcessButtonProps {
@@ -132,6 +134,9 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
   const [pricesLoading, setPricesLoading] = createSignal(false);
   const [pricesFetched, setPricesFetched] = createSignal(false);
 
+  // Device sources state
+  const [deviceSources, setDeviceSources] = createSignal<DeviceSource[]>([]);
+
   // Yandex link state
   const [yandexUrl, setYandexUrl] = createSignal("");
   const [yandexLinking, setYandexLinking] = createSignal(false);
@@ -155,6 +160,7 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
         setAiError(null);
         setPrices(null);
         setPricesFetched(false);
+        setDeviceSources([]);
         setYandexUrl("");
         setYandexError(null);
         setScrapeProgress(0);
@@ -193,15 +199,22 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
     }),
   );
 
-  // Fetch prices on tab change
+  // Fetch prices and device sources on tab change
   createEffect(
     on([() => props.slug, activeTab] as const, async ([slug, tab]) => {
       if (!slug || tab !== "prices" || pricesFetched()) return;
-      if (!props.fetchPrices) return;
 
       setPricesLoading(true);
-      const data = await props.fetchPrices(slug);
-      setPrices(data);
+
+      const [pricesData, sources] = await Promise.all([
+        props.fetchPrices ? props.fetchPrices(slug) : Promise.resolve(null),
+        props.fetchDeviceSources
+          ? props.fetchDeviceSources(slug, "yandex_market")
+          : Promise.resolve([]),
+      ]);
+
+      setPrices(pricesData);
+      setDeviceSources(sources);
       setPricesFetched(true);
       setPricesLoading(false);
     }),
@@ -237,15 +250,19 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
     });
   };
 
-  const handleScrapeYandex = async () => {
+  const handleScrapeYandex = async (linkId?: string) => {
     if (!props.slug) return;
     setYandexScraping(true);
     setYandexError(null);
     setScrapeProgress(0);
 
     try {
+      const urlToScrape = linkId 
+        ? prices()?.quotes?.find(q => (q.externalId || q.url) === linkId)?.url 
+        : yandexUrl() || prices()?.quotes?.[0]?.url || "";
+      
       const result = await sendWsRequest("yandex.scrape", {
-        url: yandexUrl() || prices()?.quotes?.[0]?.url || "",
+        url: urlToScrape,
         deviceId: props.slug,
       });
       if (result.success) {
@@ -266,15 +283,16 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
     }
   };
 
-  const handleLinkYandex = async () => {
-    if (!props.slug || !yandexUrl()) return;
+  const handleLinkYandex = async (url: string) => {
+    if (!props.slug || !url) return;
     setYandexLinking(true);
     setYandexError(null);
+    setYandexUrl(url);
 
     try {
       const result = await sendWsRequest("yandex.link", {
         deviceId: props.slug,
-        url: yandexUrl(),
+        url: url,
       });
       if (result.success) {
         await handleScrapeYandex();
@@ -544,129 +562,17 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
 
             {/* Prices Tab */}
             <Show when={activeTab() === "prices"}>
-              <div class="absolute inset-0 overflow-auto p-6">
-                <Show when={pricesLoading()}>
-                  <div class="flex items-center justify-center py-24">
-                    <div class="w-10 h-10 border-2 border-amber-500/30 border-t-amber-400 rounded-full animate-spin" />
-                  </div>
-                </Show>
-
-                <Show when={!pricesLoading()}>
-                  {/* Error display */}
-                  <Show when={yandexError()}>
-                    <div class="mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm">
-                      <div class="font-medium">Error</div>
-                      <div class="text-rose-400/70 mt-1">{yandexError()}</div>
-                    </div>
-                  </Show>
-
-                  {/* Has prices - show offers */}
-                  <Show when={prices() && prices()!.quotes.length > 0}>
-                    <div class="space-y-4">
-                      {/* Summary header */}
-                      <div class="flex items-center justify-between p-4 rounded-xl bg-amber-500/5 border border-amber-500/20">
-                        <div>
-                          <div class="text-2xl font-bold text-white">
-                            ₽{(prices()!.minPrice / 100).toLocaleString()} – ₽{(prices()!.maxPrice / 100).toLocaleString()}
-                          </div>
-                          <div class="text-sm text-slate-400 mt-1">
-                            {prices()!.quotes.length} offers • Updated {new Date(prices()!.updatedAt * 1000).toLocaleDateString()}
-                          </div>
-                        </div>
-                        <button
-                          onClick={handleScrapeYandex}
-                          disabled={yandexScraping()}
-                          class="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/30 transition-colors cursor-pointer disabled:opacity-50"
-                        >
-                          <Show when={yandexScraping()}>
-                            <div class="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
-                            <span>Refreshing... {scrapeProgress()}%</span>
-                          </Show>
-                          <Show when={!yandexScraping()}>
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                            </svg>
-                            <span>Refresh</span>
-                          </Show>
-                        </button>
-                      </div>
-
-                      {/* Offers list */}
-                      <div class="space-y-2">
-                        <For each={prices()!.quotes}>
-                          {(offer) => (
-                            <div class="flex items-center justify-between p-3 rounded-lg bg-slate-800/50 border border-slate-700/50 hover:border-slate-600/50 transition-colors">
-                              <div class="flex items-center gap-3">
-                                <div class={`w-2 h-2 rounded-full ${offer.isAvailable ? "bg-emerald-400" : "bg-slate-500"}`} />
-                                <div>
-                                  <div class="font-medium text-slate-200">{offer.seller}</div>
-                                  <Show when={offer.variantLabel}>
-                                    <div class="text-xs text-slate-500">{offer.variantLabel}</div>
-                                  </Show>
-                                </div>
-                              </div>
-                              <div class="text-right">
-                                <div class="font-bold text-white">₽{(offer.price / 100).toLocaleString()}</div>
-                                <Show when={offer.url}>
-                                  <a
-                                    href={offer.url!}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    class="text-xs text-amber-400 hover:text-amber-300"
-                                  >
-                                    View →
-                                  </a>
-                                </Show>
-                              </div>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                    </div>
-                  </Show>
-
-                  {/* No prices yet - show link/scrape UI */}
-                  <Show when={!prices() || prices()!.quotes.length === 0}>
-                    <div class="flex flex-col items-center justify-center py-16">
-                      <div class="w-16 h-16 rounded-2xl bg-amber-500/10 flex items-center justify-center mb-4">
-                        <svg class="h-8 w-8 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                      <h3 class="text-base font-medium text-slate-300 mb-1">No price data</h3>
-                      <p class="text-sm text-slate-500 text-center max-w-xs mb-6">
-                        Link a Yandex.Market page to track prices for this device
-                      </p>
-
-                      <div class="w-full max-w-md space-y-3">
-                        <input
-                          type="url"
-                          placeholder="https://market.yandex.ru/product/..."
-                          value={yandexUrl()}
-                          onInput={(e) => setYandexUrl(e.currentTarget.value)}
-                          class="w-full px-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-white placeholder:text-slate-500 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all"
-                        />
-                        <button
-                          onClick={handleLinkYandex}
-                          disabled={!yandexUrl() || yandexLinking() || yandexScraping()}
-                          class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-amber-500 text-slate-900 font-semibold hover:bg-amber-400 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <Show when={yandexLinking() || yandexScraping()}>
-                            <div class="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
-                            <span>{yandexLinking() ? "Linking..." : `Scraping... ${scrapeProgress()}%`}</span>
-                          </Show>
-                          <Show when={!yandexLinking() && !yandexScraping()}>
-                            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                              <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                            </svg>
-                            <span>Link & Scrape Prices</span>
-                          </Show>
-                        </button>
-                      </div>
-                    </div>
-                  </Show>
-                </Show>
-              </div>
+              <PricesTab
+                slug={props.slug!}
+                prices={prices()}
+                deviceSources={deviceSources()}
+                loading={pricesLoading()}
+                error={yandexError()}
+                onLink={handleLinkYandex}
+                onScrape={handleScrapeYandex}
+                scraping={yandexScraping() || yandexLinking()}
+                scrapeProgress={scrapeProgress()}
+              />
             </Show>
           </div>
         </div>

@@ -12,6 +12,7 @@ import type {
   PhoneDataResponse,
   PriceSummary,
   PriceHistory,
+  DeviceSource,
 } from "../types";
 
 export function useSlugsApi() {
@@ -458,6 +459,23 @@ export function useSlugsApi() {
     }
   };
 
+  const fetchDeviceSources = async (
+    slug: string,
+    source?: string,
+  ): Promise<DeviceSource[]> => {
+    const url = source
+      ? `http://localhost:1488/api/device-sources/${encodeURIComponent(slug)}?source=${encodeURIComponent(source)}`
+      : `http://localhost:1488/api/device-sources/${encodeURIComponent(slug)}`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      return res.json();
+    } catch (error) {
+      console.error("Failed to fetch device sources:", error);
+      return [];
+    }
+  };
+
   return {
     devices,
     total,
@@ -492,5 +510,6 @@ export function useSlugsApi() {
     processAi,
     fetchPrices,
     fetchPriceHistory,
+    fetchDeviceSources,
   };
 }

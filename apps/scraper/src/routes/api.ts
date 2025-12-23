@@ -492,4 +492,25 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         });
       });
       return LiveRuntime.runPromise(program);
+    })
+    .get("/device-sources/:slug", async ({ params, query }) => {
+      const source = query.source as string | undefined;
+
+      const program = Effect.gen(function* () {
+        const deviceRegistry = yield* DeviceRegistryService;
+
+        const device = yield* deviceRegistry.getDeviceBySlug(params.slug);
+        if (!device) {
+          return [];
+        }
+
+        const sources = yield* deviceRegistry.getDeviceSources(device.id);
+
+        if (source) {
+          return sources.filter((s) => s.source === source);
+        }
+        return sources;
+      });
+
+      return LiveRuntime.runPromise(program);
     });
