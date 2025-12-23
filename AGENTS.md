@@ -133,6 +133,92 @@ curl -s -X POST http://localhost:1488/debug/eval \
 - `process_raw`: Extract raw data from cached HTML
 - `process_ai`: Run AI normalization on raw data
 
+## Scheduler
+
+### Overview
+The scheduler enables automated, recurring job execution using cron expressions. Jobs are stored in `job_schedules` table and processed by `SchedulerService`.
+
+### Database Table: `job_schedules`
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER | Primary key |
+| `name` | TEXT | Human-readable schedule name |
+| `source` | TEXT | Data source (kimovil, yandex_market, etc.) |
+| `data_kind` | TEXT | Data type (specs, prices) |
+| `cron_expression` | TEXT | Standard 5-field cron expression |
+| `job_type` | TEXT | scrape, process_raw, process_ai |
+| `mode` | TEXT | fast, full (optional) |
+| `enabled` | INTEGER | 0=disabled, 1=enabled |
+| `next_run_at` | TEXT | ISO timestamp for next execution |
+| `last_run_at` | TEXT | ISO timestamp of last execution |
+| `created_at` | TEXT | Creation timestamp |
+| `updated_at` | TEXT | Last update timestamp |
+
+### SchedulerService
+- **Tick loop**: Runs every 60 seconds via `Effect.repeat(Schedule.fixed("60 seconds"))`
+- **Due check**: Queries schedules where `enabled=1 AND next_run_at <= NOW()`
+- **Execution**: Creates a job via `JobQueueService`, populates queue items
+- **Next run**: Calculates next execution from cron expression after job starts
+
+### Crash Recovery
+On startup, the scheduler:
+1. Finds enabled schedules with `next_run_at` in the past
+2. Triggers them immediately (catch-up)
+3. Recalculates `next_run_at` for future runs
+
+### Cron Expression Format
+Standard 5-field cron (minute-level granularity):
+```
+┌───────────── minute (0-59)
+│ ┌───────────── hour (0-23)
+│ │ ┌───────────── day of month (1-31)
+│ │ │ ┌───────────── month (1-12)
+│ │ │ │ ┌───────────── day of week (0-6, Sunday=0)
+│ │ │ │ │
+* * * * *
+```
+
+**Examples:**
+- `0 0 * * *` — Daily at midnight
+- `0 */6 * * *` — Every 6 hours
+- `30 2 * * 1` — Mondays at 2:30 AM
+- `0 9 1 * *` — 1st of each month at 9 AM
+
+## Scheduler API
+
+### Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/schedules` | List all schedules |
+| GET | `/api/schedules/:id` | Get schedule details |
+| POST | `/api/schedules` | Create schedule |
+| PUT | `/api/schedules/:id` | Update schedule |
+| DELETE | `/api/schedules/:id` | Delete schedule |
+| POST | `/api/schedules/:id/enable` | Enable (sets next_run_at) |
+| POST | `/api/schedules/:id/disable` | Disable schedule |
+| POST | `/api/schedules/:id/trigger` | Manual trigger (runs immediately) |
+
+### Example: Create and Enable a Schedule
+```bash
+# Create a daily price update schedule for Yandex
+curl -X POST http://localhost:1488/api/schedules \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Daily Yandex Prices",
+    "source": "yandex_market",
+    "dataKind": "prices",
+    "cronExpression": "0 0 * * *",
+    "jobType": "scrape",
+    "mode": "fast"
+  }'
+
+# Enable the schedule
+curl -X POST http://localhost:1488/api/schedules/1/enable
+
+# Check schedule status
+curl http://localhost:1488/api/schedules/1 | jq
+```
+
 ## Fast Scrape (No AI)
 - Uses `scrapeFast` to fetch and save raw HTML only (no Gemini).
 - Validates HTML before saving (bot placeholders and missing structure are rejected).
@@ -335,4 +421,3 @@ registerPipeline({
 
 ## Known Limitations (Future Work)
 - **Postgres**: SQLite-specific SQL (PRAGMA, INSERT OR REPLACE, last_insert_rowid) needs conversion
-- **Scheduled jobs**: No cron/scheduler; jobs are manually triggered
