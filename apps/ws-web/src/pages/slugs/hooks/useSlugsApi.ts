@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { createStore, produce, reconcile } from "solid-js/store";
+import { createStore, reconcile } from "solid-js/store";
 import type {
   Device,
   SlugsResponse,
@@ -117,7 +117,7 @@ export function useSlugsApi() {
           statusMap[item.slug] = item;
         }
       }
-      setQueueStatus(statusMap);
+      setQueueStatus(() => statusMap);
     } catch (error) {
       console.error("Failed to fetch queue statuses:", error);
     }

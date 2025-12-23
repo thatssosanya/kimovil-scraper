@@ -18,10 +18,7 @@ import type {
   DeviceSource,
 } from "../types";
 import { useSlugsApi } from "../hooks/useSlugsApi";
-import {
-  createSelectionService,
-  type SelectionService,
-} from "../services/selection.service";
+import { createSelectionService } from "../services/selection.service";
 
 type LimitOption = 10 | 100 | 500 | 1000 | 10000;
 
