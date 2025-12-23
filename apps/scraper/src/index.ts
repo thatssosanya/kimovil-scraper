@@ -11,6 +11,7 @@ import { LiveRuntime } from "./layers/live";
 import { BulkJobManager } from "./services/bulk-job";
 
 import { createApiRoutes } from "./routes/api";
+import { createDebugRoutes } from "./routes/debug";
 import { createWsServer } from "./routes/ws-server";
 
 const bulkJobManager = new BulkJobManager(LiveRuntime);
@@ -19,6 +20,12 @@ const bulkJobManager = new BulkJobManager(LiveRuntime);
 const app = new Elysia()
   .use(cors({ origin: true, credentials: true }))
   .use(createApiRoutes(bulkJobManager));
+
+// Mount debug eval endpoint only in development
+if (config.enableDebugEval) {
+  app.use(createDebugRoutes());
+  log.info("Debug", "Debug eval endpoint enabled at POST /debug/eval");
+}
 
 // Create our own http.Server and route requests to Elysia
 const httpServer = http.createServer((req, res) => {

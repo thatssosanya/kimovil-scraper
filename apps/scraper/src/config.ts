@@ -1,5 +1,6 @@
 export const config = {
   port: 1488,
+  enableDebugEval: process.env.NODE_ENV !== "production",
   bulk: {
     concurrency: Math.max(1, Number(process.env.BULK_CONCURRENCY ?? "2") || 1),
     rateLimitMs: Math.max(
