@@ -17,7 +17,7 @@ import type {
   PriceOffer,
   DeviceSource,
 } from "../types";
-import { useSlugsApi } from "../hooks/useSlugsApi";
+import type { useSlugsApi } from "../hooks/useSlugsApi";
 import { createSelectionService } from "../services/selection.service";
 
 type LimitOption = 10 | 100 | 500 | 1000 | 10000;
@@ -134,11 +134,11 @@ export function useActions() {
 // ============================================================================
 
 interface DevicesTableProviderProps {
+  api: ReturnType<typeof useSlugsApi>;
   search: Accessor<string>;
   filter: Accessor<FilterType>;
   limit: Accessor<LimitOption>;
   setLimit: (limit: LimitOption) => void;
-  onFilterChange: (filter: FilterType) => void;
   onModalOpen: (slug: string, initialTab?: TabId) => void;
   onSelectionChange?: (slugs: string[]) => void;
 }
@@ -150,7 +150,7 @@ interface DevicesTableProviderProps {
 export const DevicesTableProvider: ParentComponent<DevicesTableProviderProps> = (
   props,
 ) => {
-  const api = useSlugsApi();
+  const api = props.api;
   const selection = createSelectionService();
 
   const fetchDevices = async (
@@ -255,3 +255,4 @@ export const DevicesTableProvider: ParentComponent<DevicesTableProviderProps> = 
 
 // Re-export for convenience
 export { useSlugsApi } from "../hooks/useSlugsApi";
+export type { LimitOption };

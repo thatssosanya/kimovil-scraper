@@ -1,7 +1,6 @@
 import { createSignal, onMount, Show } from "solid-js";
 import type { FilterType } from "./types";
 import type { TabId } from "./components/TabBar";
-import { useSlugsApi } from "./hooks/useSlugsApi";
 import { useBulkJobs } from "./hooks/useBulkJobs";
 import { Header } from "../../components/Header";
 import { StatsPanel } from "./components/StatsPanel";
@@ -12,7 +11,7 @@ import { DevicesTable } from "./components/DevicesTable";
 import { SelectionBar } from "./components/SelectionBar";
 import { PhoneDataModal } from "./components/PhoneDataModal";
 import { ErrorItemsModal } from "./components/ErrorItemsModal";
-import { DevicesTableProvider, useSelection, useRowData } from "./context/devices-table.context";
+import { DevicesTableProvider, useSelection, useRowData, useSlugsApi, type LimitOption } from "./context/devices-table.context";
 
 interface ErrorItem {
   slug: string;
@@ -21,8 +20,6 @@ interface ErrorItem {
   attempt: number;
   updatedAt: number;
 }
-
-type LimitOption = 10 | 100 | 500 | 1000 | 10000;
 
 function SlugsContent(props: {
   search: () => string;
@@ -320,11 +317,6 @@ export default function Slugs() {
     bulkJobs.init();
   });
 
-  const handleFilterChange = (newFilter: FilterType) => {
-    setFilter(newFilter);
-    api.fetchDevices(search(), newFilter, limit());
-  };
-
   const openModal = (slug: string, initialTab?: TabId) => {
     setModalSlug(slug);
     setModalInitialTab(initialTab);
@@ -343,11 +335,11 @@ export default function Slugs() {
       />
       <div class="max-w-7xl mx-auto space-y-8 p-6 md:px-12 md:py-6">
         <DevicesTableProvider
+          api={api}
           search={search}
           filter={filter}
           limit={limit}
           setLimit={setLimit}
-          onFilterChange={handleFilterChange}
           onModalOpen={openModal}
         >
           <SlugsContent
