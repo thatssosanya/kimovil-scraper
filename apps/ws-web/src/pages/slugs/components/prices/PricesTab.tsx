@@ -162,26 +162,38 @@ export function PricesTab(props: PricesTabProps) {
             <div class="flex items-center justify-between">
               {/* Summary stats */}
               <div class="flex items-center gap-6">
-                <div class="flex items-baseline gap-2">
-                  <span class="text-3xl font-light tracking-tight text-white font-mono">
-                    ₽{(props.prices!.minPrice / 100).toLocaleString("ru-RU")}
-                  </span>
-                  <span class="text-slate-500">–</span>
-                  <span class="text-xl text-slate-400 font-mono">
-                    ₽{(props.prices!.maxPrice / 100).toLocaleString("ru-RU")}
-                  </span>
-                </div>
-                <div class="h-8 w-px bg-slate-700/50" />
-                <div class="flex items-center gap-4 text-sm">
-                  <div class="flex items-center gap-1.5">
-                    <div class="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    <span class="text-slate-400">{props.prices!.quotes.filter(q => q.isAvailable !== false).length} available</span>
+                <Show 
+                  when={props.prices && props.prices.quotes.length > 0}
+                  fallback={
+                    <div class="flex items-center gap-2 text-slate-400">
+                      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                      </svg>
+                      <span>{links().length} link{links().length !== 1 ? "s" : ""} · No prices yet</span>
+                    </div>
+                  }
+                >
+                  <div class="flex items-baseline gap-2">
+                    <span class="text-3xl font-light tracking-tight text-white font-mono">
+                      ₽{(props.prices!.minPrice / 100).toLocaleString("ru-RU")}
+                    </span>
+                    <span class="text-slate-500">–</span>
+                    <span class="text-xl text-slate-400 font-mono">
+                      ₽{(props.prices!.maxPrice / 100).toLocaleString("ru-RU")}
+                    </span>
                   </div>
-                  <div class="flex items-center gap-1.5">
-                    <div class="w-1.5 h-1.5 rounded-full bg-slate-500" />
-                    <span class="text-slate-500">{props.prices!.quotes.filter(q => q.isAvailable === false).length} out of stock</span>
+                  <div class="h-8 w-px bg-slate-700/50" />
+                  <div class="flex items-center gap-4 text-sm">
+                    <div class="flex items-center gap-1.5">
+                      <div class="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      <span class="text-slate-400">{props.prices!.quotes.filter(q => q.isAvailable !== false).length} available</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      <div class="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                      <span class="text-slate-500">{props.prices!.quotes.filter(q => q.isAvailable === false).length} out of stock</span>
+                    </div>
                   </div>
-                </div>
+                </Show>
               </div>
               
               {/* View toggle */}
@@ -239,7 +251,7 @@ export function PricesTab(props: PricesTabProps) {
             
             <Show when={viewMode() === "sellers"}>
               <PricesSellerPivot
-                quotes={props.prices!.quotes}
+                quotes={props.prices?.quotes || []}
                 links={links()}
               />
             </Show>
