@@ -493,6 +493,29 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
       });
       return LiveRuntime.runPromise(program);
     })
+    .get("/prices/:slug/quotes", async ({ params, query }) => {
+      const source = query.source as string | undefined;
+      const externalId = query.externalId as string | undefined;
+      const limit = parseInt(query.limit as string) || 500;
+
+      const program = Effect.gen(function* () {
+        const deviceRegistry = yield* DeviceRegistryService;
+        const priceService = yield* PriceService;
+
+        const device = yield* deviceRegistry.getDeviceBySlug(params.slug);
+        if (!device) {
+          return [];
+        }
+
+        return yield* priceService.getAllQuotes({
+          deviceId: device.id,
+          source,
+          externalId,
+          limit,
+        });
+      });
+      return LiveRuntime.runPromise(program);
+    })
     .get("/device-sources/:slug", async ({ params, query }) => {
       const source = query.source as string | undefined;
 

@@ -14,7 +14,7 @@ interface PricesLinksListProps {
 }
 
 function formatPrice(kopeks: number): string {
-  return `₽${(kopeks / 100).toLocaleString("ru-RU")}`;
+  return (kopeks / 100).toLocaleString("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 });
 }
 
 function formatTimeAgo(timestamp: number): string {
@@ -25,22 +25,18 @@ function formatTimeAgo(timestamp: number): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-function StatusDot(props: { status: DeviceLink["status"] }) {
-  const config = {
-    active: { color: "bg-emerald-400", pulse: true },
-    stale: { color: "bg-amber-400", pulse: false },
-    error: { color: "bg-rose-400", pulse: false },
+
+
+function SourceIcon(props: { source: string }) {
+  const icons: Record<string, () => any> = {
+    yandex_market: () => (
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="2" fill="none"/>
+      </svg>
+    ),
   };
-  const c = () => config[props.status];
-  
-  return (
-    <div class="relative">
-      <div class={`w-2 h-2 rounded-full ${c().color}`} />
-      <Show when={c().pulse}>
-        <div class={`absolute inset-0 w-2 h-2 rounded-full ${c().color} animate-ping opacity-75`} />
-      </Show>
-    </div>
-  );
+  const Icon = icons[props.source] || icons.yandex_market;
+  return <Icon />;
 }
 
 export function PricesLinksList(props: PricesLinksListProps) {
@@ -72,59 +68,60 @@ export function PricesLinksList(props: PricesLinksListProps) {
           <For each={props.links}>
             {(link) => {
               const isSelected = () => props.selectedLink?.externalId === link.externalId;
+              const hasQuotes = () => link.quoteCount > 0;
+              
               return (
                 <button
                   onClick={() => props.onSelectLink(link.externalId)}
                   class={`
-                    w-full text-left p-4 border-b border-slate-800/30 transition-all duration-200 cursor-pointer
+                    group w-full text-left px-3 py-2.5 transition-all duration-150 cursor-pointer relative
                     ${isSelected() 
-                      ? "bg-gradient-to-r from-amber-500/10 to-transparent border-l-2 border-l-amber-400" 
-                      : "hover:bg-slate-800/30 border-l-2 border-l-transparent"}
+                      ? "bg-slate-800/80" 
+                      : "hover:bg-slate-800/40"}
                   `}
                 >
-                  <div class="flex items-start justify-between gap-3">
+                  {/* Selection indicator */}
+                  <div class={`
+                    absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 rounded-r transition-all duration-150
+                    ${isSelected() ? "bg-slate-400" : "bg-transparent"}
+                  `} />
+                  
+                  <div class="flex items-center gap-3">
+                    {/* Source icon */}
+                    <div class={`
+                      w-7 h-7 rounded flex items-center justify-center flex-shrink-0 transition-colors
+                      ${isSelected() ? "bg-slate-700 text-slate-300" : "bg-slate-800/60 text-slate-500"}
+                    `}>
+                      <SourceIcon source={link.source} />
+                    </div>
+                    
+                    {/* Content */}
                     <div class="flex-1 min-w-0">
-                      {/* Variant badge */}
-                      <Show when={link.variantKey}>
-                        <div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-700/50 text-xs font-mono text-slate-300 mb-2">
-                          <svg class="w-3 h-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-                          </svg>
-                          {link.variantKey}
-                        </div>
-                      </Show>
-                      
-                      {/* Price range or "No quotes" */}
-                      <Show when={link.quoteCount > 0}>
-                        <div class="flex items-baseline gap-1.5">
-                          <span class="text-lg font-mono font-medium text-white">
+                      {/* Price row */}
+                      <div class="flex items-baseline gap-2">
+                        <Show when={hasQuotes()}>
+                          <span class="text-sm font-medium text-slate-100">
                             {formatPrice(link.minPrice)}
                           </span>
                           <Show when={link.minPrice !== link.maxPrice}>
-                            <span class="text-slate-600">–</span>
-                            <span class="text-sm font-mono text-slate-400">
-                              {formatPrice(link.maxPrice)}
+                            <span class="text-xs text-slate-500">
+                              – {formatPrice(link.maxPrice)}
                             </span>
                           </Show>
-                        </div>
-                      </Show>
-                      <Show when={link.quoteCount === 0}>
-                        <div class="text-sm text-slate-500 italic">
-                          No quotes yet
-                        </div>
-                      </Show>
-
-                      {/* Meta info */}
-                      <div class="flex items-center gap-3 mt-2 text-xs text-slate-500">
-                        <Show when={link.quoteCount > 0}>
-                          <span>{link.quoteCount} offers</span>
-                          <span>•</span>
                         </Show>
-                        <span>{formatTimeAgo(link.lastScraped)}</span>
+                        <Show when={!hasQuotes()}>
+                          <span class="text-sm text-slate-500">No prices</span>
+                        </Show>
+                      </div>
+                      
+                      {/* Meta row */}
+                      <div class="text-[11px] text-slate-500 mt-0.5 truncate" title={link.url}>
+                        {hasQuotes() ? `${link.quoteCount} offers` : "Not scraped"}
+                        <Show when={link.lastQuoteAt}>
+                          <span class="text-slate-600"> · {formatTimeAgo(link.lastQuoteAt!)}</span>
+                        </Show>
                       </div>
                     </div>
-                    
-                    <StatusDot status={link.status} />
                   </div>
                 </button>
               );
@@ -248,87 +245,76 @@ export function PricesLinksList(props: PricesLinksListProps) {
             </div>
           </div>
           
-          {/* Quotes table or empty state for no quotes */}
-          <div class="flex-1 overflow-y-auto custom-scrollbar p-6">
+          {/* Quotes list */}
+          <div class="flex-1 overflow-y-auto custom-scrollbar px-4 py-3">
             <Show when={props.quotes.length > 0}>
-              <div class="space-y-2">
+              {/* Table header */}
+              <div class="flex items-center gap-3 px-3 py-2 text-[11px] text-slate-500 uppercase tracking-wide border-b border-slate-800/50 mb-1">
+                <div class="w-4" />
+                <div class="flex-1">Seller</div>
+                <div class="w-16 text-right">Price</div>
+                <div class="w-14 text-right">Updated</div>
+                <div class="w-6" />
+              </div>
+              
+              <div class="space-y-0.5">
                 <For each={props.quotes}>
                   {(quote, index) => {
                     const isLowest = () =>
                       index() === 0 ||
                       props.quotes.slice(0, index()).every((q) => q.price >= quote.price);
+                    const isAvailable = () => quote.isAvailable !== false;
 
                     return (
                       <div
                         class={`
-                          group relative flex items-center justify-between p-4 rounded-xl transition-all duration-200
-                          ${
-                            quote.isAvailable !== false
-                              ? "bg-slate-800/40 hover:bg-slate-800/60 border border-slate-700/50 hover:border-slate-600/50"
-                              : "bg-slate-800/20 border border-slate-800/50 opacity-60"
-                          }
-                          ${isLowest() && quote.isAvailable !== false ? "ring-1 ring-emerald-500/30" : ""}
+                          group flex items-center gap-3 px-3 py-2 rounded transition-colors
+                          ${isAvailable() ? "hover:bg-slate-800/40" : "opacity-40"}
                         `}
                       >
-                        {/* Lowest price indicator */}
-                        <Show when={isLowest() && quote.isAvailable !== false}>
-                          <div class="absolute -left-px top-3 bottom-3 w-0.5 bg-gradient-to-b from-emerald-400 to-emerald-500 rounded-full" />
-                        </Show>
-
-                        <div class="flex items-center gap-4">
-                          {/* Availability indicator */}
-                          <div
-                            class={`
-                            w-2 h-2 rounded-full flex-shrink-0
-                            ${quote.isAvailable !== false ? "bg-emerald-400" : "bg-slate-600"}
-                          `}
-                          />
-
-                          {/* Seller info */}
-                          <div>
-                            <div class="font-medium text-slate-200">{quote.seller}</div>
-                            <Show when={quote.variantLabel}>
-                              <div class="text-xs text-slate-500 mt-0.5">{quote.variantLabel}</div>
-                            </Show>
-                          </div>
+                        {/* Stock indicator */}
+                        <div class="w-4 flex justify-center">
+                          <Show when={isAvailable()}>
+                            <svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          </Show>
+                          <Show when={!isAvailable()}>
+                            <svg class="w-3.5 h-3.5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </Show>
                         </div>
 
-                        <div class="flex items-center gap-4">
-                          {/* Price */}
-                          <div class="text-right">
-                            <div
-                              class={`
-                              font-mono font-semibold text-lg
-                              ${isLowest() && quote.isAvailable !== false ? "text-emerald-400" : "text-white"}
-                            `}
-                            >
-                              {formatPrice(quote.price)}
-                            </div>
-                            <Show when={isLowest() && quote.isAvailable !== false}>
-                              <div class="text-xs text-emerald-500/70 font-medium">Lowest</div>
-                            </Show>
-                          </div>
+                        {/* Seller name */}
+                        <div class="flex-1 min-w-0">
+                          <span class={`text-sm truncate ${isAvailable() ? "text-slate-200" : "text-slate-500"}`}>
+                            {quote.seller}
+                          </span>
+                        </div>
 
-                          {/* Action button */}
+                        {/* Price */}
+                        <div class={`w-16 text-right text-sm font-medium ${isLowest() && isAvailable() ? "text-slate-100" : "text-slate-300"}`}>
+                          {formatPrice(quote.price)}
+                        </div>
+                        
+                        {/* Scraped time */}
+                        <div class="w-14 text-right text-[11px] text-slate-600">
+                          {formatTimeAgo(quote.scrapedAt * 1000)}
+                        </div>
+                        
+                        {/* External link */}
+                        <div class="w-6 flex justify-center">
                           <Show when={quote.url}>
                             <a
                               href={quote.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              class="opacity-0 group-hover:opacity-100 p-2 rounded-lg bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-all"
+                              class="opacity-0 group-hover:opacity-100 p-1 rounded text-slate-500 hover:text-slate-300 transition-opacity"
+                              title="Open seller page"
                             >
-                              <svg
-                                class="w-4 h-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                stroke-width="2"
-                              >
-                                <path
-                                  stroke-linecap="round"
-                                  stroke-linejoin="round"
-                                  d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
-                                />
+                              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
                               </svg>
                             </a>
                           </Show>
@@ -337,6 +323,12 @@ export function PricesLinksList(props: PricesLinksListProps) {
                     );
                   }}
                 </For>
+              </div>
+              
+              {/* Footer summary */}
+              <div class="mt-3 pt-3 border-t border-slate-800/50 flex items-center justify-between text-[11px] text-slate-500">
+                <span>{props.quotes.filter(q => q.isAvailable !== false).length} of {props.quotes.length} in stock</span>
+                <span>Last update: {formatTimeAgo(Math.max(...props.quotes.map(q => q.scrapedAt)) * 1000)}</span>
               </div>
             </Show>
 

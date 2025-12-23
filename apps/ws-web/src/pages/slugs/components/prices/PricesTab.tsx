@@ -2,28 +2,30 @@ import { createSignal, createMemo, Show } from "solid-js";
 import { PricesLinksList } from "./PricesLinksList";
 import { PricesSellerPivot } from "./PricesSellerPivot";
 import { PricesEmptyState } from "./PricesEmptyState";
-import type { PriceSummary, PriceOffer, DeviceSource } from "../../types";
+import type { PriceOffer, DeviceSource } from "../../types";
 
 export interface DeviceLink {
   externalId: string;
   url: string;
+  source: string;
   variantKey?: string;
   variantLabel?: string;
   minPrice: number;
   maxPrice: number;
   quoteCount: number;
-  lastScraped: number;
+  lastQuoteAt: number | null;
   status: "active" | "stale" | "error";
 }
 
 interface PricesTabProps {
   slug: string;
-  prices: PriceSummary | null;
+  quotes: PriceOffer[];
   deviceSources: DeviceSource[];
   loading: boolean;
   error: string | null;
   onLink: (url: string) => Promise<void>;
   onScrape: (linkId?: string) => Promise<void>;
+  onRefreshQuotes: () => Promise<void>;
   scraping: boolean;
   scrapeProgress: number;
 }
@@ -42,12 +44,13 @@ function deriveLinks(
     linkMap.set(source.externalId, {
       externalId: source.externalId,
       url: source.url || "",
+      source: source.source,
       variantKey: undefined,
       variantLabel: undefined,
       minPrice: 0,
       maxPrice: 0,
       quoteCount: 0,
-      lastScraped: source.lastSeen * 1000,
+      lastQuoteAt: null,
       status: source.status === "active" ? "active" : "stale",
     });
   }
@@ -57,12 +60,17 @@ function deriveLinks(
 
     if (linkMap.has(externalId)) {
       const link = linkMap.get(externalId)!;
+      const quoteTime = quote.scrapedAt * 1000;
       if (link.quoteCount === 0) {
         link.minPrice = quote.price;
         link.maxPrice = quote.price;
+        link.lastQuoteAt = quoteTime;
       } else {
         link.minPrice = Math.min(link.minPrice, quote.price);
         link.maxPrice = Math.max(link.maxPrice, quote.price);
+        if (quoteTime > (link.lastQuoteAt || 0)) {
+          link.lastQuoteAt = quoteTime;
+        }
       }
       link.quoteCount++;
       if (quote.variantLabel) {
@@ -73,12 +81,13 @@ function deriveLinks(
       linkMap.set(externalId, {
         externalId,
         url: quote.url || "",
+        source: "yandex_market",
         variantKey: quote.variantKey,
         variantLabel: quote.variantLabel,
         minPrice: quote.price,
         maxPrice: quote.price,
         quoteCount: 1,
-        lastScraped: Date.now(),
+        lastQuoteAt: quote.scrapedAt * 1000,
         status: "active",
       });
     }
@@ -92,7 +101,7 @@ export function PricesTab(props: PricesTabProps) {
   const [selectedLinkId, setSelectedLinkId] = createSignal<string | null>(null);
 
   const links = createMemo(() => {
-    return deriveLinks(props.prices?.quotes || [], props.deviceSources);
+    return deriveLinks(props.quotes, props.deviceSources);
   });
 
   const selectedLink = createMemo(() => {
@@ -103,15 +112,25 @@ export function PricesTab(props: PricesTabProps) {
 
   const quotesForSelectedLink = createMemo(() => {
     const link = selectedLink();
-    if (!link || !props.prices?.quotes) return [];
-    return props.prices.quotes.filter(
+    if (!link) return [];
+    return props.quotes.filter(
       (q) => (q.externalId || q.url || "default") === link.externalId,
     );
   });
 
   const hasData = () =>
-    (props.prices && props.prices.quotes.length > 0) ||
-    props.deviceSources.length > 0;
+    props.quotes.length > 0 || props.deviceSources.length > 0;
+  
+  const priceStats = createMemo(() => {
+    const available = props.quotes.filter(q => q.isAvailable !== false);
+    if (available.length === 0) return null;
+    return {
+      min: Math.min(...available.map(q => q.price)),
+      max: Math.max(...available.map(q => q.price)),
+      availableCount: available.length,
+      unavailableCount: props.quotes.length - available.length,
+    };
+  });
   
   return (
     <div class="absolute inset-0 flex flex-col bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950">
@@ -163,36 +182,32 @@ export function PricesTab(props: PricesTabProps) {
               {/* Summary stats */}
               <div class="flex items-center gap-6">
                 <Show 
-                  when={props.prices && props.prices.quotes.length > 0}
+                  when={priceStats()}
                   fallback={
                     <div class="flex items-center gap-2 text-slate-400">
-                      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                      </svg>
                       <span>{links().length} link{links().length !== 1 ? "s" : ""} · No prices yet</span>
                     </div>
                   }
                 >
-                  <div class="flex items-baseline gap-2">
-                    <span class="text-3xl font-light tracking-tight text-white font-mono">
-                      ₽{(props.prices!.minPrice / 100).toLocaleString("ru-RU")}
-                    </span>
-                    <span class="text-slate-500">–</span>
-                    <span class="text-xl text-slate-400 font-mono">
-                      ₽{(props.prices!.maxPrice / 100).toLocaleString("ru-RU")}
-                    </span>
-                  </div>
-                  <div class="h-8 w-px bg-slate-700/50" />
-                  <div class="flex items-center gap-4 text-sm">
-                    <div class="flex items-center gap-1.5">
-                      <div class="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                      <span class="text-slate-400">{props.prices!.quotes.filter(q => q.isAvailable !== false).length} available</span>
-                    </div>
-                    <div class="flex items-center gap-1.5">
-                      <div class="w-1.5 h-1.5 rounded-full bg-slate-500" />
-                      <span class="text-slate-500">{props.prices!.quotes.filter(q => q.isAvailable === false).length} out of stock</span>
-                    </div>
-                  </div>
+                  {(stats) => (
+                    <>
+                      <div class="flex items-baseline gap-2">
+                        <span class="text-2xl font-medium text-white">
+                          {(stats().min / 100).toLocaleString("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 })}
+                        </span>
+                        <Show when={stats().min !== stats().max}>
+                          <span class="text-slate-500">–</span>
+                          <span class="text-lg text-slate-400">
+                            {(stats().max / 100).toLocaleString("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 })}
+                          </span>
+                        </Show>
+                      </div>
+                      <div class="h-6 w-px bg-slate-700/50" />
+                      <div class="text-sm text-slate-500">
+                        {props.quotes.length} quotes · {stats().availableCount} in stock
+                      </div>
+                    </>
+                  )}
                 </Show>
               </div>
               
@@ -251,7 +266,7 @@ export function PricesTab(props: PricesTabProps) {
             
             <Show when={viewMode() === "sellers"}>
               <PricesSellerPivot
-                quotes={props.prices?.quotes || []}
+                quotes={props.quotes}
                 links={links()}
               />
             </Show>

@@ -2,7 +2,7 @@ import { createSignal, createEffect, Show, on } from "solid-js";
 import { TabBar, type TabId } from "./TabBar";
 import { JsonViewer } from "./JsonViewer";
 import { PricesTab } from "./prices";
-import type { PhoneDataRaw, PhoneDataAi, ScrapeStatus, PriceSummary, DeviceSource } from "../types";
+import type { PhoneDataRaw, PhoneDataAi, ScrapeStatus, PriceOffer, DeviceSource } from "../types";
 
 interface PhoneDataModalProps {
   slug: string | null;
@@ -14,7 +14,7 @@ interface PhoneDataModalProps {
   onProcessRaw?: (slug: string) => Promise<{ success: boolean; error?: string }>;
   onProcessAi?: (slug: string) => Promise<{ success: boolean; error?: string }>;
   onStatusChange?: () => void;
-  fetchPrices?: (deviceId: string) => Promise<PriceSummary | null>;
+  fetchAllQuotes?: (slug: string, source?: string, externalId?: string) => Promise<PriceOffer[]>;
   fetchDeviceSources?: (slug: string, source?: string) => Promise<DeviceSource[]>;
 }
 
@@ -130,7 +130,7 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
   const [aiFetched, setAiFetched] = createSignal(false);
 
   // Price state
-  const [prices, setPrices] = createSignal<PriceSummary | null>(null);
+  const [quotes, setQuotes] = createSignal<PriceOffer[]>([]);
   const [pricesLoading, setPricesLoading] = createSignal(false);
   const [pricesFetched, setPricesFetched] = createSignal(false);
 
@@ -158,7 +158,7 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
         setAiFetched(false);
         setRawError(null);
         setAiError(null);
-        setPrices(null);
+        setQuotes([]);
         setPricesFetched(false);
         setDeviceSources([]);
         setYandexUrl("");
@@ -199,26 +199,34 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
     }),
   );
 
-  // Fetch prices and device sources on tab change
+  // Fetch quotes and device sources on tab change
   createEffect(
     on([() => props.slug, activeTab] as const, async ([slug, tab]) => {
       if (!slug || tab !== "prices" || pricesFetched()) return;
 
       setPricesLoading(true);
 
-      const [pricesData, sources] = await Promise.all([
-        props.fetchPrices ? props.fetchPrices(slug) : Promise.resolve(null),
+      const [quotesData, sources] = await Promise.all([
+        props.fetchAllQuotes 
+          ? props.fetchAllQuotes(slug, "yandex_market") 
+          : Promise.resolve([]),
         props.fetchDeviceSources
           ? props.fetchDeviceSources(slug, "yandex_market")
           : Promise.resolve([]),
       ]);
 
-      setPrices(pricesData);
+      setQuotes(quotesData);
       setDeviceSources(sources);
       setPricesFetched(true);
       setPricesLoading(false);
     }),
   );
+  
+  const refreshQuotes = async () => {
+    if (!props.slug || !props.fetchAllQuotes) return;
+    const quotesData = await props.fetchAllQuotes(props.slug, "yandex_market");
+    setQuotes(quotesData);
+  };
 
   // WebSocket request helper for Yandex operations
   const sendWsRequest = (method: string, params: Record<string, unknown>): Promise<{ success?: boolean; error?: string }> => {
@@ -257,21 +265,31 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
     setScrapeProgress(0);
 
     try {
-      const urlToScrape = linkId 
-        ? prices()?.quotes?.find(q => (q.externalId || q.url) === linkId)?.url 
-        : yandexUrl() || prices()?.quotes?.[0]?.url || "";
+      let urlToScrape = "";
+      if (linkId) {
+        const source = deviceSources().find(s => s.externalId === linkId);
+        if (source?.url) {
+          urlToScrape = source.url;
+        } else {
+          const quote = quotes().find(q => (q.externalId || q.url) === linkId);
+          urlToScrape = quote?.url || "";
+        }
+      } else {
+        urlToScrape = yandexUrl() || deviceSources()[0]?.url || quotes()[0]?.url || "";
+      }
+      
+      if (!urlToScrape) {
+        setYandexError("No URL found for this link");
+        setYandexScraping(false);
+        return;
+      }
       
       const result = await sendWsRequest("yandex.scrape", {
         url: urlToScrape,
         deviceId: props.slug,
       });
       if (result.success) {
-        setPricesFetched(false);
-        if (props.fetchPrices) {
-          const data = await props.fetchPrices(props.slug);
-          setPrices(data);
-          setPricesFetched(true);
-        }
+        await refreshQuotes();
       } else {
         setYandexError(result.error || "Failed to scrape");
       }
@@ -380,7 +398,7 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
       id: "prices" as TabId,
       label: "Prices",
       icon: "prices" as const,
-      available: (prices()?.quotes?.length ?? 0) > 0,
+      available: quotes().length > 0,
       enabled: true,
     },
   ];
@@ -564,12 +582,13 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
             <Show when={activeTab() === "prices"}>
               <PricesTab
                 slug={props.slug!}
-                prices={prices()}
+                quotes={quotes()}
                 deviceSources={deviceSources()}
                 loading={pricesLoading()}
                 error={yandexError()}
                 onLink={handleLinkYandex}
                 onScrape={handleScrapeYandex}
+                onRefreshQuotes={refreshQuotes}
                 scraping={yandexScraping() || yandexLinking()}
                 scrapeProgress={scrapeProgress()}
               />

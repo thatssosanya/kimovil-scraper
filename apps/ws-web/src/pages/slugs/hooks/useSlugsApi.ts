@@ -12,6 +12,7 @@ import type {
   PhoneDataResponse,
   PriceSummary,
   PriceHistory,
+  PriceOffer,
   DeviceSource,
 } from "../types";
 
@@ -459,6 +460,26 @@ export function useSlugsApi() {
     }
   };
 
+  const fetchAllQuotes = async (
+    slug: string,
+    source?: string,
+    externalId?: string,
+  ): Promise<PriceOffer[]> => {
+    try {
+      const params = new URLSearchParams();
+      if (source) params.set("source", source);
+      if (externalId) params.set("externalId", externalId);
+      const res = await fetch(
+        `http://localhost:1488/api/prices/${encodeURIComponent(slug)}/quotes?${params}`,
+      );
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (error) {
+      console.error("Failed to fetch all quotes:", error);
+      return [];
+    }
+  };
+
   const fetchDeviceSources = async (
     slug: string,
     source?: string,
@@ -510,6 +531,7 @@ export function useSlugsApi() {
     processAi,
     fetchPrices,
     fetchPriceHistory,
+    fetchAllQuotes,
     fetchDeviceSources,
   };
 }

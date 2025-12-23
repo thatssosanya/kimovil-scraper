@@ -35,8 +35,11 @@ export interface CurrentPrices {
     seller: string;
     price: number;
     variantKey?: string;
+    variantLabel?: string;
     url?: string;
     isAvailable?: boolean;
+    externalId?: string;
+    scrapedAt: number;
   }>;
 }
 
@@ -63,6 +66,22 @@ export interface PriceService {
   readonly getCurrentPrices: (
     deviceId: string,
   ) => Effect.Effect<CurrentPrices | null, PriceServiceError>;
+
+  readonly getAllQuotes: (params: {
+    deviceId: string;
+    source?: string;
+    externalId?: string;
+    limit?: number;
+  }) => Effect.Effect<Array<{
+    seller: string;
+    price: number;
+    variantKey?: string;
+    variantLabel?: string;
+    url?: string;
+    isAvailable: boolean;
+    externalId?: string;
+    scrapedAt: number;
+  }>, PriceServiceError>;
 }
 
 export const PriceService = Context.GenericTag<PriceService>("PriceService");
@@ -350,8 +369,11 @@ export const PriceServiceLive = Layer.effect(
               seller: q.seller ?? "Unknown",
               price: q.price_minor_units,
               variantKey: q.variant_key ?? undefined,
+              variantLabel: q.variant_label ?? undefined,
               url: q.url ?? undefined,
               isAvailable: q.is_available === 1,
+              externalId: q.external_id ?? undefined,
+              scrapedAt: q.scraped_at,
             })),
           };
         }).pipe(
@@ -363,6 +385,65 @@ export const PriceServiceLive = Layer.effect(
           Effect.mapError((e) =>
             e instanceof PriceServiceError ? e : wrapSqlError(e),
           ),
+        ),
+
+      getAllQuotes: (params) =>
+        Effect.gen(function* () {
+          const { deviceId, source, externalId, limit = 500 } = params;
+
+          let quoteRows: readonly PriceQuoteRow[];
+
+          if (source && externalId) {
+            quoteRows = yield* sql<PriceQuoteRow>`
+              SELECT * FROM price_quotes
+              WHERE device_id = ${deviceId}
+                AND source = ${source}
+                AND external_id = ${externalId}
+              ORDER BY scraped_at DESC
+              LIMIT ${limit}
+            `;
+          } else if (source) {
+            quoteRows = yield* sql<PriceQuoteRow>`
+              SELECT * FROM price_quotes
+              WHERE device_id = ${deviceId}
+                AND source = ${source}
+              ORDER BY scraped_at DESC
+              LIMIT ${limit}
+            `;
+          } else if (externalId) {
+            quoteRows = yield* sql<PriceQuoteRow>`
+              SELECT * FROM price_quotes
+              WHERE device_id = ${deviceId}
+                AND external_id = ${externalId}
+              ORDER BY scraped_at DESC
+              LIMIT ${limit}
+            `;
+          } else {
+            quoteRows = yield* sql<PriceQuoteRow>`
+              SELECT * FROM price_quotes
+              WHERE device_id = ${deviceId}
+              ORDER BY scraped_at DESC
+              LIMIT ${limit}
+            `;
+          }
+
+          return quoteRows.map((q) => ({
+            seller: q.seller ?? "Unknown",
+            price: q.price_minor_units,
+            variantKey: q.variant_key ?? undefined,
+            variantLabel: q.variant_label ?? undefined,
+            url: q.url ?? undefined,
+            isAvailable: q.is_available === 1,
+            externalId: q.external_id ?? undefined,
+            scrapedAt: q.scraped_at,
+          }));
+        }).pipe(
+          Effect.tapError((e) =>
+            Effect.logWarning("PriceService.getAllQuotes failed").pipe(
+              Effect.annotateLogs({ ...params, error: e }),
+            ),
+          ),
+          Effect.mapError(wrapSqlError),
         ),
     });
   }),

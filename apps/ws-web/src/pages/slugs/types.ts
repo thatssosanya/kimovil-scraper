@@ -130,6 +130,7 @@ export interface PriceOffer {
   url?: string;
   isAvailable?: boolean;
   externalId?: string;
+  scrapedAt: number;
 }
 
 // Price summary for a device
