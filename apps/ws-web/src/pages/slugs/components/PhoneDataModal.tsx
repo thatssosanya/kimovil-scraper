@@ -150,7 +150,6 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
     on(
       () => props.slug,
       () => {
-        setActiveTab(props.initialTab ?? "html");
         setHtml(null);
         setRawData(null);
         setAiData(null);
@@ -165,6 +164,18 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
         setYandexUrl("");
         setYandexError(null);
         setScrapeProgress(0);
+      },
+    ),
+  );
+
+  // Set active tab when initialTab changes (including on first open)
+  createEffect(
+    on(
+      () => props.initialTab,
+      (tab) => {
+        if (props.slug) {
+          setActiveTab(tab ?? "html");
+        }
       },
     ),
   );
