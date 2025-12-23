@@ -3,6 +3,7 @@ import { useSelection, useRowData, useActions } from "../context/devices-table.c
 import { DataStatusIcons } from "./DataStatusIcons";
 import { RowActionsMenu } from "./RowActionsMenu";
 import type { Device } from "../types";
+import type { TabId } from "./TabBar";
 
 interface DeviceRowProps {
   device: Device;
@@ -131,10 +132,14 @@ export function DeviceRow(props: DeviceRowProps) {
     }
   };
 
+  const handleOpenTab = (tab: TabId) => {
+    actions.openModal(props.device.slug, tab);
+  };
+
   return (
     <tr
       class={`
-        group transition-colors duration-150
+        group transition-colors duration-150 cursor-pointer
         ${isSelected() ? "bg-indigo-500/5" : "hover:bg-slate-800/30"}
         ${isCorrupted() ? "bg-rose-500/5" : ""}
       `}
@@ -170,8 +175,8 @@ export function DeviceRow(props: DeviceRowProps) {
       </td>
 
       {/* Data Status */}
-      <td class="px-4 py-2">
-        <DataStatusIcons status={status()} />
+      <td class="px-4 py-2" onClick={(e) => e.stopPropagation()}>
+        <DataStatusIcons status={status()} onOpenTab={handleOpenTab} />
       </td>
 
       {/* Queue Status */}

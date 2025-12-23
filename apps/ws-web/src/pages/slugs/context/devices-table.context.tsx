@@ -92,12 +92,14 @@ export function useRowData() {
 // ActionsContext - row and bulk actions
 // ============================================================================
 
+type TabId = "html" | "raw" | "ai" | "compare" | "prices";
+
 interface ActionsContextValue {
   queueScrape: (slug: string, mode: "fast" | "complex") => Promise<void>;
   clearAllData: (slug: string) => Promise<void>;
   clearRawData: (slug: string) => Promise<boolean>;
   clearAiData: (slug: string) => Promise<boolean>;
-  openModal: (slug: string) => void;
+  openModal: (slug: string, initialTab?: TabId) => void;
   fetchHtml: (slug: string) => Promise<{ html: string | null; error?: string }>;
   fetchRawData: (slug: string) => Promise<PhoneDataRaw | null>;
   fetchAiData: (slug: string) => Promise<PhoneDataAi | null>;
@@ -135,7 +137,7 @@ interface DevicesTableProviderProps {
   search: Accessor<string>;
   filter: Accessor<FilterType>;
   onFilterChange: (filter: FilterType) => void;
-  onModalOpen: (slug: string) => void;
+  onModalOpen: (slug: string, initialTab?: TabId) => void;
   onSelectionChange?: (slugs: string[]) => void;
 }
 

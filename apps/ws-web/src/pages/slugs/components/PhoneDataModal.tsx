@@ -7,6 +7,7 @@ import type { PhoneDataRaw, PhoneDataAi, ScrapeStatus, PriceOffer, DeviceSource 
 interface PhoneDataModalProps {
   slug: string | null;
   status: ScrapeStatus | null;
+  initialTab?: TabId;
   onClose: () => void;
   fetchHtml: (slug: string) => Promise<{ html: string | null }>;
   fetchRawData: (slug: string) => Promise<PhoneDataRaw | null>;
@@ -149,7 +150,7 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
     on(
       () => props.slug,
       () => {
-        setActiveTab("html");
+        setActiveTab(props.initialTab ?? "html");
         setHtml(null);
         setRawData(null);
         setAiData(null);

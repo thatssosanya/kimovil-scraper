@@ -1,5 +1,6 @@
 import { createSignal, onMount, Show } from "solid-js";
 import type { FilterType } from "./types";
+import type { TabId } from "./components/TabBar";
 import { useSlugsApi } from "./hooks/useSlugsApi";
 import { useBulkJobs } from "./hooks/useBulkJobs";
 import { Header } from "../../components/Header";
@@ -31,7 +32,8 @@ function SlugsContent(props: {
   limit: () => LimitOption;
   setLimit: (l: LimitOption) => void;
   modalSlug: () => string | null;
-  setModalSlug: (s: string | null) => void;
+  modalInitialTab: () => TabId | undefined;
+  setModalSlug: (s: string | null, tab?: TabId) => void;
   api: ReturnType<typeof useSlugsApi>;
   bulkJobs: ReturnType<typeof useBulkJobs>;
 }) {
@@ -86,7 +88,7 @@ function SlugsContent(props: {
   };
 
   const closeModal = () => {
-    props.setModalSlug(null);
+    props.setModalSlug(null, undefined);
   };
 
   const showErrorItems = async (jobId: string) => {
@@ -261,6 +263,7 @@ function SlugsContent(props: {
       <PhoneDataModal
         slug={props.modalSlug()}
         status={props.modalSlug() ? props.api.scrapeStatus()[props.modalSlug()!] ?? null : null}
+        initialTab={props.modalInitialTab()}
         onClose={closeModal}
         fetchHtml={props.api.openPreview}
         fetchRawData={props.api.fetchPhoneDataRaw}
@@ -296,6 +299,7 @@ export default function Slugs() {
   const [filter, setFilter] = createSignal<FilterType>("all");
   const [limit, setLimit] = createSignal<LimitOption>(500);
   const [modalSlug, setModalSlug] = createSignal<string | null>(null);
+  const [modalInitialTab, setModalInitialTab] = createSignal<TabId | undefined>(undefined);
 
   const api = useSlugsApi();
   const bulkJobs = useBulkJobs({
@@ -321,8 +325,14 @@ export default function Slugs() {
     api.fetchDevices(search(), newFilter, limit());
   };
 
-  const openModal = (slug: string) => {
+  const openModal = (slug: string, initialTab?: TabId) => {
     setModalSlug(slug);
+    setModalInitialTab(initialTab);
+  };
+  
+  const setModalSlugWithTab = (slug: string | null, tab?: TabId) => {
+    setModalSlug(slug);
+    setModalInitialTab(tab);
   };
 
   return (
@@ -346,7 +356,8 @@ export default function Slugs() {
             limit={limit}
             setLimit={setLimit}
             modalSlug={modalSlug}
-            setModalSlug={setModalSlug}
+            modalInitialTab={modalInitialTab}
+            setModalSlug={setModalSlugWithTab}
             api={api}
             bulkJobs={bulkJobs}
           />
