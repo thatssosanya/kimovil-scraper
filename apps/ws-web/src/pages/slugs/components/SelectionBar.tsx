@@ -224,7 +224,7 @@ export function SelectionBar(props: SelectionBarProps) {
               <div class="w-px h-6 bg-slate-600 mx-1" />
               <button
                 class="cursor-pointer px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white rounded-lg hover:bg-slate-700/50 transition-colors"
-                onClick={selection.clearSelection}
+                onClick={() => selection.clearSelection()}
               >
                 Cancel
               </button>
