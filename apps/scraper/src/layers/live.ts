@@ -15,6 +15,7 @@ import { DeviceRegistryServiceLive } from "../services/device-registry";
 import { EntityDataServiceLive } from "../services/entity-data";
 import { ScrapeRecordServiceLive } from "../services/scrape-record";
 import { PriceServiceLive } from "../services/price";
+import { SchedulerServiceLive } from "../services/scheduler";
 import { SqlClientLive, SchemaLive } from "../sql";
 
 const SearchServiceLayer = SearchServiceKimovil.pipe(
@@ -34,6 +35,12 @@ const BaseDataLayer = Layer.mergeAll(
   PriceServiceLive,
 ).pipe(Layer.provide(SqlLayer));
 
+// SchedulerService depends on JobQueueService, so layer it on top
+const SchedulerLayer = SchedulerServiceLive.pipe(
+  Layer.provide(BaseDataLayer),
+  Layer.provide(SqlLayer),
+);
+
 // PhoneDataService depends on DeviceRegistry + EntityData, so layer it on top
 const DataLayer = BaseDataLayer.pipe(
   Layer.provideMerge(PhoneDataServiceLive.pipe(Layer.provide(BaseDataLayer), Layer.provide(SqlLayer))),
@@ -51,6 +58,7 @@ export const LiveLayer = Layer.mergeAll(
   BrowserServiceLive,
   RobotServiceLive,
   DataLayer,
+  SchedulerLayer,
   SqlLayer,
 );
 

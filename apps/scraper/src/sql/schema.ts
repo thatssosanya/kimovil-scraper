@@ -562,6 +562,33 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
 
     yield* sql.withTransaction(migrateKimovilDevices(sql));
 
+    // Job schedules for recurring cron jobs
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS job_schedules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        source TEXT NOT NULL,
+        data_kind TEXT NOT NULL,
+        job_type TEXT NOT NULL DEFAULT 'scrape',
+        mode TEXT NOT NULL DEFAULT 'fast',
+        filter TEXT,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        cron_expression TEXT NOT NULL,
+        timezone TEXT NOT NULL DEFAULT 'UTC',
+        next_run_at INTEGER,
+        last_run_at INTEGER,
+        last_status TEXT,
+        last_error TEXT,
+        last_job_id TEXT,
+        locked_until INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )
+    `);
+
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_schedules_enabled ON job_schedules(enabled)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_schedules_next_run ON job_schedules(next_run_at)`);
+
     yield* Effect.logInfo("Schema initialized");
   });
 
