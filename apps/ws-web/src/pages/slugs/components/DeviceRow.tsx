@@ -148,12 +148,12 @@ export function DeviceRow(props: DeviceRowProps) {
       onClick={handleRowClick}
       onFocus={props.onFocus}
     >
-      {/* Checkbox */}
+      {/* Checkbox - always toggles, like cmd+click */}
       <td class="px-4 py-2" onClick={(e) => e.stopPropagation()}>
         <input
           type="checkbox"
           checked={isSelected()}
-          onChange={() => selection.handleRowClick(props.device.slug, props.index, new MouseEvent("click"))}
+          onChange={() => selection.toggleSingle(props.device.slug)}
           class="w-4 h-4 rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500/50 focus:ring-offset-0 cursor-pointer opacity-50 group-hover:opacity-100 transition-opacity"
         />
       </td>

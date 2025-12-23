@@ -115,6 +115,7 @@ export function createSelectionService() {
     selectedCount,
     selectedSlugs,
     clearSelection,
+    toggleSingle,
     handleRowClick,
     toggleAll,
     setSelection,

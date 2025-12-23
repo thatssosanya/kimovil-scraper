@@ -53,6 +53,7 @@ interface SelectionContextValue {
   isSelected: (slug: string) => boolean;
   selectedCount: Accessor<number>;
   handleRowClick: (slug: string, index: number, event: MouseEvent) => void;
+  toggleSingle: (slug: string) => void;
   toggleAll: () => void;
   clearSelection: () => void;
   selectedSlugs: Accessor<string[]>;
@@ -192,6 +193,10 @@ export const DevicesTableProvider: ParentComponent<DevicesTableProviderProps> = 
     selectedCount: () => selection.selectedCount(),
     handleRowClick: (slug: string, index: number, event: MouseEvent) => {
       selection.handleRowClick(slug, index, event, allSlugs());
+      props.onSelectionChange?.(selection.selectedSlugs());
+    },
+    toggleSingle: (slug: string) => {
+      selection.toggleSingle(slug);
       props.onSelectionChange?.(selection.selectedSlugs());
     },
     toggleAll: () => {
