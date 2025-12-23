@@ -1,7 +1,7 @@
 import "dotenv/config";
 import http from "http";
+import { Effect } from "effect";
 import { Elysia } from "elysia";
-import { node } from "@elysiajs/node";
 import { cors } from "@elysiajs/cors";
 
 import { config } from "./config";
@@ -9,6 +9,7 @@ import { log } from "./utils/logger";
 
 import { LiveRuntime } from "./layers/live";
 import { BulkJobManager } from "./services/bulk-job";
+import { runSchedulerLoop } from "./services/scheduler";
 
 import { createApiRoutes } from "./routes/api";
 import { createDebugRoutes } from "./routes/debug";
@@ -76,4 +77,11 @@ createWsServer(httpServer, bulkJobManager);
 httpServer.listen(config.port, () => {
   log.banner();
   bulkJobManager.resumeStuckJobs();
+  
+  LiveRuntime.runFork(
+    Effect.gen(function* () {
+      yield* Effect.logInfo("Scheduler loop started");
+      yield* runSchedulerLoop;
+    }),
+  );
 });
