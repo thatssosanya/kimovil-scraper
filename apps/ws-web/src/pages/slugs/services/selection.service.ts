@@ -24,7 +24,9 @@ export function createSelectionService() {
   };
 
   const clearSelection = () => {
-    setState("selected", {});
+    setState(produce((s) => {
+      s.selected = {};
+    }));
     setLastIndex(null);
   };
 
