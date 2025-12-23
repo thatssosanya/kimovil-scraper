@@ -1,4 +1,5 @@
 import { createSignal } from "solid-js";
+import { createStore, produce, reconcile } from "solid-js/store";
 import type {
   Device,
   SlugsResponse,
@@ -23,15 +24,37 @@ export function useSlugsApi() {
   const [scrapeStats, setScrapeStats] = createSignal<ScrapeStats | null>(null);
   const [loading, setLoading] = createSignal(false);
   const [stats, setStats] = createSignal<Stats | null>(null);
-  const [queueStatus, setQueueStatus] = createSignal<Record<string, QueueItem>>(
-    {},
-  );
-  const [scrapeStatus, setScrapeStatus] = createSignal<
+
+  const [scrapeStatusStore, setScrapeStatusStore] = createStore<
     Record<string, ScrapeStatus>
   >({});
-  const [queueLoading, setQueueLoading] = createSignal<Record<string, boolean>>(
-    {},
-  );
+  const [queueStatusStore, setQueueStatusStore] = createStore<
+    Record<string, QueueItem>
+  >({});
+  const [queueLoadingStore, setQueueLoadingStore] = createStore<
+    Record<string, boolean>
+  >({});
+
+  const scrapeStatus = () => scrapeStatusStore;
+  const queueStatus = () => queueStatusStore;
+  const queueLoading = () => queueLoadingStore;
+
+  const setScrapeStatus = (
+    fn: (prev: Record<string, ScrapeStatus>) => Record<string, ScrapeStatus>,
+  ) => {
+    setScrapeStatusStore(reconcile(fn(scrapeStatusStore)));
+  };
+  const setQueueStatus = (
+    fn: (prev: Record<string, QueueItem>) => Record<string, QueueItem>,
+  ) => {
+    setQueueStatusStore(reconcile(fn(queueStatusStore)));
+  };
+  const setQueueLoading = (
+    fn: (prev: Record<string, boolean>) => Record<string, boolean>,
+  ) => {
+    setQueueLoadingStore(reconcile(fn(queueLoadingStore)));
+  };
+
   const [verifyLoading, setVerifyLoading] = createSignal(false);
   const [clearLoading, setClearLoading] = createSignal(false);
   const [clearRawLoading, setClearRawLoading] = createSignal(false);
