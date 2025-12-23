@@ -219,6 +219,59 @@ const migrateJobsStatusConstraint = (
     );
   });
 
+const migrateDeviceSourcesRemoveUniqueConstraint = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    const rows = (yield* sql`
+      SELECT sql FROM sqlite_master
+      WHERE type = 'table' AND name = 'device_sources'
+    `) as Array<{ sql: string | null }>;
+
+    if (rows.length === 0 || !rows[0].sql) {
+      return;
+    }
+
+    const createSql = rows[0].sql;
+
+    if (!createSql.includes("UNIQUE (device_id, source)")) {
+      return;
+    }
+
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* sql.unsafe(`ALTER TABLE device_sources RENAME TO device_sources_old`);
+
+        yield* sql.unsafe(`
+          CREATE TABLE device_sources (
+            device_id TEXT NOT NULL REFERENCES devices(id),
+            source TEXT NOT NULL,
+            external_id TEXT NOT NULL,
+            url TEXT,
+            status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','missing','deleted','conflict')),
+            first_seen INTEGER NOT NULL DEFAULT (unixepoch()),
+            last_seen INTEGER NOT NULL DEFAULT (unixepoch()),
+            PRIMARY KEY (source, external_id)
+          )
+        `);
+
+        yield* sql.unsafe(`
+          INSERT INTO device_sources (device_id, source, external_id, url, status, first_seen, last_seen)
+          SELECT device_id, source, external_id, url, status, first_seen, last_seen
+          FROM device_sources_old
+        `);
+
+        yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_sources_device ON device_sources(device_id)`);
+
+        yield* sql.unsafe(`DROP TABLE device_sources_old`);
+      }),
+    );
+
+    yield* Effect.logInfo(
+      "Migrated device_sources: removed UNIQUE(device_id, source) constraint",
+    );
+  });
+
 const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlError> =>
   Effect.gen(function* () {
     // PRAGMA settings are run once at schema init. WAL mode persists in the database file
@@ -230,6 +283,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* migrateTableRename(sql, "bulk_jobs", "jobs");
 
     yield* migrateJobsStatusConstraint(sql);
+    yield* migrateDeviceSourcesRemoveUniqueConstraint(sql);
 
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS raw_html (
@@ -403,7 +457,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
       )
     `);
 
-    // Links devices to external sources
+    // Links devices to external sources (allows multiple links per device per source)
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS device_sources (
         device_id TEXT NOT NULL REFERENCES devices(id),
@@ -413,8 +467,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
         status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','missing','deleted','conflict')),
         first_seen INTEGER NOT NULL DEFAULT (unixepoch()),
         last_seen INTEGER NOT NULL DEFAULT (unixepoch()),
-        PRIMARY KEY (source, external_id),
-        UNIQUE (device_id, source)
+        PRIMARY KEY (source, external_id)
       )
     `);
 
@@ -500,7 +553,9 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* ensureColumn(sql, "price_quotes", "variant_key", "TEXT");
     yield* ensureColumn(sql, "price_quotes", "variant_label", "TEXT");
     yield* ensureColumn(sql, "price_quotes", "offer_id", "TEXT");
+    yield* ensureColumn(sql, "price_quotes", "external_id", "TEXT");
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_price_quotes_variant ON price_quotes(device_id, variant_key, scraped_at)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_price_quotes_link ON price_quotes(device_id, source, external_id, scraped_at)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_entity_data_raw_device ON entity_data_raw(device_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_entity_data_device ON entity_data(device_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_sources_device ON device_sources(device_id)`);

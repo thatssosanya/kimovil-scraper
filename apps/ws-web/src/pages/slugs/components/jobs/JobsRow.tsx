@@ -42,8 +42,8 @@ export function JobsRow(props: JobsRowProps) {
       </td>
       <td class="p-4">
         <JobTypeBadge
-          jobType={props.job.job.jobType}
-          batchStatus={props.job.job.batchStatus}
+          jobType={props.job.job.jobType ?? "scrape"}
+          batchStatus={props.job.job.batchStatus ?? undefined}
         />
       </td>
       <td class="p-4">

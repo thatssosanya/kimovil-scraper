@@ -1,4 +1,4 @@
-import { createSignal, onMount, onCleanup, createMemo, Show } from "solid-js";
+import { createSignal, onMount, createMemo, Show } from "solid-js";
 import type { FilterType } from "./types";
 import { useSlugsApi } from "./hooks/useSlugsApi";
 import { useBulkJobs } from "./hooks/useBulkJobs";

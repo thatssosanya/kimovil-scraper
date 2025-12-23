@@ -46,6 +46,7 @@ export interface PriceService {
     source: string;
     offers: PriceQuoteInput[];
     scrapeId?: number;
+    externalId?: string;
   }) => Effect.Effect<number, PriceServiceError>;
 
   readonly updatePriceSummary: (
@@ -56,6 +57,7 @@ export interface PriceService {
     deviceId: string;
     days?: number;
     variantKey?: string;
+    externalId?: string;
   }) => Effect.Effect<PriceHistoryPoint[], PriceServiceError>;
 
   readonly getCurrentPrices: (
@@ -77,6 +79,7 @@ type PriceQuoteRow = {
   variant_label: string | null;
   url: string | null;
   offer_id: string | null;
+  external_id: string | null;
   scraped_at: number;
   scrape_id: number | null;
   is_available: number;
@@ -110,19 +113,19 @@ export const PriceServiceLive = Layer.effect(
       savePriceQuotes: (params) =>
         sql.withTransaction(
           Effect.gen(function* () {
-            const { deviceId, source, offers, scrapeId } = params;
+            const { deviceId, source, offers, scrapeId, externalId } = params;
             let count = 0;
 
             for (const offer of offers) {
               yield* sql`
                 INSERT INTO price_quotes (
                   device_id, source, seller, seller_id, price_minor_units, currency,
-                  variant_key, variant_label, url, offer_id, scraped_at, scrape_id, is_available
+                  variant_key, variant_label, url, offer_id, external_id, scraped_at, scrape_id, is_available
                 ) VALUES (
                   ${deviceId}, ${source}, ${offer.seller}, ${offer.sellerId ?? null},
                   ${offer.priceMinorUnits}, ${offer.currency},
                   ${offer.variantKey ?? null}, ${offer.variantLabel ?? null},
-                  ${offer.url ?? null}, ${offer.offerId ?? null},
+                  ${offer.url ?? null}, ${offer.offerId ?? null}, ${externalId ?? null},
                   unixepoch(), ${scrapeId ?? null}, ${offer.isAvailable ? 1 : 0}
                 )
               `;
@@ -202,10 +205,28 @@ export const PriceServiceLive = Layer.effect(
         ),
 
       getPriceHistory: (params) => {
-        const { deviceId, days = 30, variantKey } = params;
+        const { deviceId, days = 30, variantKey, externalId } = params;
 
-        const baseQuery = variantKey
-          ? sql<PriceHistoryRow>`
+        const getQuery = () => {
+          if (variantKey && externalId) {
+            return sql<PriceHistoryRow>`
+              SELECT 
+                date(scraped_at, 'unixepoch') as date,
+                MIN(price_minor_units) as min_price,
+                AVG(price_minor_units) as avg_price,
+                MAX(price_minor_units) as max_price,
+                COUNT(*) as count
+              FROM price_quotes
+              WHERE device_id = ${deviceId}
+                AND is_available = 1
+                AND scraped_at >= unixepoch() - ${days * 86400}
+                AND variant_key = ${variantKey}
+                AND external_id = ${externalId}
+              GROUP BY date(scraped_at, 'unixepoch')
+              ORDER BY date DESC
+            `;
+          } else if (variantKey) {
+            return sql<PriceHistoryRow>`
               SELECT 
                 date(scraped_at, 'unixepoch') as date,
                 MIN(price_minor_units) as min_price,
@@ -219,8 +240,25 @@ export const PriceServiceLive = Layer.effect(
                 AND variant_key = ${variantKey}
               GROUP BY date(scraped_at, 'unixepoch')
               ORDER BY date DESC
-            `
-          : sql<PriceHistoryRow>`
+            `;
+          } else if (externalId) {
+            return sql<PriceHistoryRow>`
+              SELECT 
+                date(scraped_at, 'unixepoch') as date,
+                MIN(price_minor_units) as min_price,
+                AVG(price_minor_units) as avg_price,
+                MAX(price_minor_units) as max_price,
+                COUNT(*) as count
+              FROM price_quotes
+              WHERE device_id = ${deviceId}
+                AND is_available = 1
+                AND scraped_at >= unixepoch() - ${days * 86400}
+                AND external_id = ${externalId}
+              GROUP BY date(scraped_at, 'unixepoch')
+              ORDER BY date DESC
+            `;
+          } else {
+            return sql<PriceHistoryRow>`
               SELECT 
                 date(scraped_at, 'unixepoch') as date,
                 MIN(price_minor_units) as min_price,
@@ -234,8 +272,10 @@ export const PriceServiceLive = Layer.effect(
               GROUP BY date(scraped_at, 'unixepoch')
               ORDER BY date DESC
             `;
+          }
+        };
 
-        return baseQuery.pipe(
+        return getQuery().pipe(
           Effect.map((rows) =>
             rows.map((r) => ({
               date: r.date,

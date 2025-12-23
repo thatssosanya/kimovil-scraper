@@ -1,14 +1,10 @@
 #!/usr/bin/env npx tsx
 /**
  * Convert Firefox cookies from SQLite JSON export to Playwright format
- * 
+ *
  * Usage:
- *   1. Export cookies from Firefox:
- *      sqlite3 -json ~/Library/Application\ Support/Firefox/Profiles/*/cookies.sqlite.bak \
- *        "SELECT name, value, host, path, expiry, isSecure, isHttpOnly, sameSite FROM moz_cookies WHERE host LIKE '%yandex%'" \
- *        > /tmp/yandex-cookies-raw.json
- *   2. Run this script:
- *      npx tsx scripts/convert-firefox-cookies.ts
+ *   1. Export cookies from Firefox using sqlite3
+ *   2. Run: npx tsx scripts/convert-firefox-cookies.ts
  */
 
 import { readFileSync, writeFileSync } from "fs";

@@ -702,11 +702,17 @@ const createHandlers = (
       }
 
       if (params.deviceId) {
-        // Get actual device ID from slug
         const deviceRegistry = yield* DeviceRegistryService;
         const device = yield* deviceRegistry.getDeviceBySlug(params.deviceId);
         
         if (device) {
+          yield* deviceRegistry.linkDeviceToSource({
+            deviceId: device.id,
+            source: "yandex_market",
+            externalId,
+            url: params.url,
+          });
+
           yield* entityData.saveRawData({
             deviceId: device.id,
             source: "yandex_market",
@@ -717,6 +723,7 @@ const createHandlers = (
           yield* priceService.savePriceQuotes({
             deviceId: device.id,
             source: "yandex_market",
+            externalId,
             offers: offers.map((o) => ({
               seller: o.sellerName,
               sellerId: o.sellerId,

@@ -362,7 +362,7 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
       id: "prices" as TabId,
       label: "Prices",
       icon: "prices" as const,
-      available: (prices()?.offerCount ?? 0) > 0,
+      available: (prices()?.quotes?.length ?? 0) > 0,
       enabled: true,
     },
   ];
