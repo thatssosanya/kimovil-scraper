@@ -8,6 +8,7 @@ import { PhoneDataService } from "../services/phone-data";
 import { JobQueueService, type ScrapeMode } from "../services/job-queue";
 import { BulkJobManager } from "../services/bulk-job";
 import { DeviceRegistryService } from "../services/device-registry";
+import { SchedulerService } from "../services/scheduler";
 import { log } from "../utils/logger";
 import { LiveRuntime } from "../layers/live";
 
@@ -536,4 +537,220 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
       });
 
       return LiveRuntime.runPromise(program);
+    })
+    .get("/schedules", async () => {
+      const schedules = await LiveRuntime.runPromise(
+        SchedulerService.pipe(Effect.flatMap((s) => s.listSchedules())),
+      );
+      return schedules;
+    })
+    .get("/schedules/:id", async ({ params, set }) => {
+      const id = Number(params.id);
+      if (Number.isNaN(id) || id < 1) {
+        set.status = 400;
+        return { error: "Invalid schedule ID" };
+      }
+      const schedule = await LiveRuntime.runPromise(
+        SchedulerService.pipe(
+          Effect.flatMap((s) => s.getSchedule(id)),
+        ),
+      );
+      if (!schedule) {
+        set.status = 404;
+        return { error: "Schedule not found" };
+      }
+      return schedule;
+    })
+    .post("/schedules", async ({ body, set }) => {
+      const input = body as {
+        name: string;
+        source: string;
+        dataKind: string;
+        cronExpression: string;
+        jobType?: string;
+        mode?: string;
+        filter?: string | null;
+        timezone?: string;
+      };
+      if (!input.name || !input.source || !input.dataKind || !input.cronExpression) {
+        set.status = 400;
+        return { error: "name, source, dataKind, and cronExpression are required" };
+      }
+      // Validate jobType and mode if provided
+      const validJobTypes = ["scrape", "process_raw", "process_ai"];
+      const validModes = ["fast", "complex"];
+      if (input.jobType && !validJobTypes.includes(input.jobType)) {
+        set.status = 400;
+        return { error: `Invalid jobType. Must be one of: ${validJobTypes.join(", ")}` };
+      }
+      if (input.mode && !validModes.includes(input.mode)) {
+        set.status = 400;
+        return { error: `Invalid mode. Must be one of: ${validModes.join(", ")}` };
+      }
+      const schedule = await LiveRuntime.runPromise(
+        SchedulerService.pipe(
+          Effect.flatMap((s) =>
+            s.upsertSchedule({
+              name: input.name,
+              source: input.source,
+              dataKind: input.dataKind,
+              cronExpression: input.cronExpression,
+              jobType: input.jobType as "scrape" | "process_raw" | "process_ai" | undefined,
+              mode: input.mode as "fast" | "complex" | undefined,
+              filter: input.filter,
+              timezone: input.timezone,
+            }),
+          ),
+        ),
+      );
+      set.status = 201;
+      return schedule;
+    })
+    .put("/schedules/:id", async ({ params, body, set }) => {
+      const id = Number(params.id);
+      if (Number.isNaN(id) || id < 1) {
+        set.status = 400;
+        return { error: "Invalid schedule ID" };
+      }
+      const input = body as {
+        name: string;
+        source: string;
+        dataKind: string;
+        cronExpression: string;
+        jobType?: string;
+        mode?: string;
+        filter?: string | null;
+        timezone?: string;
+      };
+      if (!input.name || !input.source || !input.dataKind || !input.cronExpression) {
+        set.status = 400;
+        return { error: "name, source, dataKind, and cronExpression are required" };
+      }
+      // Validate jobType and mode if provided
+      const validJobTypes = ["scrape", "process_raw", "process_ai"];
+      const validModes = ["fast", "complex"];
+      if (input.jobType && !validJobTypes.includes(input.jobType)) {
+        set.status = 400;
+        return { error: `Invalid jobType. Must be one of: ${validJobTypes.join(", ")}` };
+      }
+      if (input.mode && !validModes.includes(input.mode)) {
+        set.status = 400;
+        return { error: `Invalid mode. Must be one of: ${validModes.join(", ")}` };
+      }
+      const existing = await LiveRuntime.runPromise(
+        SchedulerService.pipe(
+          Effect.flatMap((s) => s.getSchedule(id)),
+        ),
+      );
+      if (!existing) {
+        set.status = 404;
+        return { error: "Schedule not found" };
+      }
+      const schedule = await LiveRuntime.runPromise(
+        SchedulerService.pipe(
+          Effect.flatMap((s) =>
+            s.upsertSchedule({
+              id,
+              name: input.name,
+              source: input.source,
+              dataKind: input.dataKind,
+              cronExpression: input.cronExpression,
+              jobType: input.jobType as "scrape" | "process_raw" | "process_ai" | undefined,
+              mode: input.mode as "fast" | "complex" | undefined,
+              filter: input.filter,
+              timezone: input.timezone,
+            }),
+          ),
+        ),
+      );
+      return schedule;
+    })
+    .delete("/schedules/:id", async ({ params, set }) => {
+      const id = Number(params.id);
+      if (Number.isNaN(id) || id < 1) {
+        set.status = 400;
+        return { error: "Invalid schedule ID" };
+      }
+      const existing = await LiveRuntime.runPromise(
+        SchedulerService.pipe(
+          Effect.flatMap((s) => s.getSchedule(id)),
+        ),
+      );
+      if (!existing) {
+        set.status = 404;
+        return { error: "Schedule not found" };
+      }
+      await LiveRuntime.runPromise(
+        SchedulerService.pipe(
+          Effect.flatMap((s) => s.deleteSchedule(id)),
+        ),
+      );
+      set.status = 204;
+      return null;
+    })
+    .post("/schedules/:id/enable", async ({ params, set }) => {
+      const id = Number(params.id);
+      if (Number.isNaN(id) || id < 1) {
+        set.status = 400;
+        return { error: "Invalid schedule ID" };
+      }
+      const existing = await LiveRuntime.runPromise(
+        SchedulerService.pipe(
+          Effect.flatMap((s) => s.getSchedule(id)),
+        ),
+      );
+      if (!existing) {
+        set.status = 404;
+        return { error: "Schedule not found" };
+      }
+      await LiveRuntime.runPromise(
+        SchedulerService.pipe(
+          Effect.flatMap((s) => s.enableSchedule(id)),
+        ),
+      );
+      return { success: true };
+    })
+    .post("/schedules/:id/disable", async ({ params, set }) => {
+      const id = Number(params.id);
+      if (Number.isNaN(id) || id < 1) {
+        set.status = 400;
+        return { error: "Invalid schedule ID" };
+      }
+      const existing = await LiveRuntime.runPromise(
+        SchedulerService.pipe(
+          Effect.flatMap((s) => s.getSchedule(id)),
+        ),
+      );
+      if (!existing) {
+        set.status = 404;
+        return { error: "Schedule not found" };
+      }
+      await LiveRuntime.runPromise(
+        SchedulerService.pipe(
+          Effect.flatMap((s) => s.disableSchedule(id)),
+        ),
+      );
+      return { success: true };
+    })
+    .post("/schedules/:id/trigger", async ({ params, set }) => {
+      const id = Number(params.id);
+      if (Number.isNaN(id) || id < 1) {
+        set.status = 400;
+        return { error: "Invalid schedule ID" };
+      }
+      const existing = await LiveRuntime.runPromise(
+        SchedulerService.pipe(
+          Effect.flatMap((s) => s.getSchedule(id)),
+        ),
+      );
+      if (!existing) {
+        set.status = 404;
+        return { error: "Schedule not found" };
+      }
+      const jobId = await LiveRuntime.runPromise(
+        SchedulerService.pipe(
+          Effect.flatMap((s) => s.triggerNow(id)),
+        ),
+      );
+      return { jobId };
     });
