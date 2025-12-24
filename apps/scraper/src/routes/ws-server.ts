@@ -559,6 +559,7 @@ const createHandlers = (
         request.params,
       );
       const jobQueue = yield* JobQueueService;
+      const browserService = yield* BrowserService;
 
       const job = yield* jobQueue.getJob(params.jobId);
       if (!job) {
@@ -570,6 +571,8 @@ const createHandlers = (
 
       const state = bulkJobManager.getJobState(params.jobId);
       state.workerCount = Math.max(1, Math.min(50, params.workerCount));
+      
+      yield* browserService.resizePool(state.workerCount);
 
       const stats = yield* jobQueue.getJobStats(params.jobId);
       const timeout = yield* jobQueue.getTimeoutStats(params.jobId);

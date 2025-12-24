@@ -387,7 +387,7 @@ export function PalachPriceWidget(props: PalachPriceWidgetProps) {
                       hot: "text-[hsl(25,95%,53%)]/70",
                       new: "text-[hsl(45,93%,47%)]/70",
                     };
-                    const indicatorMap: Record<ArrowVariant, { symbol: string; text: string } | null> = {
+                    const indicatorMap: Record<ArrowVariant, { symbol: string | null; text: string } | null> = {
                       neutral: null,
                       up: { symbol: "↑", text: "Подорожал на 1 700 ₽" },
                       down: { symbol: "↓", text: "Подешевел на 650 ₽" },

@@ -665,9 +665,8 @@ const scrapeFastImpl = (
     });
     yield* Effect.sleep(RATE_LIMIT_DELAY_MS);
 
-    yield* Effect.scoped(
+    yield* deps.browserService.withPooledBrowserPage((page) =>
       Effect.gen(function* () {
-        const browser = yield* deps.browserService.createBrowserScoped();
         const browserMs = elapsed();
 
         emit({
@@ -679,10 +678,9 @@ const scrapeFastImpl = (
         emit({
           type: "log",
           level: "info",
-          message: `Браузер запущен за ${browserMs}ms`,
+          message: `Браузер из пула за ${browserMs}ms`,
         });
 
-        const page = yield* createPageScoped(browser);
         yield* deps.browserService.abortExtraResources(page);
 
         let lastError: ScrapeError | null = null;
