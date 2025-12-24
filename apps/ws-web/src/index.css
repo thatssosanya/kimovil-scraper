@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+@custom-variant dark {
+  &:where(.dark, .dark *) {
+    @slot;
+  }
+}
+
 @layer utilities {
   .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
@@ -9,11 +15,11 @@
     background: transparent;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background-color: #334155;
+    @apply bg-zinc-300 dark:bg-slate-600;
     border-radius: 3px;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: #475569;
+    @apply bg-zinc-400 dark:bg-slate-500;
   }
 }
 

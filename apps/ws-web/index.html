@@ -5,8 +5,16 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kimovil Scraper Dashboard</title>
+    <script>
+      // Prevent FOUC by applying theme before render
+      document.documentElement.classList.toggle(
+        'dark',
+        localStorage.getItem('theme-preference') === 'dark' ||
+          (!localStorage.getItem('theme-preference') && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      );
+    </script>
   </head>
-  <body class="h-full">
+  <body class="h-full bg-zinc-50 text-zinc-900 dark:bg-slate-950 dark:text-slate-200">
     <div id="root" class="h-screen"></div>
     <script type="module" src="/src/index.tsx"></script>
   </body>

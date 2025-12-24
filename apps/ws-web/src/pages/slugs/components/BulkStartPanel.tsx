@@ -72,9 +72,9 @@ export function BulkStartPanel(props: BulkStartPanelProps) {
   const colors = () => colorClasses[currentConfig().color];
 
   return (
-    <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+    <div class="bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-xl overflow-hidden">
       {/* Job type tabs */}
-      <div class="flex border-b border-slate-800">
+      <div class="flex border-b border-zinc-200 dark:border-slate-800">
         <For each={jobConfigs}>
           {(config) => {
             const isActive = () => activeJob() === config.type;
@@ -83,7 +83,7 @@ export function BulkStartPanel(props: BulkStartPanelProps) {
               <button
                 class={`
                   flex-1 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-all cursor-pointer
-                  ${isActive() ? `${clr.bg} text-white` : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"}
+                  ${isActive() ? `${clr.bg} text-white` : "text-zinc-500 dark:text-slate-400 hover:text-zinc-700 dark:hover:text-slate-200 hover:bg-zinc-100 dark:hover:bg-slate-800/50"}
                 `}
                 onClick={() => setActiveJob(config.type)}
               >
@@ -96,8 +96,8 @@ export function BulkStartPanel(props: BulkStartPanelProps) {
 
       {/* Filter buttons */}
       <div class="flex items-center justify-between px-4 py-3">
-        <div class="flex items-center gap-2 text-sm text-slate-400">
-          <span class="font-medium text-slate-300">Start Bulk Job</span>
+        <div class="flex items-center gap-2 text-sm text-zinc-500 dark:text-slate-400">
+          <span class="font-medium text-zinc-700 dark:text-slate-300">Start Bulk Job</span>
           <Show when={!props.wsConnected}>
             <span class="text-[10px] text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
               Offline
@@ -113,7 +113,7 @@ export function BulkStartPanel(props: BulkStartPanelProps) {
                   disabled:opacity-50 disabled:cursor-not-allowed
                   ${idx() === 0
                     ? `${colors().bg} ${colors().hover} text-white`
-                    : "bg-slate-700 hover:bg-slate-600 text-white"
+                    : "bg-zinc-200 dark:bg-slate-700 hover:bg-zinc-300 dark:hover:bg-slate-600 text-zinc-900 dark:text-white"
                   }
                 `}
                 onClick={() =>

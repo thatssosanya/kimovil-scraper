@@ -19,29 +19,29 @@ interface StatusBadgeProps {
 function StatusBadge(props: StatusBadgeProps) {
   const colorClasses = {
     slate: {
-      active: "bg-slate-800/80 text-slate-300 border-slate-700",
-      activeHover: "hover:bg-slate-700/80 hover:text-slate-200",
-      inactive: "bg-transparent text-slate-700 border-transparent",
+      active: "bg-zinc-100 dark:bg-slate-800/80 text-zinc-600 dark:text-slate-300 border-zinc-300 dark:border-slate-700",
+      activeHover: "hover:bg-zinc-200 dark:hover:bg-slate-700/80 hover:text-zinc-700 dark:hover:text-slate-200",
+      inactive: "bg-transparent text-zinc-300 dark:text-slate-700 border-transparent",
     },
     cyan: {
-      active: "bg-cyan-950/60 text-cyan-400 border-cyan-800/50",
-      activeHover: "hover:bg-cyan-900/60 hover:text-cyan-300",
-      inactive: "bg-transparent text-slate-700 border-transparent",
+      active: "bg-cyan-50 dark:bg-cyan-950/60 text-cyan-600 dark:text-cyan-400 border-cyan-200 dark:border-cyan-800/50",
+      activeHover: "hover:bg-cyan-100 dark:hover:bg-cyan-900/60 hover:text-cyan-700 dark:hover:text-cyan-300",
+      inactive: "bg-transparent text-zinc-300 dark:text-slate-700 border-transparent",
     },
     violet: {
-      active: "bg-violet-950/60 text-violet-400 border-violet-800/50",
-      activeHover: "hover:bg-violet-900/60 hover:text-violet-300",
-      inactive: "bg-transparent text-slate-700 border-transparent",
+      active: "bg-violet-50 dark:bg-violet-950/60 text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800/50",
+      activeHover: "hover:bg-violet-100 dark:hover:bg-violet-900/60 hover:text-violet-700 dark:hover:text-violet-300",
+      inactive: "bg-transparent text-zinc-300 dark:text-slate-700 border-transparent",
     },
     emerald: {
-      active: "bg-emerald-950/60 text-emerald-400 border-emerald-800/50",
-      activeHover: "hover:bg-emerald-900/60 hover:text-emerald-300",
-      inactive: "bg-transparent text-slate-700 border-transparent",
+      active: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50",
+      activeHover: "hover:bg-emerald-100 dark:hover:bg-emerald-900/60 hover:text-emerald-700 dark:hover:text-emerald-300",
+      inactive: "bg-transparent text-zinc-300 dark:text-slate-700 border-transparent",
     },
     rose: {
-      active: "bg-rose-950/60 text-rose-400 border-rose-800/50",
-      activeHover: "hover:bg-rose-900/60 hover:text-rose-300",
-      inactive: "bg-transparent text-slate-700 border-transparent",
+      active: "bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50",
+      activeHover: "hover:bg-rose-100 dark:hover:bg-rose-900/60 hover:text-rose-700 dark:hover:text-rose-300",
+      inactive: "bg-transparent text-zinc-300 dark:text-slate-700 border-transparent",
     },
   };
 
@@ -82,7 +82,7 @@ export function DataStatusIcons(props: DataStatusIconsProps) {
   };
 
   return (
-    <div class="flex items-center w-full rounded-md overflow-hidden border border-slate-800/50">
+    <div class="flex items-center w-full rounded-md overflow-hidden border border-zinc-200 dark:border-slate-800/50">
       {/* HTML */}
       <StatusBadge
         active={!!status()?.hasHtml}

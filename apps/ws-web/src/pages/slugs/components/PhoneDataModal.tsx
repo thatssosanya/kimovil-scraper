@@ -66,12 +66,12 @@ function ProcessButton(props: ProcessButtonProps) {
       `}
     >
       <Show when={!props.loading}>
-        <div class="w-12 h-12 rounded-xl bg-slate-800/50 flex items-center justify-center">
+        <div class="w-12 h-12 rounded-xl bg-zinc-100 dark:bg-slate-800/50 flex items-center justify-center">
           {cfg.icon}
         </div>
         <div class="text-center">
           <div class="font-semibold">{cfg.label}</div>
-          <div class="text-xs text-slate-500 mt-1">{cfg.description}</div>
+          <div class="text-xs text-zinc-500 dark:text-slate-500 mt-1">{cfg.description}</div>
         </div>
       </Show>
       <Show when={props.loading}>
@@ -90,13 +90,13 @@ function EmptyStateWithAction(props: {
 }) {
   return (
     <div class="flex-1 flex flex-col items-center justify-center p-8 min-h-[50vh]">
-      <div class="w-16 h-16 rounded-2xl bg-slate-800/50 flex items-center justify-center mb-4">
-        <svg class="h-8 w-8 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+      <div class="w-16 h-16 rounded-2xl bg-zinc-100 dark:bg-slate-800/50 flex items-center justify-center mb-4">
+        <svg class="h-8 w-8 text-zinc-400 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
         </svg>
       </div>
-      <h3 class="text-base font-medium text-slate-300 mb-1">{props.title}</h3>
-      <p class="text-sm text-slate-500 text-center max-w-xs mb-6">{props.description}</p>
+      <h3 class="text-base font-medium text-zinc-700 dark:text-slate-300 mb-1">{props.title}</h3>
+      <p class="text-sm text-zinc-500 dark:text-slate-500 text-center max-w-xs mb-6">{props.description}</p>
       <Show when={props.canProcess}>
         {props.children}
       </Show>
@@ -422,20 +422,20 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
   return (
     <Show when={props.slug}>
       <div
-        class="fixed inset-0 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+        class="fixed inset-0 bg-white/90 dark:bg-slate-950/90 backdrop-blur-sm flex items-center justify-center z-50 p-4"
         onClick={(e) => e.target === e.currentTarget && props.onClose()}
       >
-        <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl shadow-black/50">
+        <div class="bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-2xl w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl shadow-zinc-300/50 dark:shadow-black/50">
           {/* Header */}
-          <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+          <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-slate-800">
             <div class="flex items-center gap-6">
               <div class="flex items-center gap-3">
                 <div class="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center">
-                  <svg class="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <svg class="w-4 h-4 text-indigo-500 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" />
                   </svg>
                 </div>
-                <span class="font-mono text-sm text-slate-300 bg-slate-800/50 px-2 py-1 rounded">
+                <span class="font-mono text-sm text-zinc-700 dark:text-slate-300 bg-zinc-100 dark:bg-slate-800/50 px-2 py-1 rounded">
                   {props.slug}
                 </span>
               </div>
@@ -446,7 +446,7 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
               />
             </div>
             <button
-              class="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+              class="p-2 text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
               onClick={props.onClose}
             >
               <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -566,9 +566,9 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
 
             {/* Compare Tab */}
             <Show when={activeTab() === "compare"}>
-              <div class="absolute inset-0 grid grid-cols-2 divide-x divide-slate-800 overflow-hidden">
+              <div class="absolute inset-0 grid grid-cols-2 divide-x divide-zinc-200 dark:divide-slate-800 overflow-hidden">
                 <div class="relative overflow-hidden">
-                  <div class="absolute top-3 left-3 z-10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider bg-cyan-500/10 text-cyan-400 rounded ring-1 ring-cyan-500/30">
+                  <div class="absolute top-3 left-3 z-10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider bg-cyan-500/10 text-cyan-500 dark:text-cyan-400 rounded ring-1 ring-cyan-500/30">
                     Raw Data
                   </div>
                   <JsonViewer
@@ -578,7 +578,7 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
                   />
                 </div>
                 <div class="relative overflow-hidden">
-                  <div class="absolute top-3 left-3 z-10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider bg-violet-500/10 text-violet-400 rounded ring-1 ring-violet-500/30">
+                  <div class="absolute top-3 left-3 z-10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider bg-violet-500/10 text-violet-500 dark:text-violet-400 rounded ring-1 ring-violet-500/30">
                     AI Data
                   </div>
                   <JsonViewer

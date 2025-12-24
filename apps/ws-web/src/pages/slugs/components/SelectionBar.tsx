@@ -101,7 +101,7 @@ export function SelectionBar(props: SelectionBarProps) {
   return (
     <Show when={selectedCount() > 0}>
       <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-full max-w-5xl px-4 animate-in slide-in-from-bottom-4 duration-300">
-        <div class="bg-slate-800/95 backdrop-blur-md border border-slate-700 p-4 rounded-2xl shadow-2xl">
+        <div class="bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border border-zinc-200 dark:border-slate-700 p-4 rounded-2xl shadow-2xl">
           <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
             {/* Selection info */}
             <div class="flex items-center gap-3">
@@ -109,16 +109,16 @@ export function SelectionBar(props: SelectionBarProps) {
                 {selectedCount()}
               </div>
               <div class="text-sm">
-                <span class="text-white font-medium">Selected</span>
-                <div class="text-[10px] text-slate-400 flex flex-wrap gap-x-2">
+                <span class="text-zinc-900 dark:text-white font-medium">Selected</span>
+                <div class="text-[10px] text-zinc-500 dark:text-slate-400 flex flex-wrap gap-x-2">
                   <Show when={unscrapedCount() > 0}>
-                    <span class="text-slate-500">{unscrapedCount()} no HTML</span>
+                    <span class="text-zinc-400 dark:text-slate-500">{unscrapedCount()} no HTML</span>
                   </Show>
                   <Show when={needsExtractionCount() > 0}>
-                    <span class="text-cyan-400">{needsExtractionCount()} need extract</span>
+                    <span class="text-cyan-500 dark:text-cyan-400">{needsExtractionCount()} need extract</span>
                   </Show>
                   <Show when={needsAiCount() > 0}>
-                    <span class="text-violet-400">{needsAiCount()} need AI</span>
+                    <span class="text-violet-500 dark:text-violet-400">{needsAiCount()} need AI</span>
                   </Show>
                 </div>
               </div>
@@ -164,7 +164,7 @@ export function SelectionBar(props: SelectionBarProps) {
 
               {/* Verify & Clear */}
               <Show when={scrapedCount() > 0}>
-                <div class="w-px h-6 bg-slate-600 mx-1" />
+                <div class="w-px h-6 bg-zinc-300 dark:bg-slate-600 mx-1" />
                 <button
                   class="cursor-pointer px-3 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white rounded-lg transition-all active:scale-95 disabled:opacity-50"
                   onClick={handleVerify}
@@ -183,7 +183,7 @@ export function SelectionBar(props: SelectionBarProps) {
 
               {/* Clear Raw/AI Data */}
               <Show when={hasRawCount() > 0 || hasAiCount() > 0}>
-                <div class="w-px h-6 bg-slate-600 mx-1" />
+                <div class="w-px h-6 bg-zinc-300 dark:bg-slate-600 mx-1" />
                 <Show when={hasRawCount() > 0}>
                   <button
                     class="cursor-pointer px-3 py-1.5 text-xs font-semibold bg-cyan-700/80 hover:bg-cyan-600 text-white rounded-lg transition-all active:scale-95 disabled:opacity-50 ring-1 ring-cyan-500/30"
@@ -221,9 +221,9 @@ export function SelectionBar(props: SelectionBarProps) {
               </Show>
 
               {/* Cancel */}
-              <div class="w-px h-6 bg-slate-600 mx-1" />
+              <div class="w-px h-6 bg-zinc-300 dark:bg-slate-600 mx-1" />
               <button
-                class="cursor-pointer px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white rounded-lg hover:bg-slate-700/50 transition-colors"
+                class="cursor-pointer px-3 py-1.5 text-xs font-medium text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-700/50 transition-colors"
                 onClick={() => selection.clearSelection()}
               >
                 Cancel

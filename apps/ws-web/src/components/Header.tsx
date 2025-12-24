@@ -1,4 +1,5 @@
 import { Show, createSignal } from "solid-js";
+import { theme, toggleTheme } from "../stores/theme";
 
 interface HeaderProps {
   currentPage: "scraper" | "database" | "widgets";
@@ -40,6 +41,27 @@ function Logo() {
   );
 }
 
+function ThemeToggle() {
+  return (
+    <button
+      onClick={toggleTheme}
+      class="p-2 rounded-lg transition-colors cursor-pointer bg-zinc-100 hover:bg-zinc-200 dark:bg-white/5 dark:hover:bg-white/10 text-zinc-600 dark:text-slate-300"
+      title={theme() === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      <Show when={theme() === "dark"}>
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+        </svg>
+      </Show>
+      <Show when={theme() === "light"}>
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+        </svg>
+      </Show>
+    </button>
+  );
+}
+
 export function Header(props: HeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = createSignal(false);
 
@@ -52,7 +74,7 @@ export function Header(props: HeaderProps) {
   return (
     <header class="relative z-50">
       {/* Glass background */}
-      <div class="absolute inset-0 bg-slate-950/80 backdrop-blur-md border-b border-white/5" />
+      <div class="absolute inset-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-md border-b border-zinc-200 dark:border-white/5" />
 
       <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex items-center justify-between h-16">
@@ -60,7 +82,7 @@ export function Header(props: HeaderProps) {
           <div class="flex-shrink-0 flex items-center gap-3">
             <a href="/" class="flex items-center gap-3 group">
               <Logo />
-              <span class="text-lg font-bold tracking-tight text-white group-hover:text-indigo-300 transition-colors">
+              <span class="text-lg font-bold tracking-tight text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors">
                 P-Scraper
               </span>
             </a>
@@ -76,8 +98,8 @@ export function Header(props: HeaderProps) {
                   class={`
                     px-3 py-2 rounded-md text-sm font-medium transition-all duration-200
                     ${isActive 
-                      ? "text-white bg-white/10" 
-                      : "text-slate-400 hover:text-white hover:bg-white/5"
+                      ? "text-zinc-900 dark:text-white bg-zinc-200 dark:bg-white/10" 
+                      : "text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5"
                     }
                   `}
                 >
@@ -95,12 +117,12 @@ export function Header(props: HeaderProps) {
                 class={`
                   hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium border
                   ${props.status === "Connected"
-                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                    : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                    : "bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400"
                   }
                 `}
               >
-                <span class={`h-1.5 w-1.5 rounded-full ${props.status === "Connected" ? "bg-emerald-400" : "bg-rose-400"}`} />
+                <span class={`h-1.5 w-1.5 rounded-full ${props.status === "Connected" ? "bg-emerald-500 dark:bg-emerald-400" : "bg-rose-500 dark:bg-rose-400"}`} />
                 {props.status}
               </div>
             </Show>
@@ -110,8 +132,8 @@ export function Header(props: HeaderProps) {
               <button
                 class="
                   hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium
-                  bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white
-                  border border-white/10 transition-colors cursor-pointer
+                  bg-zinc-100 hover:bg-zinc-200 dark:bg-white/5 dark:hover:bg-white/10 text-zinc-600 dark:text-slate-300 hover:text-zinc-900 dark:hover:text-white
+                  border border-zinc-200 dark:border-white/10 transition-colors cursor-pointer
                   disabled:opacity-50 disabled:cursor-not-allowed
                 "
                 onClick={props.onHealthCheck}
@@ -124,9 +146,12 @@ export function Header(props: HeaderProps) {
               </button>
             </Show>
 
+            {/* Theme Toggle */}
+            <ThemeToggle />
+
             {/* Mobile menu button */}
             <button 
-              class="md:hidden p-2 rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+              class="md:hidden p-2 rounded-md text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/10 transition-colors"
               onClick={() => setIsMenuOpen(!isMenuOpen())}
             >
               <Show when={!isMenuOpen()} fallback={
@@ -145,7 +170,7 @@ export function Header(props: HeaderProps) {
 
       {/* Mobile Menu Overlay */}
       <Show when={isMenuOpen()}>
-        <div class="md:hidden absolute top-16 left-0 right-0 bg-slate-900 border-b border-white/10 shadow-xl animate-in slide-in-from-top-2 duration-200">
+        <div class="md:hidden absolute top-16 left-0 right-0 bg-white dark:bg-slate-900 border-b border-zinc-200 dark:border-white/10 shadow-xl animate-in slide-in-from-top-2 duration-200">
           <div class="px-2 pt-2 pb-3 space-y-1">
             {navItems.map((item) => {
               const isActive = props.currentPage === item.id;
@@ -155,8 +180,8 @@ export function Header(props: HeaderProps) {
                   class={`
                     block px-3 py-2 rounded-md text-base font-medium
                     ${isActive 
-                      ? "bg-indigo-500/20 text-white" 
-                      : "text-slate-400 hover:text-white hover:bg-white/5"
+                      ? "bg-indigo-500/20 text-zinc-900 dark:text-white" 
+                      : "text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5"
                     }
                   `}
                   onClick={() => setIsMenuOpen(false)}
@@ -179,11 +204,11 @@ export function Header(props: HeaderProps) {
             })}
             
             {/* Mobile Status & Actions */}
-            <div class="pt-4 pb-2 border-t border-white/10 mt-2">
+            <div class="pt-4 pb-2 border-t border-zinc-200 dark:border-white/10 mt-2">
               <div class="px-3 flex items-center justify-between">
                 <Show when={props.status !== undefined}>
-                  <div class="flex items-center gap-2 text-sm text-slate-400">
-                    <span class={`h-2 w-2 rounded-full ${props.status === "Connected" ? "bg-emerald-400" : "bg-rose-400"}`} />
+                  <div class="flex items-center gap-2 text-sm text-zinc-600 dark:text-slate-400">
+                    <span class={`h-2 w-2 rounded-full ${props.status === "Connected" ? "bg-emerald-500 dark:bg-emerald-400" : "bg-rose-500 dark:bg-rose-400"}`} />
                     {props.status}
                   </div>
                 </Show>
@@ -192,7 +217,7 @@ export function Header(props: HeaderProps) {
                   <button
                     class="
                       flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium
-                      bg-white/5 text-slate-300 border border-white/10
+                      bg-zinc-100 dark:bg-white/5 text-zinc-600 dark:text-slate-300 border border-zinc-200 dark:border-white/10
                     "
                     onClick={() => {
                       props.onHealthCheck?.();

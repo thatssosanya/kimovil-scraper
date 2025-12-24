@@ -15,11 +15,11 @@ interface JobsTableProps {
 
 export function JobsTable(props: JobsTableProps) {
   return (
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl animate-in slide-in-from-top-4 duration-300">
+    <div class="bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xl animate-in slide-in-from-top-4 duration-300">
       <div class="overflow-x-auto">
         <table class="w-full text-left border-collapse">
           <thead>
-            <tr class="bg-slate-800/50 border-b border-slate-800 text-xs uppercase tracking-wider text-slate-400">
+            <tr class="bg-zinc-100 dark:bg-slate-800/50 border-b border-zinc-200 dark:border-slate-800 text-xs uppercase tracking-wider text-zinc-500 dark:text-slate-400">
               <th class="p-4 font-semibold">Job ID</th>
               <th class="p-4 font-semibold">Type</th>
               <th class="p-4 font-semibold">Status</th>
@@ -28,7 +28,7 @@ export function JobsTable(props: JobsTableProps) {
               <th class="p-4 font-semibold text-right">Actions</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-800">
+          <tbody class="divide-y divide-zinc-100 dark:divide-slate-800">
             <For each={props.jobs}>
               {(item) => (
                 <JobsRow
@@ -45,7 +45,7 @@ export function JobsTable(props: JobsTableProps) {
             </For>
             <Show when={props.jobs.length === 0}>
               <tr>
-                <td colSpan={6} class="p-8 text-center text-slate-500 italic">
+                <td colSpan={6} class="p-8 text-center text-zinc-500 dark:text-slate-500 italic">
                   No jobs found. Start a bulk scrape to see it here.
                 </td>
               </tr>

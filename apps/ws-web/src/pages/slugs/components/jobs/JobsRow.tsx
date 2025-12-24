@@ -26,16 +26,16 @@ export function JobsRow(props: JobsRowProps) {
       class={`cursor-pointer transition-colors ${
         props.isSelected
           ? "bg-indigo-500/10 ring-1 ring-inset ring-indigo-500/30"
-          : "hover:bg-slate-800/30"
+          : "hover:bg-zinc-100/50 dark:hover:bg-slate-800/30"
       }`}
       onClick={props.onSelect}
     >
       <td class="p-4">
         <div class="flex flex-col">
-          <span class="font-mono text-[10px] text-slate-300">
+          <span class="font-mono text-[10px] text-zinc-700 dark:text-slate-300">
             {props.job.job.id}
           </span>
-          <span class="text-xs text-slate-500">
+          <span class="text-xs text-zinc-500 dark:text-slate-500">
             {new Date(props.job.job.createdAt * 1000).toLocaleString()}
           </span>
         </div>

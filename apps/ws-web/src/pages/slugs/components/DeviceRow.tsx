@@ -142,7 +142,7 @@ export function DeviceRow(props: DeviceRowProps) {
       class={`
         group transition-colors duration-150 cursor-pointer outline-none
         ${props.focused ? "ring-2 ring-inset ring-indigo-500/50" : ""}
-        ${isSelected() ? "bg-indigo-500/5" : "hover:bg-slate-800/30"}
+        ${isSelected() ? "bg-indigo-500/5" : "hover:bg-zinc-100/50 dark:hover:bg-slate-800/30"}
         ${isCorrupted() ? "bg-rose-500/5" : ""}
       `}
       onClick={handleRowClick}
@@ -155,7 +155,7 @@ export function DeviceRow(props: DeviceRowProps) {
           class={`w-4 h-4 rounded-[3px] border transition-all flex items-center justify-center ${
             isSelected()
               ? "bg-indigo-500 border-indigo-500"
-              : "border-slate-600 hover:border-slate-500 bg-transparent opacity-40 group-hover:opacity-100"
+              : "border-zinc-400 dark:border-slate-600 hover:border-zinc-500 dark:hover:border-slate-500 bg-transparent opacity-40 group-hover:opacity-100"
           }`}
         >
           <Show when={isSelected()}>
@@ -169,10 +169,10 @@ export function DeviceRow(props: DeviceRowProps) {
       {/* Device */}
       <td class="px-4 py-2">
         <div class="flex flex-col min-w-0">
-          <span class="text-sm font-medium text-slate-200 truncate" title={props.device.name}>
+          <span class="text-sm font-medium text-zinc-800 dark:text-slate-200 truncate" title={props.device.name}>
             {props.device.name}
           </span>
-          <span class="text-[11px] font-mono text-slate-500 truncate" title={props.device.slug}>
+          <span class="text-[11px] font-mono text-zinc-500 dark:text-slate-500 truncate" title={props.device.slug}>
             {props.device.slug}
           </span>
         </div>
@@ -180,7 +180,7 @@ export function DeviceRow(props: DeviceRowProps) {
 
       {/* Brand */}
       <td class="px-4 py-2">
-        <span class="text-sm text-slate-400">
+        <span class="text-sm text-zinc-500 dark:text-slate-400">
           {props.device.brand || "—"}
         </span>
       </td>

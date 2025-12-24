@@ -46,40 +46,40 @@ const icons = {
 
 const colorConfig = {
   html: {
-    active: "text-slate-200 border-slate-400",
-    inactive: "text-slate-500 hover:text-slate-300 border-transparent hover:border-slate-600",
-    dot: "bg-slate-400",
-    dotInactive: "bg-slate-600",
+    active: "text-zinc-800 dark:text-slate-200 border-zinc-500 dark:border-slate-400",
+    inactive: "text-zinc-400 dark:text-slate-500 hover:text-zinc-600 dark:hover:text-slate-300 border-transparent hover:border-zinc-400 dark:hover:border-slate-600",
+    dot: "bg-zinc-500 dark:bg-slate-400",
+    dotInactive: "bg-zinc-300 dark:bg-slate-600",
   },
   code: {
-    active: "text-cyan-400 border-cyan-400",
-    inactive: "text-slate-500 hover:text-cyan-400 border-transparent hover:border-cyan-600/50",
-    dot: "bg-cyan-400",
-    dotInactive: "bg-slate-600",
+    active: "text-cyan-500 dark:text-cyan-400 border-cyan-500 dark:border-cyan-400",
+    inactive: "text-zinc-400 dark:text-slate-500 hover:text-cyan-500 dark:hover:text-cyan-400 border-transparent hover:border-cyan-500/50 dark:hover:border-cyan-600/50",
+    dot: "bg-cyan-500 dark:bg-cyan-400",
+    dotInactive: "bg-zinc-300 dark:bg-slate-600",
   },
   sparkle: {
-    active: "text-violet-400 border-violet-400",
-    inactive: "text-slate-500 hover:text-violet-400 border-transparent hover:border-violet-600/50",
-    dot: "bg-violet-400",
-    dotInactive: "bg-slate-600",
+    active: "text-violet-500 dark:text-violet-400 border-violet-500 dark:border-violet-400",
+    inactive: "text-zinc-400 dark:text-slate-500 hover:text-violet-500 dark:hover:text-violet-400 border-transparent hover:border-violet-500/50 dark:hover:border-violet-600/50",
+    dot: "bg-violet-500 dark:bg-violet-400",
+    dotInactive: "bg-zinc-300 dark:bg-slate-600",
   },
   compare: {
-    active: "text-amber-400 border-amber-400",
-    inactive: "text-slate-500 hover:text-amber-400 border-transparent hover:border-amber-600/50",
-    dot: "bg-amber-400",
-    dotInactive: "bg-slate-600",
+    active: "text-amber-500 dark:text-amber-400 border-amber-500 dark:border-amber-400",
+    inactive: "text-zinc-400 dark:text-slate-500 hover:text-amber-500 dark:hover:text-amber-400 border-transparent hover:border-amber-500/50 dark:hover:border-amber-600/50",
+    dot: "bg-amber-500 dark:bg-amber-400",
+    dotInactive: "bg-zinc-300 dark:bg-slate-600",
   },
   prices: {
-    active: "text-amber-400 border-amber-400",
-    inactive: "text-slate-500 hover:text-amber-400 border-transparent hover:border-amber-600/50",
-    dot: "bg-amber-400",
-    dotInactive: "bg-slate-600",
+    active: "text-amber-500 dark:text-amber-400 border-amber-500 dark:border-amber-400",
+    inactive: "text-zinc-400 dark:text-slate-500 hover:text-amber-500 dark:hover:text-amber-400 border-transparent hover:border-amber-500/50 dark:hover:border-amber-600/50",
+    dot: "bg-amber-500 dark:bg-amber-400",
+    dotInactive: "bg-zinc-300 dark:bg-slate-600",
   },
 };
 
 export function TabBar(props: TabBarProps) {
   return (
-    <div class="flex items-center gap-1 border-b border-slate-700/50">
+    <div class="flex items-center gap-1 border-b border-zinc-200 dark:border-slate-700/50">
       <For each={props.tabs}>
         {(tab) => {
           const colors = colorConfig[tab.icon];

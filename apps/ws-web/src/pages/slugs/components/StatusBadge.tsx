@@ -107,7 +107,7 @@ export function StatusBadge(props: StatusBadgeProps) {
   }
 
   return (
-    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-500 border border-slate-700/50">
+    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-100 dark:bg-slate-800 text-zinc-500 dark:text-slate-500 border border-zinc-200 dark:border-slate-700/50">
       Not Scraped
     </span>
   );

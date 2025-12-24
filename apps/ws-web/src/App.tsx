@@ -8,7 +8,6 @@ import {
 } from "solid-js";
 import { Request } from "@repo/scraper-protocol";
 import { Header } from "./components/Header";
-import "./App.css";
 
 interface SearchOption {
   name: string;
@@ -218,7 +217,7 @@ function App() {
   };
 
   return (
-    <div class="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-indigo-500/30">
+    <div class="min-h-screen bg-zinc-50 dark:bg-slate-950 text-zinc-900 dark:text-slate-200 font-sans selection:bg-indigo-500/30">
       <Header 
         currentPage="scraper" 
         status={status()} 
@@ -231,7 +230,7 @@ function App() {
           <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              class="h-5 w-5 text-slate-500 group-focus-within:text-indigo-400 transition-colors"
+              class="h-5 w-5 text-zinc-400 dark:text-slate-500 group-focus-within:text-indigo-500 dark:group-focus-within:text-indigo-400 transition-colors"
               viewBox="0 0 20 20"
               fill="currentColor"
             >
@@ -250,7 +249,7 @@ function App() {
               e.key === "Enter" && searchQuery() && sendSearch(searchQuery())
             }
             placeholder="Search devices (e.g. iPhone 14, Pixel 8)..."
-            class="w-full pl-11 pr-32 py-4 bg-slate-900 rounded-2xl text-lg text-white border border-slate-800 shadow-xl shadow-black/20 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all placeholder:text-slate-600"
+            class="w-full pl-11 pr-32 py-4 bg-white dark:bg-slate-900 rounded-2xl text-lg text-zinc-900 dark:text-white border border-zinc-200 dark:border-slate-800 shadow-xl shadow-zinc-200/50 dark:shadow-black/20 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all placeholder:text-zinc-400 dark:placeholder:text-slate-600"
           />
           <div class="absolute inset-y-0 right-0 pr-2 flex items-center">
             <button
@@ -319,37 +318,37 @@ function App() {
 
         {/* Search Events / Logs */}
         <Show when={events().length > 0 && !selectedSlug()}>
-          <div class="bg-slate-900/50 border border-slate-800 rounded-xl p-5 backdrop-blur-sm">
-            <h2 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+          <div class="bg-white/50 dark:bg-slate-900/50 border border-zinc-200 dark:border-slate-800 rounded-xl p-5 backdrop-blur-sm">
+            <h2 class="text-xs font-semibold text-zinc-500 dark:text-slate-500 uppercase tracking-wider mb-3">
               Search Activity
             </h2>
             <div class="space-y-2 text-sm font-mono max-h-48 overflow-y-auto pr-2 custom-scrollbar">
               <For each={events()}>
                 {(evt) => (
-                  <div class="flex gap-3 text-slate-300 border-l-2 border-slate-700 pl-3 py-0.5">
+                  <div class="flex gap-3 text-zinc-700 dark:text-slate-300 border-l-2 border-zinc-300 dark:border-slate-700 pl-3 py-0.5">
                     <Show when={evt.type === "log"}>
                       <span
                         class={`text-xs uppercase font-bold ${
                           evt.level === "error"
-                            ? "text-rose-400"
+                            ? "text-rose-500 dark:text-rose-400"
                             : evt.level === "warn"
-                              ? "text-amber-400"
-                              : "text-indigo-400"
+                              ? "text-amber-500 dark:text-amber-400"
+                              : "text-indigo-500 dark:text-indigo-400"
                         }`}
                       >
                         [{evt.level}]
                       </span>
-                      <span class="text-slate-400">{evt.message}</span>
+                      <span class="text-zinc-500 dark:text-slate-400">{evt.message}</span>
                     </Show>
                     <Show when={evt.type === "retry"}>
-                      <span class="text-amber-400 font-bold">RETRY</span>
-                      <span class="text-slate-400">
+                      <span class="text-amber-500 dark:text-amber-400 font-bold">RETRY</span>
+                      <span class="text-zinc-500 dark:text-slate-400">
                         {evt.attempt}/{evt.maxAttempts} - {evt.reason}
                       </span>
                     </Show>
                     <Show when={evt.type === "progress"}>
-                      <span class="text-emerald-400 font-bold">PROGRESS</span>
-                      <span class="text-slate-300">
+                      <span class="text-emerald-500 dark:text-emerald-400 font-bold">PROGRESS</span>
+                      <span class="text-zinc-700 dark:text-slate-300">
                         {evt.stage} {evt.percent && `(${evt.percent}%)`}
                       </span>
                     </Show>
@@ -394,9 +393,9 @@ function App() {
         {/* Search Results Grid */}
         <Show when={searchOptions().length > 0}>
           <div class="space-y-4">
-            <h2 class="text-lg font-semibold text-slate-300 flex items-center gap-2">
+            <h2 class="text-lg font-semibold text-zinc-700 dark:text-slate-300 flex items-center gap-2">
               Found {searchOptions().length} devices
-              <span class="h-px bg-slate-800 flex-1 ml-4"></span>
+              <span class="h-px bg-zinc-200 dark:bg-slate-800 flex-1 ml-4"></span>
             </h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <For each={searchOptions()}>
@@ -411,8 +410,8 @@ function App() {
                     <button
                       class={`group text-left p-5 rounded-xl border transition-all duration-200 cursor-pointer relative overflow-hidden ${
                         selectedSlug() === option.slug
-                          ? "bg-indigo-900/20 border-indigo-500/50 ring-1 ring-indigo-500/30"
-                          : "bg-slate-900 border-slate-800 hover:border-slate-700 hover:bg-slate-800 hover:shadow-lg hover:shadow-black/20"
+                          ? "bg-indigo-100 dark:bg-indigo-900/20 border-indigo-500/50 ring-1 ring-indigo-500/30"
+                          : "bg-white dark:bg-slate-900 border-zinc-200 dark:border-slate-800 hover:border-zinc-300 dark:hover:border-slate-700 hover:bg-zinc-50 dark:hover:bg-slate-800 hover:shadow-lg hover:shadow-zinc-200/50 dark:hover:shadow-black/20"
                       }`}
                       onClick={() => sendScrape(option.slug)}
                       disabled={isScraping()}
@@ -420,7 +419,7 @@ function App() {
                       <div class="flex items-start justify-between gap-3">
                         <div class="flex-1 min-w-0">
                           <div class="flex items-center gap-2 flex-wrap">
-                            <span class="font-bold text-lg text-white group-hover:text-indigo-300 transition-colors">
+                            <span class="font-bold text-lg text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors">
                               {option.name}
                             </span>
                             <Show when={isValid()}>
@@ -483,7 +482,7 @@ function App() {
                               </span>
                             </Show>
                           </div>
-                          <div class="text-xs font-mono text-slate-500 mt-1.5 bg-slate-950/50 inline-block px-2 py-0.5 rounded border border-slate-800 group-hover:border-slate-700 truncate max-w-full">
+                          <div class="text-xs font-mono text-zinc-500 dark:text-slate-500 mt-1.5 bg-zinc-100 dark:bg-slate-950/50 inline-block px-2 py-0.5 rounded border border-zinc-200 dark:border-slate-800 group-hover:border-zinc-300 dark:group-hover:border-slate-700 truncate max-w-full">
                             {option.slug}
                           </div>
                         </div>
@@ -547,7 +546,7 @@ function App() {
             };
 
             return (
-              <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl shadow-black/30 relative overflow-hidden">
+              <div class="bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 p-6 rounded-2xl shadow-xl shadow-zinc-200/50 dark:shadow-black/30 relative overflow-hidden">
                 {/* Background Glow */}
                 <div class="absolute top-0 right-0 -mt-16 -mr-16 w-64 h-64 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -557,10 +556,10 @@ function App() {
                       <div
                         class={`relative w-12 h-12 rounded-xl flex items-center justify-center ${
                           isScraping()
-                            ? "bg-indigo-500/20 text-indigo-400 ring-1 ring-indigo-500/40"
+                            ? "bg-indigo-500/20 text-indigo-500 dark:text-indigo-400 ring-1 ring-indigo-500/40"
                             : hasError()
-                              ? "bg-rose-500/20 text-rose-400"
-                              : "bg-emerald-500/20 text-emerald-400"
+                              ? "bg-rose-500/20 text-rose-500 dark:text-rose-400"
+                              : "bg-emerald-500/20 text-emerald-500 dark:text-emerald-400"
                         }`}
                       >
                         <Show
@@ -604,16 +603,16 @@ function App() {
                       </div>
                       <div>
                         <div class="flex items-center gap-2">
-                          <h2 class="font-bold text-xl text-white tracking-tight">
+                          <h2 class="font-bold text-xl text-zinc-900 dark:text-white tracking-tight">
                             {stage()}
                           </h2>
                           <Show when={totalDuration()}>
-                            <span class="text-xs font-mono bg-slate-800 text-slate-400 px-2 py-0.5 rounded">
+                            <span class="text-xs font-mono bg-zinc-100 dark:bg-slate-800 text-zinc-500 dark:text-slate-400 px-2 py-0.5 rounded">
                               {formatDuration(totalDuration()!)}
                             </span>
                           </Show>
                         </div>
-                        <div class="text-slate-400 text-sm mt-0.5 font-mono">
+                        <div class="text-zinc-500 dark:text-slate-400 text-sm mt-0.5 font-mono">
                           {selectedSlug()}
                         </div>
                       </div>
@@ -622,11 +621,11 @@ function App() {
 
                   {/* Progress bar */}
                   <div class="mb-6 relative">
-                    <div class="flex justify-between text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">
+                    <div class="flex justify-between text-xs font-semibold text-zinc-500 dark:text-slate-500 mb-2 uppercase tracking-wide">
                       <span>Progress</span>
                       <span>{Math.round(progress())}%</span>
                     </div>
-                    <div class="w-full bg-slate-800 rounded-full h-3 overflow-hidden shadow-inner">
+                    <div class="w-full bg-zinc-200 dark:bg-slate-800 rounded-full h-3 overflow-hidden shadow-inner">
                       <div
                         class={`h-3 rounded-full transition-all duration-500 ease-out relative ${
                           hasError()
@@ -646,8 +645,8 @@ function App() {
                   </div>
 
                   {/* Console Output */}
-                  <div class="bg-slate-950 rounded-xl border border-slate-800/50 p-4 font-mono text-xs overflow-hidden">
-                    <div class="flex gap-2 text-slate-400">
+                  <div class="bg-zinc-100 dark:bg-slate-950 rounded-xl border border-zinc-200 dark:border-slate-800/50 p-4 font-mono text-xs overflow-hidden">
+                    <div class="flex gap-2 text-zinc-600 dark:text-slate-400">
                       <span class="text-indigo-500">➜</span>
                       <span>{currentMessage()}</span>
                     </div>
@@ -658,13 +657,13 @@ function App() {
                     <div class="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
                       <For each={progressEvents().filter((e) => e.durationMs)}>
                         {(evt) => (
-                          <div class="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
-                            <div class="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-1">
+                          <div class="bg-zinc-100 dark:bg-slate-800/50 p-3 rounded-lg border border-zinc-200 dark:border-slate-700/50">
+                            <div class="text-[10px] text-zinc-500 dark:text-slate-500 uppercase tracking-wider font-bold mb-1">
                               {evt.stage
                                 .replace("Scraping: ", "")
                                 .replace("Scrape: ", "")}
                             </div>
-                            <div class="text-lg font-mono text-white">
+                            <div class="text-lg font-mono text-zinc-900 dark:text-white">
                               {formatDuration(evt.durationMs!)}
                             </div>
                           </div>
@@ -680,21 +679,21 @@ function App() {
 
         {/* Phone Data Display */}
         <Show when={phoneData()}>
-          <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
-            <div class="p-6 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/50">
+          <div class="bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+            <div class="p-6 border-b border-zinc-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-zinc-50 dark:bg-slate-900/50">
               <div class="flex items-center gap-4">
                 <div class="w-12 h-12 bg-indigo-500 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 text-white font-bold text-xl">
                   {phoneData().brand?.[0] || "?"}
                 </div>
                 <div>
-                  <h2 class="font-bold text-2xl text-white">
+                  <h2 class="font-bold text-2xl text-zinc-900 dark:text-white">
                     {phoneData().brand} {phoneData().name}
                   </h2>
-                  <div class="text-slate-400 text-sm">{phoneData().slug}</div>
+                  <div class="text-zinc-500 dark:text-slate-400 text-sm">{phoneData().slug}</div>
                 </div>
               </div>
               <button
-                class="flex items-center gap-2 text-sm font-medium cursor-pointer bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg transition-all border border-slate-700 hover:border-slate-600 shadow-sm"
+                class="flex items-center gap-2 text-sm font-medium cursor-pointer bg-zinc-100 dark:bg-slate-800 hover:bg-zinc-200 dark:hover:bg-slate-700 text-zinc-900 dark:text-white px-4 py-2 rounded-lg transition-all border border-zinc-200 dark:border-slate-700 hover:border-zinc-300 dark:hover:border-slate-600 shadow-sm"
                 onClick={() => {
                   navigator.clipboard.writeText(
                     JSON.stringify(phoneData(), null, 2),
@@ -703,7 +702,7 @@ function App() {
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  class="h-4 w-4 text-slate-400"
+                  class="h-4 w-4 text-zinc-500 dark:text-slate-400"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -719,43 +718,43 @@ function App() {
               </button>
             </div>
 
-            <div class="grid md:grid-cols-2 border-b border-slate-800">
+            <div class="grid md:grid-cols-2 border-b border-zinc-200 dark:border-slate-800">
               {/* Quick Specs View - A few key fields if available */}
-              <div class="p-6 border-b md:border-b-0 md:border-r border-slate-800 space-y-4">
-                <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider">
+              <div class="p-6 border-b md:border-b-0 md:border-r border-zinc-200 dark:border-slate-800 space-y-4">
+                <h3 class="text-sm font-bold text-zinc-500 dark:text-slate-500 uppercase tracking-wider">
                   Key Specifications
                 </h3>
                 <div class="space-y-3">
                   <Show when={phoneData().screen}>
-                    <div class="flex justify-between items-center py-2 border-b border-slate-800/50">
-                      <span class="text-slate-400">Screen</span>
-                      <span class="text-slate-200 font-medium text-right">
+                    <div class="flex justify-between items-center py-2 border-b border-zinc-200 dark:border-slate-800/50">
+                      <span class="text-zinc-500 dark:text-slate-400">Screen</span>
+                      <span class="text-zinc-800 dark:text-slate-200 font-medium text-right">
                         {phoneData().screen.size}"{" "}
                         {phoneData().screen.resolution}
                       </span>
                     </div>
                   </Show>
                   <Show when={phoneData().cpu}>
-                    <div class="flex justify-between items-center py-2 border-b border-slate-800/50">
-                      <span class="text-slate-400">Processor</span>
-                      <span class="text-slate-200 font-medium text-right">
+                    <div class="flex justify-between items-center py-2 border-b border-zinc-200 dark:border-slate-800/50">
+                      <span class="text-zinc-500 dark:text-slate-400">Processor</span>
+                      <span class="text-zinc-800 dark:text-slate-200 font-medium text-right">
                         {phoneData().cpu.name || "Unknown"}
                       </span>
                     </div>
                   </Show>
                   <Show when={phoneData().battery}>
-                    <div class="flex justify-between items-center py-2 border-b border-slate-800/50">
-                      <span class="text-slate-400">Battery</span>
-                      <span class="text-slate-200 font-medium text-right">
+                    <div class="flex justify-between items-center py-2 border-b border-zinc-200 dark:border-slate-800/50">
+                      <span class="text-zinc-500 dark:text-slate-400">Battery</span>
+                      <span class="text-zinc-800 dark:text-slate-200 font-medium text-right">
                         {phoneData().battery.capacity}{" "}
                         {phoneData().battery.type}
                       </span>
                     </div>
                   </Show>
                   <Show when={phoneData().storage}>
-                    <div class="flex justify-between items-center py-2 border-b border-slate-800/50">
-                      <span class="text-slate-400">Storage</span>
-                      <span class="text-slate-200 font-medium text-right">
+                    <div class="flex justify-between items-center py-2 border-b border-zinc-200 dark:border-slate-800/50">
+                      <span class="text-zinc-500 dark:text-slate-400">Storage</span>
+                      <span class="text-zinc-800 dark:text-slate-200 font-medium text-right">
                         {phoneData().storage.capacity}
                       </span>
                     </div>
@@ -766,11 +765,11 @@ function App() {
               {/* Raw JSON Preview */}
               <div class="relative group">
                 <div class="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                  <span class="text-[10px] text-slate-500 bg-slate-900 px-2 py-1 rounded border border-slate-800">
+                  <span class="text-[10px] text-zinc-500 dark:text-slate-500 bg-white dark:bg-slate-900 px-2 py-1 rounded border border-zinc-200 dark:border-slate-800">
                     Raw Data
                   </span>
                 </div>
-                <pre class="text-xs overflow-auto h-64 md:h-full max-h-96 bg-slate-950 p-6 font-mono text-emerald-300/90 leading-relaxed custom-scrollbar">
+                <pre class="text-xs overflow-auto h-64 md:h-full max-h-96 bg-zinc-100 dark:bg-slate-950 p-6 font-mono text-emerald-600 dark:text-emerald-300/90 leading-relaxed custom-scrollbar">
                   {JSON.stringify(phoneData(), null, 2)}
                 </pre>
               </div>

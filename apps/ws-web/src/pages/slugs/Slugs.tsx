@@ -114,9 +114,9 @@ function SlugsContent(props: {
       <div 
         class={`
           relative group/jobs rounded-2xl overflow-hidden transition-all duration-500
-          bg-gradient-to-b from-slate-900/90 to-slate-900/70 backdrop-blur-xl
-          border border-slate-700/40
-          ${jobsExpanded() ? "shadow-2xl shadow-indigo-500/5" : "shadow-lg shadow-slate-950/50"}
+          bg-gradient-to-b from-white/90 to-white/70 dark:from-slate-900/90 dark:to-slate-900/70 backdrop-blur-xl
+          border border-zinc-200 dark:border-slate-700/40
+          ${jobsExpanded() ? "shadow-2xl shadow-indigo-500/5" : "shadow-lg shadow-zinc-200/50 dark:shadow-slate-950/50"}
           ${props.bulkJobs.allJobs.filter(j => j.job.status === "running").length > 0 ? "ring-1 ring-indigo-500/20" : ""}
         `}
       >
@@ -128,18 +128,18 @@ function SlugsContent(props: {
         
         <button
           onClick={() => setJobsExpanded((v) => !v)}
-          class="relative w-full flex items-center justify-between px-5 py-4 cursor-pointer transition-all duration-300 hover:bg-slate-800/20"
+          class="relative w-full flex items-center justify-between px-5 py-4 cursor-pointer transition-all duration-300 hover:bg-zinc-100/50 dark:hover:bg-slate-800/20"
         >
           <div class="flex items-center gap-4">
             <div class={`
               relative p-2.5 rounded-xl transition-all duration-300
               ${jobsExpanded() 
                 ? "bg-gradient-to-br from-indigo-500/20 to-cyan-500/10 shadow-lg shadow-indigo-500/10" 
-                : "bg-slate-800/60 group-hover/jobs:bg-slate-800/80"
+                : "bg-zinc-100 dark:bg-slate-800/60 group-hover/jobs:bg-zinc-200 dark:group-hover/jobs:bg-slate-800/80"
               }
             `}>
               <svg 
-                class={`w-5 h-5 transition-colors duration-300 ${jobsExpanded() ? "text-indigo-300" : "text-slate-400 group-hover/jobs:text-slate-300"}`} 
+                class={`w-5 h-5 transition-colors duration-300 ${jobsExpanded() ? "text-indigo-500 dark:text-indigo-300" : "text-zinc-500 dark:text-slate-400 group-hover/jobs:text-zinc-600 dark:group-hover/jobs:text-slate-300"}`} 
                 fill="none" 
                 viewBox="0 0 24 24" 
                 stroke="currentColor" 
@@ -151,7 +151,7 @@ function SlugsContent(props: {
             
             <div class="flex flex-col items-start">
               <div class="flex items-center gap-3">
-                <span class={`text-sm font-semibold tracking-wide transition-colors duration-300 ${jobsExpanded() ? "text-white" : "text-slate-200 group-hover/jobs:text-white"}`}>
+                <span class={`text-sm font-semibold tracking-wide transition-colors duration-300 ${jobsExpanded() ? "text-zinc-900 dark:text-white" : "text-zinc-700 dark:text-slate-200 group-hover/jobs:text-zinc-900 dark:group-hover/jobs:text-white"}`}>
                   Bulk Jobs
                 </span>
                 <Show when={props.bulkJobs.allJobs.filter(j => j.job.status === "running").length > 0}>
@@ -169,7 +169,7 @@ function SlugsContent(props: {
                   </span>
                 </Show>
               </div>
-              <span class="text-[11px] text-slate-500 font-medium mt-0.5">
+              <span class="text-[11px] text-zinc-500 dark:text-slate-500 font-medium mt-0.5">
                 {props.bulkJobs.allJobs.length === 0 
                   ? "No active jobs" 
                   : `${props.bulkJobs.allJobs.length} job${props.bulkJobs.allJobs.length !== 1 ? "s" : ""} total`
@@ -182,15 +182,15 @@ function SlugsContent(props: {
             flex items-center gap-2 transition-all duration-300
             ${jobsExpanded() ? "opacity-60" : "opacity-40 group-hover/jobs:opacity-70"}
           `}>
-            <span class="text-[10px] uppercase tracking-widest text-slate-500 font-semibold hidden sm:block">
+            <span class="text-[10px] uppercase tracking-widest text-zinc-500 dark:text-slate-500 font-semibold hidden sm:block">
               {jobsExpanded() ? "Collapse" : "Expand"}
             </span>
             <div class={`
               p-1.5 rounded-lg transition-all duration-300
-              ${jobsExpanded() ? "bg-slate-700/50 rotate-180" : "bg-slate-800/50 group-hover/jobs:bg-slate-700/50"}
+              ${jobsExpanded() ? "bg-zinc-200 dark:bg-slate-700/50 rotate-180" : "bg-zinc-100 dark:bg-slate-800/50 group-hover/jobs:bg-zinc-200 dark:group-hover/jobs:bg-slate-700/50"}
             `}>
               <svg
-                class="w-4 h-4 text-slate-400 transition-transform duration-300"
+                class="w-4 h-4 text-zinc-500 dark:text-slate-400 transition-transform duration-300"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -203,7 +203,7 @@ function SlugsContent(props: {
         </button>
         
         <Show when={jobsExpanded()}>
-          <div class="relative px-5 pb-5 pt-4 space-y-5 border-t border-slate-700/30 animate-in slide-in-from-top-2 fade-in duration-300">
+          <div class="relative px-5 pb-5 pt-4 space-y-5 border-t border-zinc-200 dark:border-slate-700/30 animate-in slide-in-from-top-2 fade-in duration-300">
             <div class="absolute top-0 left-5 right-5 h-px bg-gradient-to-r from-transparent via-indigo-500/20 to-transparent" />
             
             <BulkStartPanel
@@ -328,7 +328,7 @@ export default function Slugs() {
   };
 
   return (
-    <div class="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-indigo-500/30">
+    <div class="min-h-screen bg-zinc-50 dark:bg-slate-950 text-zinc-900 dark:text-slate-200 font-sans selection:bg-indigo-500/30">
       <Header 
         currentPage="database" 
         status={bulkJobs.wsConnected() ? "Connected" : "Disconnected"}

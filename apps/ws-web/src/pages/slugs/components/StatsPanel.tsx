@@ -11,7 +11,7 @@ interface StatsPanelProps {
 function PipelineConnector() {
   return (
     <div class="hidden lg:flex items-center justify-center w-8 -mx-1">
-      <svg class="w-6 h-6 text-slate-600" viewBox="0 0 24 24" fill="none">
+      <svg class="w-6 h-6 text-zinc-400 dark:text-slate-600" viewBox="0 0 24 24" fill="none">
         <path
           d="M5 12h14m-4-4l4 4-4 4"
           stroke="currentColor"
@@ -45,11 +45,11 @@ function StatCard(props: StatCardProps) {
       icon: "text-indigo-400/80",
     },
     slate: {
-      glow: "bg-slate-500/8",
-      border: "border-slate-600/30 hover:border-slate-500/50",
-      text: "text-slate-400",
-      value: "text-slate-100",
-      icon: "text-slate-400/80",
+      glow: "bg-zinc-500/8 dark:bg-slate-500/8",
+      border: "border-zinc-300 dark:border-slate-600/30 hover:border-zinc-400 dark:hover:border-slate-500/50",
+      text: "text-zinc-500 dark:text-slate-400",
+      value: "text-zinc-900 dark:text-slate-100",
+      icon: "text-zinc-500/80 dark:text-slate-400/80",
     },
     cyan: {
       glow: "bg-cyan-500/8",
@@ -120,11 +120,11 @@ function StatCard(props: StatCardProps) {
     <div
       onClick={props.onClick}
       class={`
-        relative overflow-hidden rounded-xl border bg-slate-900/80 backdrop-blur-sm
+        relative overflow-hidden rounded-xl border bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm
         p-4 transition-all duration-300 group
         ${props.onClick ? "cursor-pointer" : "cursor-default"}
         ${colors.border}
-        ${props.active ? "ring-2 ring-offset-1 ring-offset-slate-950 ring-" + props.color + "-500" : ""}
+        ${props.active ? "ring-2 ring-offset-1 ring-offset-zinc-50 dark:ring-offset-slate-950 ring-" + props.color + "-500" : ""}
       `}
     >
       {/* Glow effect */}
@@ -142,7 +142,7 @@ function StatCard(props: StatCardProps) {
           {props.value.toLocaleString()}
         </div>
         <Show when={props.sublabel}>
-          <div class="text-[10px] text-slate-500 mt-1 font-medium">
+          <div class="text-[10px] text-zinc-500 dark:text-slate-500 mt-1 font-medium">
             {props.sublabel}
           </div>
         </Show>
@@ -157,11 +157,11 @@ export function StatsPanel(props: StatsPanelProps) {
       <div class="space-y-4">
         {/* Pipeline Section Label */}
         <div class="flex items-center gap-3">
-          <div class="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
-          <span class="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+          <div class="h-px flex-1 bg-gradient-to-r from-transparent via-zinc-300 dark:via-slate-700 to-transparent" />
+          <span class="text-[10px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-slate-500">
             Data Pipeline
           </span>
-          <div class="h-px flex-1 bg-gradient-to-r from-transparent via-slate-700 to-transparent" />
+          <div class="h-px flex-1 bg-gradient-to-r from-transparent via-zinc-300 dark:via-slate-700 to-transparent" />
         </div>
 
         {/* Main Pipeline Flow */}

@@ -54,8 +54,8 @@ export function DevicesTable() {
       {/* Header row */}
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-3">
-          <span class="text-sm text-slate-400">
-            Showing <span class="text-slate-200 font-semibold tabular-nums">{Math.min(filtered(), limit()).toLocaleString()}</span>
+          <span class="text-sm text-zinc-500 dark:text-slate-400">
+            Showing <span class="text-zinc-800 dark:text-slate-200 font-semibold tabular-nums">{Math.min(filtered(), limit()).toLocaleString()}</span>
             {" "}of {filtered().toLocaleString()}
             {filtered() !== total() && <span> (filtered from {total().toLocaleString()})</span>}
           </span>
@@ -64,8 +64,8 @@ export function DevicesTable() {
               onClick={() => setShowLimitMenu(!showLimitMenu())}
               class={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded ring-1 cursor-pointer transition-colors ${
                 filtered() > limit()
-                  ? "text-amber-400 bg-amber-500/10 ring-amber-500/20 hover:bg-amber-500/20"
-                  : "text-slate-400 bg-slate-800 ring-slate-700 hover:bg-slate-700"
+                  ? "text-amber-500 dark:text-amber-400 bg-amber-500/10 ring-amber-500/20 hover:bg-amber-500/20"
+                  : "text-zinc-500 dark:text-slate-400 bg-zinc-100 dark:bg-slate-800 ring-zinc-300 dark:ring-slate-700 hover:bg-zinc-200 dark:hover:bg-slate-700"
               }`}
             >
               Limit: {limit().toLocaleString()}
@@ -74,7 +74,7 @@ export function DevicesTable() {
               </svg>
             </button>
             <Show when={showLimitMenu()}>
-              <div class="absolute top-full left-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 py-1 min-w-[100px]">
+              <div class="absolute top-full left-0 mt-1 bg-white dark:bg-slate-800 border border-zinc-200 dark:border-slate-700 rounded-lg shadow-xl z-50 py-1 min-w-[100px]">
                 <For each={[...LIMIT_OPTIONS]}>
                   {(option) => (
                     <button
@@ -84,8 +84,8 @@ export function DevicesTable() {
                       }}
                       class={`w-full text-left px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
                         option === limit()
-                          ? "text-indigo-400 bg-indigo-500/10"
-                          : "text-slate-300 hover:bg-slate-700"
+                          ? "text-indigo-500 dark:text-indigo-400 bg-indigo-500/10"
+                          : "text-zinc-700 dark:text-slate-300 hover:bg-zinc-100 dark:hover:bg-slate-700"
                       }`}
                     >
                       {option.toLocaleString()}
@@ -99,11 +99,11 @@ export function DevicesTable() {
       </div>
 
       {/* Table container */}
-      <div class="bg-slate-900/50 border border-slate-800/50 rounded-xl overflow-hidden">
+      <div class="bg-white/50 dark:bg-slate-900/50 border border-zinc-200 dark:border-slate-800/50 rounded-xl overflow-hidden">
         <Show when={loading()}>
           <div class="flex flex-col items-center justify-center py-20 space-y-3">
             <div class="w-8 h-8 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
-            <p class="text-sm text-slate-500">Loading devices...</p>
+            <p class="text-sm text-zinc-500 dark:text-slate-500">Loading devices...</p>
           </div>
         </Show>
 
@@ -111,14 +111,14 @@ export function DevicesTable() {
           <div class="overflow-x-auto">
             <table class="w-full text-left">
               <thead>
-                <tr class="border-b border-slate-800/50">
+                <tr class="border-b border-zinc-200 dark:border-slate-800/50">
                   <th class="w-12 px-4 py-3">
                     <button
                       onClick={toggleAll}
                       class={`w-4 h-4 rounded-[3px] border transition-all flex items-center justify-center ${
                         allSelected()
                           ? "bg-indigo-500 border-indigo-500"
-                          : "border-slate-600 hover:border-slate-500 bg-transparent"
+                          : "border-zinc-400 dark:border-slate-600 hover:border-zinc-500 dark:hover:border-slate-500 bg-transparent"
                       }`}
                     >
                       <Show when={allSelected()}>
@@ -128,24 +128,24 @@ export function DevicesTable() {
                       </Show>
                     </button>
                   </th>
-                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-slate-400">
                     Device
                   </th>
-                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400 w-28">
+                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-slate-400 w-28">
                     Brand
                   </th>
-                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400 w-36">
+                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-slate-400 w-36">
                     Data
                   </th>
-                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400 w-24">
+                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-slate-400 w-24">
                     Queue
                   </th>
-                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400 w-32 text-right">
+                  <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-slate-400 w-32 text-right">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-800/30">
+              <tbody class="divide-y divide-zinc-100 dark:divide-slate-800/30">
                 <For each={devices()}>
                   {(device, i) => (
                     <DeviceRow
@@ -162,13 +162,13 @@ export function DevicesTable() {
             {/* Empty state */}
             <Show when={devices().length === 0}>
               <div class="flex flex-col items-center justify-center py-16">
-                <div class="w-16 h-16 rounded-2xl bg-slate-800/50 flex items-center justify-center mb-4">
-                  <svg class="h-8 w-8 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <div class="w-16 h-16 rounded-2xl bg-zinc-100 dark:bg-slate-800/50 flex items-center justify-center mb-4">
+                  <svg class="h-8 w-8 text-zinc-400 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                   </svg>
                 </div>
-                <h3 class="text-base font-medium text-slate-300 mb-1">No devices found</h3>
-                <p class="text-sm text-slate-500 max-w-xs text-center">
+                <h3 class="text-base font-medium text-zinc-700 dark:text-slate-300 mb-1">No devices found</h3>
+                <p class="text-sm text-zinc-500 dark:text-slate-500 max-w-xs text-center">
                   Try adjusting your search or filters
                 </p>
               </div>

@@ -26,7 +26,7 @@ export function RowActionsMenu(props: RowActionsMenuProps) {
             e.stopPropagation();
             setOpen(!open());
           }}
-          class="p-1.5 rounded-md text-slate-500 hover:text-slate-300 hover:bg-slate-700/50 transition-all cursor-pointer"
+          class="p-1.5 rounded-md text-zinc-400 dark:text-slate-500 hover:text-zinc-600 dark:hover:text-slate-300 hover:bg-zinc-100 dark:hover:bg-slate-700/50 transition-all cursor-pointer"
           title="More actions"
         >
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -36,7 +36,7 @@ export function RowActionsMenu(props: RowActionsMenuProps) {
 
         <Show when={open()}>
           <div
-            class="absolute right-0 top-full mt-1 z-50 min-w-[140px] bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 animate-in fade-in slide-in-from-top-1 duration-150"
+            class="absolute right-0 top-full mt-1 z-50 min-w-[140px] bg-white dark:bg-slate-800 border border-zinc-200 dark:border-slate-700 rounded-lg shadow-xl py-1 animate-in fade-in slide-in-from-top-1 duration-150"
             onClick={(e) => e.stopPropagation()}
           >
             <Show when={props.hasRawData}>
@@ -63,7 +63,7 @@ export function RowActionsMenu(props: RowActionsMenuProps) {
               </button>
             </Show>
 
-            <div class="h-px bg-slate-700 my-1" />
+            <div class="h-px bg-zinc-200 dark:bg-slate-700 my-1" />
 
             <button
               onClick={() => handleAction(props.onClearAll)}

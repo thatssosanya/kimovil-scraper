@@ -11,19 +11,19 @@ export function HtmlPreviewModal(props: HtmlPreviewModalProps) {
   return (
     <Show when={props.slug}>
       <div
-        class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
+        class="fixed inset-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
         onClick={(e) => e.target === e.currentTarget && props.onClose()}
       >
-        <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
-          <div class="flex items-center justify-between p-4 border-b border-slate-700 bg-slate-800/50 rounded-t-2xl">
+        <div class="bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 rounded-2xl w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
+          <div class="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-slate-700 bg-zinc-50 dark:bg-slate-800/50 rounded-t-2xl">
             <h2 class="text-lg font-semibold flex items-center gap-2">
-              <span class="text-slate-400">Raw HTML:</span>
-              <span class="font-mono text-cyan-400 bg-cyan-900/20 px-2 py-0.5 rounded border border-cyan-500/20">
+              <span class="text-zinc-500 dark:text-slate-400">Raw HTML:</span>
+              <span class="font-mono text-cyan-500 dark:text-cyan-400 bg-cyan-500/10 dark:bg-cyan-900/20 px-2 py-0.5 rounded border border-cyan-500/20">
                 {props.slug}
               </span>
             </h2>
             <button
-              class="cursor-pointer text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 p-2 rounded-lg transition-colors"
+              class="cursor-pointer text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white bg-zinc-100 dark:bg-slate-800 hover:bg-zinc-200 dark:hover:bg-slate-700 p-2 rounded-lg transition-colors"
               onClick={props.onClose}
             >
               <svg
@@ -56,7 +56,7 @@ export function HtmlPreviewModal(props: HtmlPreviewModalProps) {
               />
             </Show>
             <Show when={!props.loading && !props.html}>
-              <div class="text-center text-slate-500 py-24 flex flex-col items-center">
+              <div class="text-center text-zinc-500 dark:text-slate-500 py-24 flex flex-col items-center">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   class="h-12 w-12 mb-4 opacity-50"

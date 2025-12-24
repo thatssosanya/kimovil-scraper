@@ -2,6 +2,7 @@
 import { render } from "solid-js/web";
 import { Router, Route } from "@solidjs/router";
 import "./index.css";
+import "./stores/theme"; // Initialize theme early to avoid FOUC
 import App from "./App.tsx";
 import Slugs from "./pages/slugs/Slugs.tsx";
 import Widgets from "./pages/widgets/Widgets.tsx";

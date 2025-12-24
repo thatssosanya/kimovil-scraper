@@ -28,7 +28,7 @@ export function SearchBar(props: SearchBarProps) {
         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            class="h-5 w-5 text-slate-500 group-focus-within:text-indigo-400 transition-colors"
+            class="h-5 w-5 text-zinc-400 dark:text-slate-500 group-focus-within:text-indigo-500 dark:group-focus-within:text-indigo-400 transition-colors"
             viewBox="0 0 20 20"
             fill="currentColor"
           >
@@ -45,18 +45,18 @@ export function SearchBar(props: SearchBarProps) {
           onInput={(e) => props.onSearchChange(e.currentTarget.value)}
           onKeyPress={(e) => e.key === "Enter" && props.onSearch()}
           placeholder="Search by name, slug, or brand..."
-          class="w-full pl-10 pr-4 py-2.5 bg-slate-900 rounded-xl text-slate-200 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 outline-none transition-all placeholder:text-slate-600"
+          class="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 rounded-xl text-zinc-900 dark:text-slate-200 border border-zinc-200 dark:border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 outline-none transition-all placeholder:text-zinc-400 dark:placeholder:text-slate-600"
         />
       </div>
 
-      <div class="flex items-center gap-2 bg-slate-900 p-1 rounded-xl border border-slate-800 overflow-x-auto">
+      <div class="flex items-center gap-2 bg-white dark:bg-slate-900 p-1 rounded-xl border border-zinc-200 dark:border-slate-800 overflow-x-auto">
         <For each={filterButtons}>
           {(btn) => (
             <button
               class={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
                 props.filter === btn.key
-                  ? "bg-slate-700 text-white shadow-sm"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                  ? "bg-zinc-200 dark:bg-slate-700 text-zinc-900 dark:text-white shadow-sm"
+                  : "text-zinc-500 dark:text-slate-400 hover:text-zinc-800 dark:hover:text-slate-200 hover:bg-zinc-100 dark:hover:bg-slate-800"
               }`}
               onClick={() => props.onFilterChange(btn.key)}
             >
@@ -65,8 +65,8 @@ export function SearchBar(props: SearchBarProps) {
                 <span
                   class={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
                     props.filter === btn.key
-                      ? "bg-slate-600/50 text-white"
-                      : "bg-slate-800 text-slate-500"
+                      ? "bg-zinc-300 dark:bg-slate-600/50 text-zinc-900 dark:text-white"
+                      : "bg-zinc-100 dark:bg-slate-800 text-zinc-500 dark:text-slate-500"
                   }`}
                 >
                   {btn.key === "corrupted"
@@ -92,7 +92,7 @@ export function SearchBar(props: SearchBarProps) {
           Search
         </button>
         <button
-          class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2.5 rounded-xl text-sm font-medium border border-slate-700 transition-all active:scale-95 cursor-pointer"
+          class="bg-zinc-100 dark:bg-slate-800 hover:bg-zinc-200 dark:hover:bg-slate-700 text-zinc-700 dark:text-slate-300 px-4 py-2.5 rounded-xl text-sm font-medium border border-zinc-200 dark:border-slate-700 transition-all active:scale-95 cursor-pointer"
           onClick={props.onClear}
         >
           Clear
