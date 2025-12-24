@@ -570,6 +570,7 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         jobType?: string;
         mode?: string;
         filter?: string | null;
+        runOnce?: boolean;
         timezone?: string;
       };
       if (!input.name || !input.source || !input.dataKind || !input.cronExpression) {
@@ -598,6 +599,7 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
               jobType: input.jobType as "scrape" | "process_raw" | "process_ai" | undefined,
               mode: input.mode as "fast" | "complex" | undefined,
               filter: input.filter,
+              runOnce: input.runOnce,
               timezone: input.timezone,
             }),
           ),
@@ -620,6 +622,7 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         jobType?: string;
         mode?: string;
         filter?: string | null;
+        runOnce?: boolean;
         timezone?: string;
       };
       if (!input.name || !input.source || !input.dataKind || !input.cronExpression) {
@@ -658,6 +661,7 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
               jobType: input.jobType as "scrape" | "process_raw" | "process_ai" | undefined,
               mode: input.mode as "fast" | "complex" | undefined,
               filter: input.filter,
+              runOnce: input.runOnce,
               timezone: input.timezone,
             }),
           ),

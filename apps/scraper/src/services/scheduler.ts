@@ -20,6 +20,7 @@ export interface JobSchedule {
   mode: ScrapeMode;
   filter: string | null;
   enabled: boolean;
+  runOnce: boolean;
   cronExpression: string;
   timezone: string;
   nextRunAt: number | null;
@@ -40,6 +41,7 @@ export interface UpsertScheduleInput {
   jobType?: JobType;
   mode?: ScrapeMode;
   filter?: string | null;
+  runOnce?: boolean;
   cronExpression: string;
   timezone?: string;
 }
@@ -105,6 +107,7 @@ type ScheduleRow = {
   mode: ScrapeMode;
   filter: string | null;
   enabled: number;
+  run_once: number;
   cron_expression: string;
   timezone: string;
   next_run_at: number | null;
@@ -126,6 +129,7 @@ const mapScheduleRow = (row: ScheduleRow): JobSchedule => ({
   mode: row.mode ?? "fast",
   filter: row.filter,
   enabled: row.enabled === 1,
+  runOnce: row.run_once === 1,
   cronExpression: row.cron_expression,
   timezone: row.timezone ?? "UTC",
   nextRunAt: row.next_run_at,
@@ -181,6 +185,7 @@ export const SchedulerServiceLive = Layer.effect(
           const mode = input.mode ?? "fast";
           const timezone = input.timezone ?? "UTC";
           const filter = input.filter ?? null;
+          const runOnce = input.runOnce ? 1 : 0;
 
           if (input.id !== undefined) {
             yield* sql`
@@ -191,6 +196,7 @@ export const SchedulerServiceLive = Layer.effect(
                   job_type = ${jobType},
                   mode = ${mode},
                   filter = ${filter},
+                  run_once = ${runOnce},
                   cron_expression = ${input.cronExpression},
                   timezone = ${timezone},
                   updated_at = unixepoch()
@@ -210,8 +216,8 @@ export const SchedulerServiceLive = Layer.effect(
           }
 
           yield* sql`
-            INSERT INTO job_schedules (name, source, data_kind, job_type, mode, filter, cron_expression, timezone, created_at, updated_at)
-            VALUES (${input.name}, ${input.source}, ${input.dataKind}, ${jobType}, ${mode}, ${filter}, ${input.cronExpression}, ${timezone}, unixepoch(), unixepoch())
+            INSERT INTO job_schedules (name, source, data_kind, job_type, mode, filter, run_once, cron_expression, timezone, created_at, updated_at)
+            VALUES (${input.name}, ${input.source}, ${input.dataKind}, ${jobType}, ${mode}, ${filter}, ${runOnce}, ${input.cronExpression}, ${timezone}, unixepoch(), unixepoch())
           `;
 
           const rows = yield* sql<ScheduleRow>`
@@ -362,7 +368,29 @@ export const SchedulerServiceLive = Layer.effect(
             );
           }
 
-          // Use Effect.try to safely compute next run time
+          const now = Math.floor(Date.now() / 1000);
+          const isRunOnce = row.run_once === 1;
+
+          if (isRunOnce) {
+            yield* sql`
+              UPDATE job_schedules
+              SET last_run_at = ${now},
+                  last_status = ${result.status},
+                  last_error = ${result.error ?? null},
+                  last_job_id = ${result.jobId ?? null},
+                  next_run_at = NULL,
+                  enabled = 0,
+                  locked_until = NULL,
+                  updated_at = unixepoch()
+              WHERE id = ${id}
+            `.pipe(Effect.mapError(wrapSqlError));
+
+            yield* Effect.logInfo("Schedule auto-disabled after run_once execution").pipe(
+              Effect.annotateLogs({ scheduleId: id, name: row.name }),
+            );
+            return;
+          }
+
           const nextRunAt = yield* Effect.try({
             try: () => computeNextRunTime(row.cron_expression, row.timezone ?? "UTC"),
             catch: (error) =>
@@ -371,7 +399,6 @@ export const SchedulerServiceLive = Layer.effect(
                 cause: error,
               }),
           });
-          const now = Math.floor(Date.now() / 1000);
 
           yield* sql`
             UPDATE job_schedules

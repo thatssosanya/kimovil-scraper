@@ -573,6 +573,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
         mode TEXT NOT NULL DEFAULT 'fast',
         filter TEXT,
         enabled INTEGER NOT NULL DEFAULT 0,
+        run_once INTEGER NOT NULL DEFAULT 0,
         cron_expression TEXT NOT NULL,
         timezone TEXT NOT NULL DEFAULT 'UTC',
         next_run_at INTEGER,
@@ -588,6 +589,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
 
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_schedules_enabled ON job_schedules(enabled)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_schedules_next_run ON job_schedules(next_run_at)`);
+    yield* ensureColumn(sql, "job_schedules", "run_once", "INTEGER NOT NULL DEFAULT 0");
 
     yield* Effect.logInfo("Schema initialized");
   });
