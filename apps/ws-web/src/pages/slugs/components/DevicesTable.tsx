@@ -12,6 +12,11 @@ export function DevicesTable() {
   const [focusedIndex, setFocusedIndex] = createSignal(-1);
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+      return;
+    }
+
     const devs = devices();
     if (devs.length === 0) return;
 
@@ -108,12 +113,20 @@ export function DevicesTable() {
               <thead>
                 <tr class="border-b border-slate-800/50">
                   <th class="w-12 px-4 py-3">
-                    <input
-                      type="checkbox"
-                      checked={allSelected()}
-                      onChange={toggleAll}
-                      class="w-4 h-4 rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500/50 focus:ring-offset-0 cursor-pointer"
-                    />
+                    <button
+                      onClick={toggleAll}
+                      class={`w-4 h-4 rounded-[3px] border transition-all flex items-center justify-center ${
+                        allSelected()
+                          ? "bg-indigo-500 border-indigo-500"
+                          : "border-slate-600 hover:border-slate-500 bg-transparent"
+                      }`}
+                    >
+                      <Show when={allSelected()}>
+                        <svg class="w-2.5 h-2.5 text-white" viewBox="0 0 10 8" fill="none">
+                          <path d="M1 4L3.5 6.5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                      </Show>
+                    </button>
                   </th>
                   <th class="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                     Device

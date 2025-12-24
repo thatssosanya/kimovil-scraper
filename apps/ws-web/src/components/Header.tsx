@@ -1,7 +1,7 @@
 import { Show, createSignal } from "solid-js";
 
 interface HeaderProps {
-  currentPage: "scraper" | "database";
+  currentPage: "scraper" | "database" | "widgets";
   status?: string;
   onHealthCheck?: () => void;
 }
@@ -46,6 +46,7 @@ export function Header(props: HeaderProps) {
   const navItems = [
     { id: "scraper", label: "Scraper", href: "/", icon: "search" },
     { id: "database", label: "Database", href: "/slugs", icon: "database" },
+    { id: "widgets", label: "Widgets", href: "/widgets", icon: "widgets" },
   ];
 
   return (

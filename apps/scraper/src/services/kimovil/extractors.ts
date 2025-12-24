@@ -11,7 +11,7 @@ import {
   extractImages,
   extractScores,
   extractOthers,
-  fixImageUrl,
+  ensureHttpsProtocol,
 } from "./extraction";
 
 
@@ -166,14 +166,14 @@ export const extractPhoneDataAsync = async (
   let images: string[] | null = null;
 
   const imagesArr = await page.$$eval(
-    "header .gallery-thumbs img, header .main-image img",
+    "header .gallery-thumbs img, header .device-main-image img",
     (imgs) =>
       imgs
         .map((img) => img.getAttribute("src") || img.getAttribute("data-src"))
         .filter((src): src is string => Boolean(src))
   );
   if (imagesArr.length > 0) {
-    images = imagesArr.map(fixImageUrl);
+    images = imagesArr.map(ensureHttpsProtocol);
   }
 
   if (!images) {
@@ -183,7 +183,7 @@ export const extractPhoneDataAsync = async (
         .filter((src): src is string => Boolean(src))
     );
     if (galleryImages.length > 0) {
-      images = galleryImages.map(fixImageUrl);
+      images = galleryImages.map(ensureHttpsProtocol);
     }
   }
 
@@ -193,7 +193,7 @@ export const extractPhoneDataAsync = async (
       (el) => el.getAttribute("content")
     ).catch(() => null);
     if (ogImage) {
-      images = [fixImageUrl(ogImage)];
+      images = [ensureHttpsProtocol(ogImage)];
     }
   }
 

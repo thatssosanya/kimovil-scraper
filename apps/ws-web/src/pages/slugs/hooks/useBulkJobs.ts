@@ -157,7 +157,13 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
               }
             }
           } else if (data.error) {
-            alert(`Error: ${data.error.message}`);
+            if (data.error.code === "JOB_NOT_FOUND") {
+              localStorage.removeItem("bulk-job");
+              setBulkJob(null);
+              setBulkJobStats(null);
+            } else {
+              alert(`Error: ${data.error.message}`);
+            }
             setBulkJobLoading(false);
             setBulkLoading(false);
           }

@@ -19,29 +19,29 @@ interface StatusBadgeProps {
 function StatusBadge(props: StatusBadgeProps) {
   const colorClasses = {
     slate: {
-      active: "bg-slate-700/60 text-slate-300 ring-slate-500/30",
-      activeHover: "hover:bg-slate-600/60 hover:ring-slate-400/40",
-      inactive: "bg-slate-800/40 text-slate-600 ring-slate-700/20",
+      active: "bg-slate-800/80 text-slate-300 border-slate-700",
+      activeHover: "hover:bg-slate-700/80 hover:text-slate-200",
+      inactive: "bg-transparent text-slate-700 border-transparent",
     },
     cyan: {
-      active: "bg-cyan-950/60 text-cyan-400 ring-cyan-500/30",
-      activeHover: "hover:bg-cyan-900/60 hover:ring-cyan-400/40",
-      inactive: "bg-slate-800/40 text-slate-600 ring-slate-700/20",
+      active: "bg-cyan-950/60 text-cyan-400 border-cyan-800/50",
+      activeHover: "hover:bg-cyan-900/60 hover:text-cyan-300",
+      inactive: "bg-transparent text-slate-700 border-transparent",
     },
     violet: {
-      active: "bg-violet-950/60 text-violet-400 ring-violet-500/30",
-      activeHover: "hover:bg-violet-900/60 hover:ring-violet-400/40",
-      inactive: "bg-slate-800/40 text-slate-600 ring-slate-700/20",
+      active: "bg-violet-950/60 text-violet-400 border-violet-800/50",
+      activeHover: "hover:bg-violet-900/60 hover:text-violet-300",
+      inactive: "bg-transparent text-slate-700 border-transparent",
     },
     emerald: {
-      active: "bg-emerald-950/60 text-emerald-400 ring-emerald-500/30",
-      activeHover: "hover:bg-emerald-900/60 hover:ring-emerald-400/40",
-      inactive: "bg-slate-800/40 text-slate-600 ring-slate-700/20",
+      active: "bg-emerald-950/60 text-emerald-400 border-emerald-800/50",
+      activeHover: "hover:bg-emerald-900/60 hover:text-emerald-300",
+      inactive: "bg-transparent text-slate-700 border-transparent",
     },
     rose: {
-      active: "bg-rose-950/60 text-rose-400 ring-rose-500/30",
-      activeHover: "hover:bg-rose-900/60 hover:ring-rose-400/40",
-      inactive: "bg-slate-800/40 text-slate-600 ring-slate-700/20",
+      active: "bg-rose-950/60 text-rose-400 border-rose-800/50",
+      activeHover: "hover:bg-rose-900/60 hover:text-rose-300",
+      inactive: "bg-transparent text-slate-700 border-transparent",
     },
   };
 
@@ -58,8 +58,8 @@ function StatusBadge(props: StatusBadgeProps) {
   return (
     <div
       class={`
-        w-6 h-6 rounded-md flex items-center justify-center
-        ring-1 transition-all duration-200
+        flex-1 h-9 flex items-center justify-center
+        border-r last:border-r-0 transition-all duration-150
         ${props.active ? colors.active : colors.inactive}
         ${isClickable() ? `cursor-pointer ${colors.activeHover}` : ""}
       `}
@@ -82,7 +82,7 @@ export function DataStatusIcons(props: DataStatusIconsProps) {
   };
 
   return (
-    <div class="flex items-center gap-1">
+    <div class="flex items-center w-full rounded-md overflow-hidden border border-slate-800/50">
       {/* HTML */}
       <StatusBadge
         active={!!status()?.hasHtml}

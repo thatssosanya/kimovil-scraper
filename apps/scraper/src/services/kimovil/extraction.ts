@@ -280,42 +280,54 @@ export const cssAttrStrategy = (
     }),
 });
 
-// Helper: fixed image URL (protocol-relative)
-export const fixImageUrl = (url: string): string => {
+// Helper: convert protocol-relative URLs to https
+export const ensureHttpsProtocol = (url: string): string => {
   if (url.startsWith("//")) {
     return `https:${url}`;
   }
   return url;
 };
 
+// Helper: create image extraction strategy that applies ensureHttpsProtocol in Node context
+const imageArrayStrategy = (
+  name: string,
+  selector: string
+): ExtractionStrategy<string[]> => ({
+  name,
+  selector,
+  run: (ctx: ExtractionContext) =>
+    Effect.gen(function* () {
+      const result = yield* Effect.tryPromise({
+        try: async () => {
+          const elements = await ctx.page.$$(selector);
+          if (elements.length === 0) return null;
+          return ctx.page.$$eval(selector, (els) =>
+            els
+              .map((el) => el.getAttribute("src") || el.getAttribute("data-src"))
+              .filter((src): src is string => Boolean(src))
+          );
+        },
+        catch: (e) =>
+          new ExtractionError(
+            "images",
+            selector,
+            name,
+            e instanceof Error ? e.message : String(e)
+          ),
+      });
+
+      if (result !== null && result.length > 0) {
+        return Option.some(result.map(ensureHttpsProtocol));
+      }
+      return Option.none();
+    }),
+});
+
 // Image extraction strategies
 export const imageStrategies: ExtractionStrategy<string[]>[] = [
-  cssArrayStrategy(
-    "gallery-thumbs",
-    "images",
-    "header .gallery-thumbs img",
-    (els) =>
-      els
-        .map((el) => el.getAttribute("src") || el.getAttribute("data-src"))
-        .filter((src): src is string => Boolean(src))
-        .map(fixImageUrl)
-  ),
-  cssArrayStrategy(
-    "main-image",
-    "images",
-    "header .main-image img",
-    (els) =>
-      els
-        .map((el) => el.getAttribute("src") || el.getAttribute("data-src"))
-        .filter((src): src is string => Boolean(src))
-        .map(fixImageUrl)
-  ),
-  cssArrayStrategy("product-gallery", "images", ".product-gallery img", (els) =>
-    els
-      .map((el) => el.getAttribute("src"))
-      .filter((src): src is string => Boolean(src))
-      .map(fixImageUrl)
-  ),
+  imageArrayStrategy("gallery-thumbs", "header .gallery-thumbs img"),
+  imageArrayStrategy("device-main-image", "header .device-main-image img"),
+  imageArrayStrategy("product-gallery", ".product-gallery img"),
   {
     name: "og-image",
     selector: 'meta[property="og:image"]',
@@ -337,7 +349,7 @@ export const imageStrategies: ExtractionStrategy<string[]>[] = [
         });
 
         if (!content) return Option.none();
-        return Option.some([fixImageUrl(content)]);
+        return Option.some([ensureHttpsProtocol(content)]);
       }),
   },
 ];

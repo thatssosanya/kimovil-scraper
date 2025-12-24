@@ -150,12 +150,20 @@ export function DeviceRow(props: DeviceRowProps) {
     >
       {/* Checkbox - always toggles, like cmd+click */}
       <td class="px-4 py-2" onClick={(e) => e.stopPropagation()}>
-        <input
-          type="checkbox"
-          checked={isSelected()}
-          onChange={() => selection.toggleSingle(props.device.slug)}
-          class="w-4 h-4 rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500/50 focus:ring-offset-0 cursor-pointer opacity-50 group-hover:opacity-100 transition-opacity"
-        />
+        <button
+          onClick={() => selection.toggleSingle(props.device.slug)}
+          class={`w-4 h-4 rounded-[3px] border transition-all flex items-center justify-center ${
+            isSelected()
+              ? "bg-indigo-500 border-indigo-500"
+              : "border-slate-600 hover:border-slate-500 bg-transparent opacity-40 group-hover:opacity-100"
+          }`}
+        >
+          <Show when={isSelected()}>
+            <svg class="w-2.5 h-2.5 text-white" viewBox="0 0 10 8" fill="none">
+              <path d="M1 4L3.5 6.5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </Show>
+        </button>
       </td>
 
       {/* Device */}
