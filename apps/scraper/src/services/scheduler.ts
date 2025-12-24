@@ -52,6 +52,18 @@ export interface ScheduleRunResult {
   jobId?: string;
 }
 
+export type ScheduleRunCaller = "scheduler" | "manual";
+
+export interface RunScheduleOnceOptions {
+  caller: ScheduleRunCaller;
+  claimLock?: boolean;
+  lockDurationSeconds?: number;
+  respectExistingLock?: boolean;
+  skipIfActiveJob?: boolean;
+  requireEnabled?: boolean;
+  swallowInternalErrors?: boolean;
+}
+
 export interface SchedulerService {
   readonly listSchedules: () => Effect.Effect<JobSchedule[], SchedulerError>;
 
@@ -162,7 +174,7 @@ export const SchedulerServiceLive = Layer.effect(
     const jobQueue = yield* JobQueueService;
     const deviceService = yield* DeviceService;
 
-    return SchedulerService.of({
+    const self: SchedulerService = {
       listSchedules: () =>
         sql<ScheduleRow>`
           SELECT * FROM job_schedules ORDER BY created_at DESC
@@ -280,43 +292,32 @@ export const SchedulerServiceLive = Layer.effect(
         `.pipe(Effect.asVoid, Effect.mapError(wrapSqlError)),
 
       triggerNow: (id) =>
-        Effect.gen(function* () {
-          const rows = yield* sql<ScheduleRow>`
-            SELECT * FROM job_schedules WHERE id = ${id}
-          `.pipe(Effect.mapError(wrapSqlError));
-
-          const schedule = rows[0];
-          if (!schedule) {
-            return yield* Effect.fail(
-              new SchedulerError({ message: `Schedule ${id} not found` }),
+        runScheduleOnce(id, {
+          caller: "manual",
+          claimLock: true,
+          lockDurationSeconds: 300,
+          respectExistingLock: true,
+          skipIfActiveJob: true,
+          requireEnabled: false,
+          swallowInternalErrors: false,
+        }).pipe(
+          Effect.flatMap((result) => {
+            if (result.status === "success" && result.jobId) {
+              return Effect.succeed(result.jobId);
+            }
+            return Effect.fail(
+              new SchedulerError({
+                message: result.error ?? `Schedule ${id} did not start (status=${result.status})`,
+              }),
             );
-          }
-
-          const jobId = generateJobId();
-          yield* jobQueue
-            .createJob({
-              id: jobId,
-              jobType: schedule.job_type,
-              mode: schedule.mode,
-              filter: schedule.filter,
-              source: schedule.source,
-              dataKind: schedule.data_kind,
-            })
-            .pipe(
-              Effect.mapError(
-                (e) => new SchedulerError({ message: e.message, cause: e }),
-              ),
-            );
-
-          yield* sql`
-            UPDATE job_schedules
-            SET last_job_id = ${jobId},
-                updated_at = unixepoch()
-            WHERE id = ${id}
-          `.pipe(Effect.mapError(wrapSqlError));
-
-          return jobId;
-        }),
+          }),
+          Effect.provide(
+            Layer.mergeAll(
+              Layer.succeed(SchedulerService, self),
+              Layer.succeed(JobQueueService, jobQueue),
+            ),
+          ),
+        ),
 
       getDueSchedules: () =>
         Effect.gen(function* () {
@@ -445,61 +446,76 @@ export const SchedulerServiceLive = Layer.effect(
           );
           return devices.map((d) => d.slug);
         }),
-    });
+    };
+
+    return SchedulerService.of(self);
   }),
 );
 
-export const createSchedulerLoopIteration = Effect.gen(function* () {
-  const scheduler = yield* SchedulerService;
-  const jobQueue = yield* JobQueueService;
+export const runScheduleOnce = (
+  scheduleId: number,
+  options: RunScheduleOnceOptions,
+): Effect.Effect<ScheduleRunResult, SchedulerError, SchedulerService | JobQueueService> =>
+  Effect.gen(function* () {
+    const scheduler = yield* SchedulerService;
+    const jobQueue = yield* JobQueueService;
 
-  const dueSchedules = yield* scheduler.getDueSchedules();
-  
-  if (dueSchedules.length === 0) {
-    return;
-  }
+    const claimLock = options.claimLock ?? true;
+    const lockDurationSeconds = options.lockDurationSeconds ?? 300;
+    const respectExistingLock = options.respectExistingLock ?? true;
+    const skipIfActiveJob = options.skipIfActiveJob ?? true;
+    const requireEnabled = options.requireEnabled ?? (options.caller === "scheduler");
+    const swallowInternalErrors = options.swallowInternalErrors ?? true;
 
-  yield* Effect.logInfo("Scheduler: found due schedules").pipe(
-    Effect.annotateLogs({ count: dueSchedules.length }),
-  );
-
-  for (const schedule of dueSchedules) {
-    const claimed = yield* scheduler.claimSchedule(schedule.id, 300);
-    if (!claimed) {
-      yield* Effect.logDebug("Scheduler: schedule already claimed").pipe(
-        Effect.annotateLogs({ scheduleId: schedule.id, name: schedule.name }),
+    const schedule = yield* scheduler.getSchedule(scheduleId);
+    if (!schedule) {
+      return yield* Effect.fail(
+        new SchedulerError({ message: `Schedule ${scheduleId} not found` }),
       );
-      continue;
     }
 
-    yield* Effect.logInfo("Scheduler: claimed schedule").pipe(
-      Effect.annotateLogs({ scheduleId: schedule.id, name: schedule.name }),
-    );
+    if (requireEnabled && !schedule.enabled) {
+      yield* Effect.logDebug("runScheduleOnce: schedule disabled").pipe(
+        Effect.annotateLogs({ scheduleId, name: schedule.name, caller: options.caller }),
+      );
+      return { status: "skipped" as const };
+    }
 
-    if (schedule.lastJobId) {
+    if (claimLock) {
+      const claimed = yield* scheduler.claimSchedule(scheduleId, lockDurationSeconds);
+      if (respectExistingLock && !claimed) {
+        yield* Effect.logDebug("runScheduleOnce: schedule already claimed").pipe(
+          Effect.annotateLogs({ scheduleId, name: schedule.name, caller: options.caller }),
+        );
+        return { status: "skipped" as const };
+      }
+    }
+
+    if (skipIfActiveJob && schedule.lastJobId) {
       const lastJob = yield* jobQueue.getJob(schedule.lastJobId).pipe(
         Effect.mapError(
           (e) => new SchedulerError({ message: e.message, cause: e }),
         ),
       );
-      
+
       if (lastJob && (lastJob.status === "running" || lastJob.status === "paused" || lastJob.status === "pausing")) {
-        yield* Effect.logInfo("Scheduler: skipping - previous job still active").pipe(
+        yield* Effect.logInfo("runScheduleOnce: skipping - previous job still active").pipe(
           Effect.annotateLogs({
-            scheduleId: schedule.id,
+            scheduleId,
             name: schedule.name,
+            caller: options.caller,
             lastJobId: schedule.lastJobId,
             lastJobStatus: lastJob.status,
           }),
         );
-        yield* scheduler.markScheduleResult(schedule.id, { status: "skipped" });
-        continue;
+        yield* scheduler.markScheduleResult(scheduleId, { status: "skipped" });
+        return { status: "skipped" as const };
       }
     }
 
     const result = yield* Effect.gen(function* () {
       const jobId = generateJobId();
-      
+
       yield* jobQueue.createJob({
         id: jobId,
         jobType: schedule.jobType,
@@ -514,10 +530,10 @@ export const createSchedulerLoopIteration = Effect.gen(function* () {
       );
 
       const slugs = yield* scheduler.getSlugsForSchedule(schedule);
-      
+
       if (slugs.length === 0) {
-        yield* Effect.logWarning("Scheduler: no slugs to enqueue").pipe(
-          Effect.annotateLogs({ scheduleId: schedule.id, name: schedule.name }),
+        yield* Effect.logWarning("runScheduleOnce: no slugs to enqueue").pipe(
+          Effect.annotateLogs({ scheduleId, name: schedule.name, caller: options.caller }),
         );
         return { status: "skipped" as const, jobId };
       }
@@ -531,10 +547,11 @@ export const createSchedulerLoopIteration = Effect.gen(function* () {
         ),
       );
 
-      yield* Effect.logInfo("Scheduler: job created and slugs enqueued").pipe(
+      yield* Effect.logInfo("runScheduleOnce: job created and slugs enqueued").pipe(
         Effect.annotateLogs({
-          scheduleId: schedule.id,
+          scheduleId,
           name: schedule.name,
+          caller: options.caller,
           jobId,
           slugCount: slugs.length,
         }),
@@ -542,24 +559,54 @@ export const createSchedulerLoopIteration = Effect.gen(function* () {
 
       return { status: "success" as const, jobId };
     }).pipe(
-      Effect.catchAll((error) =>
-        Effect.gen(function* () {
-          yield* Effect.logError("Scheduler: failed to create job").pipe(
-            Effect.annotateLogs({
-              scheduleId: schedule.id,
-              name: schedule.name,
-              error,
-            }),
-          );
-          return {
-            status: "error" as const,
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }),
-      ),
+      Effect.catchAll((error: SchedulerError) => {
+        if (swallowInternalErrors) {
+          return Effect.gen(function* () {
+            yield* Effect.logError("runScheduleOnce: failed to create job").pipe(
+              Effect.annotateLogs({
+                scheduleId,
+                name: schedule.name,
+                caller: options.caller,
+                error,
+              }),
+            );
+            return {
+              status: "error" as const,
+              error: error.message,
+            };
+          });
+        }
+        return Effect.fail(error);
+      }),
     );
 
-    yield* scheduler.markScheduleResult(schedule.id, result);
+    yield* scheduler.markScheduleResult(scheduleId, result);
+    return result;
+  });
+
+export const createSchedulerLoopIteration = Effect.gen(function* () {
+  const scheduler = yield* SchedulerService;
+
+  const dueSchedules = yield* scheduler.getDueSchedules();
+
+  if (dueSchedules.length === 0) {
+    return;
+  }
+
+  yield* Effect.logInfo("Scheduler: found due schedules").pipe(
+    Effect.annotateLogs({ count: dueSchedules.length }),
+  );
+
+  for (const schedule of dueSchedules) {
+    yield* runScheduleOnce(schedule.id, {
+      caller: "scheduler",
+      claimLock: true,
+      lockDurationSeconds: 300,
+      respectExistingLock: true,
+      skipIfActiveJob: true,
+      requireEnabled: true,
+      swallowInternalErrors: true,
+    });
   }
 });
 
