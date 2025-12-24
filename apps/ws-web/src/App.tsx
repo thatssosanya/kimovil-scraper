@@ -269,10 +269,10 @@ function App() {
               <div class="bg-gradient-to-br from-indigo-500/10 to-indigo-600/5 border border-indigo-500/20 rounded-xl p-4 relative overflow-hidden">
                 <div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl"></div>
                 <div class="relative">
-                  <div class="text-3xl font-bold text-white">
+                  <div class="text-3xl font-bold text-indigo-700 dark:text-white">
                     {stats()!.devices.toLocaleString()}
                   </div>
-                  <div class="text-xs text-indigo-300/70 font-medium uppercase tracking-wider mt-1">
+                  <div class="text-xs text-indigo-600/70 dark:text-indigo-300/70 font-medium uppercase tracking-wider mt-1">
                     Total Devices
                   </div>
                 </div>
@@ -282,10 +282,10 @@ function App() {
               <div class="bg-gradient-to-br from-cyan-500/10 to-cyan-600/5 border border-cyan-500/20 rounded-xl p-4 relative overflow-hidden">
                 <div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-cyan-500/10 rounded-full blur-2xl"></div>
                 <div class="relative">
-                  <div class="text-3xl font-bold text-white">
+                  <div class="text-3xl font-bold text-cyan-700 dark:text-white">
                     {scrapeStats()!.scraped.toLocaleString()}
                   </div>
-                  <div class="text-xs text-cyan-300/70 font-medium uppercase tracking-wider mt-1">
+                  <div class="text-xs text-cyan-600/70 dark:text-cyan-300/70 font-medium uppercase tracking-wider mt-1">
                     Scraped
                   </div>
                 </div>
@@ -293,10 +293,10 @@ function App() {
               <div class="bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 border border-emerald-500/20 rounded-xl p-4 relative overflow-hidden">
                 <div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl"></div>
                 <div class="relative">
-                  <div class="text-3xl font-bold text-white">
+                  <div class="text-3xl font-bold text-emerald-700 dark:text-white">
                     {scrapeStats()!.valid.toLocaleString()}
                   </div>
-                  <div class="text-xs text-emerald-300/70 font-medium uppercase tracking-wider mt-1">
+                  <div class="text-xs text-emerald-600/70 dark:text-emerald-300/70 font-medium uppercase tracking-wider mt-1">
                     Valid
                   </div>
                 </div>
@@ -304,10 +304,10 @@ function App() {
               <div class="bg-gradient-to-br from-rose-500/10 to-rose-600/5 border border-rose-500/20 rounded-xl p-4 relative overflow-hidden">
                 <div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-rose-500/10 rounded-full blur-2xl"></div>
                 <div class="relative">
-                  <div class="text-3xl font-bold text-white">
+                  <div class="text-3xl font-bold text-rose-700 dark:text-white">
                     {scrapeStats()!.corrupted.toLocaleString()}
                   </div>
-                  <div class="text-xs text-rose-300/70 font-medium uppercase tracking-wider mt-1">
+                  <div class="text-xs text-rose-600/70 dark:text-rose-300/70 font-medium uppercase tracking-wider mt-1">
                     Corrupted
                   </div>
                 </div>
