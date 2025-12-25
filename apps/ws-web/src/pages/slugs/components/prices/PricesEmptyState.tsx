@@ -4,6 +4,7 @@ interface PricesEmptyStateProps {
   onLink: (url: string) => Promise<void>;
   linking: boolean;
   progress: number;
+  onLinkPriceRu?: () => Promise<void>;
 }
 
 export function PricesEmptyState(props: PricesEmptyStateProps) {
@@ -122,6 +123,27 @@ export function PricesEmptyState(props: PricesEmptyStateProps) {
             </div>
           </Show>
         </div>
+
+        {/* price.ru auto-link option */}
+        <Show when={props.onLinkPriceRu}>
+          <div class="mt-6 flex items-center justify-center gap-3">
+            <div class="h-px w-16 bg-slate-700/50" />
+            <span class="text-xs text-slate-500 uppercase tracking-wider">or</span>
+            <div class="h-px w-16 bg-slate-700/50" />
+          </div>
+          <button
+            onClick={props.onLinkPriceRu}
+            disabled={props.linking}
+            class="mt-4 px-5 py-2.5 rounded-xl bg-gradient-to-r from-orange-500/20 to-amber-500/20 border border-orange-500/30 text-orange-400 font-medium text-sm hover:from-orange-500/30 hover:to-amber-500/30 transition-all cursor-pointer disabled:opacity-50"
+          >
+            <span class="flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              Auto-find on price.ru
+            </span>
+          </button>
+        </Show>
         
         {/* Features list */}
         <div class="mt-12 grid grid-cols-3 gap-6">

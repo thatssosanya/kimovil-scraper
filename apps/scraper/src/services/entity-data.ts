@@ -72,6 +72,16 @@ export interface EntityDataService {
   readonly getFinalDataCount: (
     dataKind: string,
   ) => Effect.Effect<number, EntityDataError>;
+
+  readonly getSlugsNeedingExtraction: (
+    source: string,
+    dataKind: string,
+  ) => Effect.Effect<string[], EntityDataError>;
+
+  readonly getSlugsNeedingAi: (
+    source: string,
+    dataKind: string,
+  ) => Effect.Effect<string[], EntityDataError>;
 }
 
 export const EntityDataService =
@@ -223,6 +233,36 @@ export const EntityDataServiceLive = Layer.effect(
           SELECT COUNT(*) as count FROM entity_data WHERE data_kind = ${dataKind}
         `.pipe(
           Effect.map((rows) => rows[0]?.count ?? 0),
+          Effect.mapError(wrapSqlError),
+        ),
+
+      getSlugsNeedingExtraction: (source: string, dataKind: string) =>
+        sql<{ slug: string }>`
+          SELECT DISTINCT s.external_id as slug 
+          FROM scrapes s
+          JOIN scrape_html sh ON s.id = sh.scrape_id
+          LEFT JOIN entity_data_raw edr ON edr.device_id = (
+            SELECT ds.device_id FROM device_sources ds 
+            WHERE ds.source = s.source AND ds.external_id = s.external_id
+          ) AND edr.source = s.source AND edr.data_kind = s.data_kind
+          WHERE s.source = ${source}
+            AND s.data_kind = ${dataKind}
+            AND s.status = 'done'
+            AND edr.id IS NULL
+        `.pipe(
+          Effect.map((rows) => rows.map((r) => r.slug)),
+          Effect.mapError(wrapSqlError),
+        ),
+
+      getSlugsNeedingAi: (source: string, dataKind: string) =>
+        sql<{ slug: string }>`
+          SELECT DISTINCT d.slug 
+          FROM entity_data_raw edr
+          JOIN devices d ON d.id = edr.device_id
+          LEFT JOIN entity_data ed ON ed.device_id = edr.device_id AND ed.data_kind = edr.data_kind
+          WHERE edr.source = ${source} AND edr.data_kind = ${dataKind} AND ed.id IS NULL
+        `.pipe(
+          Effect.map((rows) => rows.map((r) => r.slug)),
           Effect.mapError(wrapSqlError),
         ),
     });

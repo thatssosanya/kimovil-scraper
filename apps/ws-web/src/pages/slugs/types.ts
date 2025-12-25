@@ -55,6 +55,7 @@ export interface ScrapeStatus {
   corruptionReason: string | null;
   priceSourceCount?: number;
   hasPrices?: boolean;
+  hasPriceRuLink?: boolean;
 }
 
 // API response wrapper for phone data
@@ -63,7 +64,9 @@ export interface PhoneDataResponse<T> {
   data: T | null;
 }
 
-export type JobType = "scrape" | "process_raw" | "process_ai";
+export type JobType = "scrape" | "process_raw" | "process_ai" | "link_priceru";
+export type SourceType = "kimovil" | "price_ru";
+export type DataKindType = "specs" | "prices" | "price_links";
 export type AiMode = "realtime" | "batch";
 
 export interface BulkJobInfo {
@@ -82,6 +85,8 @@ export interface BulkJobInfo {
   workerCount?: number;
   batchRequestId?: string | null;
   batchStatus?: string | null;
+  source?: string;
+  dataKind?: string;
 }
 
 export interface BulkJobStats {

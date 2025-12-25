@@ -11,6 +11,7 @@ export interface PipelineContext {
   dataKind: DataKind;
   externalId: string;
   scrapeId: number | null;
+  metadata?: Record<string, unknown>;
 }
 
 export type StageHandler<R = never, E = never> = (

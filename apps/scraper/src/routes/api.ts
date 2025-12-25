@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { ScrapeService } from "@repo/scraper-domain";
 import { PriceService } from "../services/price";
 import { HtmlCacheService } from "../services/html-cache";
-import { PhoneDataService } from "../services/phone-data";
+import { EntityDataService } from "../services/entity-data";
 import { JobQueueService, type ScrapeMode } from "../services/job-queue";
 import { ScrapeRecordService } from "../services/scrape-record";
 import { BulkJobManager } from "../services/bulk-job";
@@ -60,17 +60,18 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
       void (async () => {
         const servicesProgram = Effect.gen(function* () {
           const htmlCache = yield* HtmlCacheService;
-          const phoneData = yield* PhoneDataService;
+          const entityData = yield* EntityDataService;
+          const deviceRegistry = yield* DeviceRegistryService;
           const jobQueue = yield* JobQueueService;
           const scrapeService = yield* ScrapeService;
-          return { htmlCache, phoneData, jobQueue, scrapeService };
+          return { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService };
         });
-        const { htmlCache, phoneData, jobQueue, scrapeService } =
+        const { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService } =
           await LiveRuntime.runPromise(servicesProgram);
         await LiveRuntime.runPromise(jobQueue.startQueueItem(item.id));
         await bulkJobManager.runQueueItem(
           item,
-          { htmlCache, phoneData, jobQueue },
+          { htmlCache, entityData, deviceRegistry, jobQueue },
           scrapeService,
         );
       })();
@@ -107,7 +108,8 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
 
       const program = Effect.gen(function* () {
         const htmlCache = yield* HtmlCacheService;
-        const phoneData = yield* PhoneDataService;
+        const entityData = yield* EntityDataService;
+        const deviceRegistry = yield* DeviceRegistryService;
         const jobQueue = yield* JobQueueService;
         const results: Record<
           string,
@@ -123,8 +125,15 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
 
         for (const externalId of externalIds) {
           const hasHtml = yield* htmlCache.hasHtmlForSlug(externalId, source, "specs");
-          const hasRawData = yield* phoneData.hasRaw(externalId);
-          const hasAiData = yield* phoneData.has(externalId);
+          const device = yield* deviceRegistry.lookupDevice(source, externalId);
+          let hasRawData = false;
+          let hasAiData = false;
+          if (device) {
+            const rawData = yield* entityData.getRawData(device.id, source, "specs");
+            hasRawData = rawData !== null;
+            const finalData = yield* entityData.getFinalData(device.id, "specs");
+            hasAiData = finalData !== null;
+          }
           const queueItem = yield* jobQueue.getQueueItemByTarget(
             source,
             externalId,
@@ -213,8 +222,13 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
     })
     .get("/phone-data/raw/:slug", async ({ params }) => {
       const program = Effect.gen(function* () {
-        const phoneData = yield* PhoneDataService;
-        const data = yield* phoneData.getRaw(params.slug);
+        const deviceRegistry = yield* DeviceRegistryService;
+        const entityData = yield* EntityDataService;
+        const device = yield* deviceRegistry.getDeviceBySlug(params.slug);
+        if (!device) {
+          return { slug: params.slug, data: null };
+        }
+        const data = yield* entityData.getRawData(device.id, "kimovil", "specs");
         return { slug: params.slug, data };
       });
 
@@ -222,16 +236,26 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
     })
     .delete("/phone-data/raw/:slug", async ({ params }) => {
       const program = Effect.gen(function* () {
-        const phoneData = yield* PhoneDataService;
-        const deleted = yield* phoneData.deleteRaw(params.slug);
+        const deviceRegistry = yield* DeviceRegistryService;
+        const entityData = yield* EntityDataService;
+        const device = yield* deviceRegistry.getDeviceBySlug(params.slug);
+        if (!device) {
+          return { success: false, slug: params.slug, deleted: false };
+        }
+        const deleted = yield* entityData.deleteRawData(device.id, "kimovil", "specs");
         return { success: true, slug: params.slug, deleted };
       });
       return LiveRuntime.runPromise(program);
     })
     .get("/phone-data/:slug", async ({ params }) => {
       const program = Effect.gen(function* () {
-        const phoneData = yield* PhoneDataService;
-        const data = yield* phoneData.get(params.slug);
+        const deviceRegistry = yield* DeviceRegistryService;
+        const entityData = yield* EntityDataService;
+        const device = yield* deviceRegistry.getDeviceBySlug(params.slug);
+        if (!device) {
+          return { slug: params.slug, data: null };
+        }
+        const data = yield* entityData.getFinalData(device.id, "specs");
         return { slug: params.slug, data };
       });
 
@@ -239,8 +263,13 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
     })
     .delete("/phone-data/:slug", async ({ params }) => {
       const program = Effect.gen(function* () {
-        const phoneData = yield* PhoneDataService;
-        const deleted = yield* phoneData.delete(params.slug);
+        const deviceRegistry = yield* DeviceRegistryService;
+        const entityData = yield* EntityDataService;
+        const device = yield* deviceRegistry.getDeviceBySlug(params.slug);
+        if (!device) {
+          return { success: false, slug: params.slug, deleted: false };
+        }
+        const deleted = yield* entityData.deleteFinalData(device.id, "specs");
         return { success: true, slug: params.slug, deleted };
       });
       return LiveRuntime.runPromise(program);
@@ -277,12 +306,13 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
     .post("/scrape/run-next", async () => {
       const servicesProgram = Effect.gen(function* () {
         const htmlCache = yield* HtmlCacheService;
-        const phoneData = yield* PhoneDataService;
+        const entityData = yield* EntityDataService;
+        const deviceRegistry = yield* DeviceRegistryService;
         const jobQueue = yield* JobQueueService;
         const scrapeService = yield* ScrapeService;
-        return { htmlCache, phoneData, jobQueue, scrapeService };
+        return { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService };
       });
-      const { htmlCache, phoneData, jobQueue, scrapeService } =
+      const { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService } =
         await LiveRuntime.runPromise(servicesProgram);
       const item = await LiveRuntime.runPromise(jobQueue.claimNextQueueItem());
       if (!item) {
@@ -290,7 +320,7 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
       }
       await bulkJobManager.runQueueItem(
         item,
-        { htmlCache, phoneData, jobQueue },
+        { htmlCache, entityData, deviceRegistry, jobQueue },
         scrapeService,
       );
       return { success: true, item };
@@ -308,12 +338,13 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
       try {
         const program = Effect.gen(function* () {
           const htmlCache = yield* HtmlCacheService;
-          const phoneData = yield* PhoneDataService;
+          const entityData = yield* EntityDataService;
+          const deviceRegistry = yield* DeviceRegistryService;
           const jobQueue = yield* JobQueueService;
           const scrapeService = yield* ScrapeService;
-          return { htmlCache, phoneData, jobQueue, scrapeService };
+          return { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService };
         });
-        const { htmlCache, phoneData, jobQueue, scrapeService } =
+        const { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService } =
           await LiveRuntime.runPromise(program);
 
         const hasHtml = await LiveRuntime.runPromise(
@@ -349,7 +380,7 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         };
         await bulkJobManager.runQueueItem(
           dummyItem,
-          { htmlCache, phoneData, jobQueue },
+          { htmlCache, entityData, deviceRegistry, jobQueue },
           scrapeService,
         );
         return { success: true, source: resolvedSource, externalId };
@@ -372,15 +403,19 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
       try {
         const program = Effect.gen(function* () {
           const htmlCache = yield* HtmlCacheService;
-          const phoneData = yield* PhoneDataService;
+          const entityData = yield* EntityDataService;
+          const deviceRegistry = yield* DeviceRegistryService;
           const jobQueue = yield* JobQueueService;
           const scrapeService = yield* ScrapeService;
-          return { htmlCache, phoneData, jobQueue, scrapeService };
+          return { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService };
         });
-        const { htmlCache, phoneData, jobQueue, scrapeService } =
+        const { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService } =
           await LiveRuntime.runPromise(program);
 
-        const hasRaw = await LiveRuntime.runPromise(phoneData.hasRaw(externalId));
+        const device = await LiveRuntime.runPromise(deviceRegistry.getDeviceBySlug(externalId));
+        const hasRaw = device
+          ? await LiveRuntime.runPromise(entityData.getRawData(device.id, resolvedSource, "specs").pipe(Effect.map((d) => d !== null)))
+          : false;
         if (!hasRaw) {
           return {
             success: false,
@@ -411,7 +446,7 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         };
         await bulkJobManager.runQueueItem(
           dummyItem,
-          { htmlCache, phoneData, jobQueue },
+          { htmlCache, entityData, deviceRegistry, jobQueue },
           scrapeService,
         );
         return { success: true, source: resolvedSource, externalId };

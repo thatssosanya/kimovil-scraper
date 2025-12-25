@@ -289,8 +289,10 @@ const mapJobRow = (row: JobRow): Job => ({
   dataKind: row.data_kind ?? "specs",
 });
 
-const wrapSqlError = (error: SqlError.SqlError): JobQueueError =>
-  new JobQueueError(error.message);
+const wrapSqlError = (error: SqlError.SqlError): JobQueueError => {
+  const detail = error.cause instanceof Error ? error.cause.message : String(error.cause ?? "");
+  return new JobQueueError(`${error.message}${detail ? ` (${detail})` : ""}`);
+};
 
 export const JobQueueServiceLive = Layer.effect(
   JobQueueService,

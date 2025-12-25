@@ -38,7 +38,6 @@ import {
 } from "@repo/scraper-domain";
 
 import { HtmlCacheService } from "../services/html-cache";
-import { PhoneDataService } from "../services/phone-data";
 import {
   JobQueueService,
   type ScrapeMode,
@@ -201,15 +200,36 @@ const createHandlers = (
         request.params,
       );
       const htmlCache = yield* HtmlCacheService;
-      const phoneData = yield* PhoneDataService;
+      const entityData = yield* EntityDataService;
       const jobQueue = yield* JobQueueService;
       const deviceRegistry = yield* DeviceRegistryService;
       const jobType: StorageJobType =
         (params.jobType as StorageJobType) ?? "scrape";
 
+      // Determine source and dataKind from params (with backwards-compat defaults)
+      // link_priceru is a legacy alias for (scrape, price_ru, price_links)
+      const isLegacyPriceRuLink = jobType === "link_priceru";
+      const source = params.source ?? (isLegacyPriceRuLink ? "price_ru" : "kimovil");
+      const dataKind = params.dataKind ?? (isLegacyPriceRuLink ? "price_links" : "specs");
+      const isPriceRuPrices = source === "price_ru" && dataKind === "prices";
+      const isPriceRuLinks = source === "price_ru" && dataKind === "price_links";
+
       let targetSlugs: string[] = [];
+      let priceRuTargets: Array<{ deviceId: string; externalId: string }> = [];
+
       if (Array.isArray(params.slugs) && params.slugs.length > 0) {
         targetSlugs = Array.from(new Set(params.slugs));
+      } else if (isPriceRuPrices) {
+        // For price.ru prices, get devices with active price_ru links
+        const linkedDevices = yield* deviceRegistry.getDevicesBySource("price_ru");
+        priceRuTargets = linkedDevices.map((d) => ({
+          deviceId: d.deviceId,
+          externalId: d.externalId,
+        }));
+      } else if (isPriceRuLinks || isLegacyPriceRuLink) {
+        // For price.ru linking, target all devices
+        const allDevices = yield* deviceRegistry.getAllDevices();
+        targetSlugs = allDevices.map((d) => d.slug);
       } else if (jobType === "scrape") {
         const kimovilDevices = yield* deviceRegistry.getDevicesBySource("kimovil");
         const allSlugs = kimovilDevices.map((d) => d.slug);
@@ -227,12 +247,12 @@ const createHandlers = (
           const validSlugs = yield* htmlCache.getValidSlugs();
           targetSlugs = validSlugs;
         } else {
-          targetSlugs = yield* phoneData.getSlugsNeedingExtraction();
+          targetSlugs = yield* entityData.getSlugsNeedingExtraction("kimovil", "specs");
         }
       } else if (jobType === "process_ai") {
         if (params.filter === "all") {
           const kimovilDevices = yield* deviceRegistry.getDevicesBySource("kimovil");
-          const rawSlugs = new Set(yield* phoneData.getSlugsNeedingAi());
+          const rawSlugs = new Set(yield* entityData.getSlugsNeedingAi("kimovil", "specs"));
           const validSlugs = yield* htmlCache.getValidSlugs();
           for (const slug of validSlugs) {
             rawSlugs.add(slug);
@@ -241,52 +261,69 @@ const createHandlers = (
             .map((d) => d.slug)
             .filter((s: string) => rawSlugs.has(s));
         } else {
-          targetSlugs = yield* phoneData.getSlugsNeedingAi();
+          targetSlugs = yield* entityData.getSlugsNeedingAi("kimovil", "specs");
         }
       }
 
       const jobId = globalThis.crypto.randomUUID();
       const mode: ScrapeMode = params.mode ?? "fast";
+
+      // Build targets based on source type
+      let targets: Array<{ deviceId: string; externalId: string }> = [];
+
+      if (isPriceRuPrices) {
+        // For price.ru prices, targets are already built from device_sources
+        targets = priceRuTargets;
+      } else {
+        // Build targets from slugs, ensuring device exists
+        for (const slug of targetSlugs) {
+          let device = yield* deviceRegistry.getDeviceBySlug(slug);
+          if (!device) {
+            device = yield* deviceRegistry.createDevice({
+              slug,
+              name: slug,
+              brand: null,
+            });
+          }
+          // For price_ru links, we use deviceId as externalId (will search by device name)
+          // For kimovil jobs, slug is the externalId
+          if (!isPriceRuLinks && !isLegacyPriceRuLink) {
+            yield* deviceRegistry.linkDeviceToSource({
+              deviceId: device.id,
+              source: "kimovil",
+              externalId: slug,
+            });
+          }
+          const externalId = (isPriceRuLinks || isLegacyPriceRuLink) ? device.id : slug;
+          targets.push({ deviceId: device.id, externalId });
+        }
+      }
+
+      const totalCount = targets.length;
+
       const job = yield* jobQueue.createJob({
         id: jobId,
         jobType,
         mode,
         aiMode: params.aiMode ?? null,
         filter: params.filter ?? getDefaultFilter(jobType),
-        totalCount: targetSlugs.length,
+        totalCount,
         queuedCount: 0,
+        source,
+        dataKind,
       });
-
-      // WS bulk start is currently kimovil-slug driven; treat slug as external_id for source=kimovil
-      // and ensure a canonical device_id exists for queue storage.
-      const targets: Array<{ deviceId: string; externalId: string }> = [];
-      for (const slug of targetSlugs) {
-        let device = yield* deviceRegistry.getDeviceBySlug(slug);
-        if (!device) {
-          device = yield* deviceRegistry.createDevice({
-            slug,
-            name: slug,
-            brand: null,
-          });
-        }
-        yield* deviceRegistry.linkDeviceToSource({
-          deviceId: device.id,
-          source: "kimovil",
-          externalId: slug,
-        });
-        targets.push({ deviceId: device.id, externalId: slug });
-      }
 
       const enqueueResult = yield* jobQueue.enqueueJobTargets(
         jobId,
         jobType,
         mode,
         targets,
+        { source, dataKind },
       );
 
       yield* jobQueue.updateJobCounts(
         jobId,
-        targetSlugs.length,
+        totalCount,
         enqueueResult.queued,
       );
 

@@ -84,6 +84,34 @@ function SlugsContent(props: {
     selection.clearSelection();
   };
 
+  const handleQueueLinkPriceRu = async () => {
+    const status = rowData.scrapeStatus();
+    const slugsToQueue = selection.selectedSlugs().filter(
+      (slug) => !status[slug]?.hasPriceRuLink,
+    );
+    await props.bulkJobs.queueBulk(slugsToQueue, "link_priceru");
+    selection.clearSelection();
+  };
+
+  const handleQueuePriceRuPrices = async () => {
+    const status = rowData.scrapeStatus();
+    const slugsToQueue = selection.selectedSlugs().filter(
+      (slug) => status[slug]?.hasPriceRuLink,
+    );
+    await props.bulkJobs.queueBulk(slugsToQueue, "scrape", { source: "price_ru", dataKind: "prices" });
+    selection.clearSelection();
+  };
+
+  const handleSingleLinkPriceRu = async (slug: string) => {
+    await props.bulkJobs.queueBulk([slug], "link_priceru");
+    props.api.fetchScrapeStatus([slug]);
+  };
+
+  const handleSingleGetPriceRuPrices = async (slug: string) => {
+    await props.bulkJobs.queueBulk([slug], "scrape", { source: "price_ru", dataKind: "prices" });
+    props.api.fetchScrapeStatus([slug]);
+  };
+
   const closeModal = () => {
     props.setModalSlug(null, undefined);
   };
@@ -255,6 +283,8 @@ function SlugsContent(props: {
         onQueueScrape={handleQueueScrape}
         onQueueExtract={handleQueueExtract}
         onQueueAi={handleQueueAi}
+        onQueueLinkPriceRu={handleQueueLinkPriceRu}
+        onQueuePriceRuPrices={handleQueuePriceRuPrices}
       />
 
       <PhoneDataModal
@@ -275,6 +305,8 @@ function SlugsContent(props: {
             props.api.fetchScrapeStatus([slug]);
           }
         }}
+        onLinkPriceRu={handleSingleLinkPriceRu}
+        onGetPriceRuPrices={handleSingleGetPriceRuPrices}
       />
 
       <ErrorItemsModal

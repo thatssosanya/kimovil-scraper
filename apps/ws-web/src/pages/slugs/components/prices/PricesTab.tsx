@@ -28,6 +28,9 @@ interface PricesTabProps {
   onRefreshQuotes: () => Promise<void>;
   scraping: boolean;
   scrapeProgress: number;
+  hasPriceRuLink?: boolean;
+  onLinkPriceRu?: () => Promise<void>;
+  onGetPriceRuPrices?: () => Promise<void>;
 }
 
 type ViewMode = "links" | "sellers";
@@ -39,9 +42,10 @@ function deriveLinks(
   const linkMap = new Map<string, DeviceLink>();
 
   for (const source of deviceSources) {
-    if (source.source !== "yandex_market") continue;
+    if (source.source !== "yandex_market" && source.source !== "price_ru") continue;
 
-    linkMap.set(source.externalId, {
+    const key = `${source.source}:${source.externalId}`;
+    linkMap.set(key, {
       externalId: source.externalId,
       url: source.url || "",
       source: source.source,
@@ -57,9 +61,11 @@ function deriveLinks(
 
   for (const quote of quotes) {
     const externalId = quote.externalId || quote.url || "default";
+    const quoteSource = (quote as PriceOffer & { source?: string }).source || "yandex_market";
+    const key = `${quoteSource}:${externalId}`;
 
-    if (linkMap.has(externalId)) {
-      const link = linkMap.get(externalId)!;
+    if (linkMap.has(key)) {
+      const link = linkMap.get(key)!;
       const quoteTime = quote.scrapedAt * 1000;
       if (link.quoteCount === 0) {
         link.minPrice = quote.price;
@@ -78,10 +84,10 @@ function deriveLinks(
         link.variantKey = quote.variantKey;
       }
     } else {
-      linkMap.set(externalId, {
+      linkMap.set(key, {
         externalId,
         url: quote.url || "",
-        source: "yandex_market",
+        source: quoteSource,
         variantKey: quote.variantKey,
         variantLabel: quote.variantLabel,
         minPrice: quote.price,
@@ -171,6 +177,7 @@ export function PricesTab(props: PricesTabProps) {
             onLink={props.onLink}
             linking={props.scraping}
             progress={props.scrapeProgress}
+            onLinkPriceRu={props.onLinkPriceRu}
           />
         </Show>
         
@@ -211,6 +218,30 @@ export function PricesTab(props: PricesTabProps) {
                 </Show>
               </div>
               
+              {/* price.ru actions */}
+              <Show when={props.onLinkPriceRu || props.onGetPriceRuPrices}>
+                <div class="flex items-center gap-2">
+                  <Show when={!props.hasPriceRuLink && props.onLinkPriceRu}>
+                    <button
+                      onClick={props.onLinkPriceRu}
+                      disabled={props.scraping}
+                      class="px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      Link price.ru
+                    </button>
+                  </Show>
+                  <Show when={props.hasPriceRuLink && props.onGetPriceRuPrices}>
+                    <button
+                      onClick={props.onGetPriceRuPrices}
+                      disabled={props.scraping}
+                      class="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      Refresh price.ru
+                    </button>
+                  </Show>
+                </div>
+              </Show>
+
               {/* View toggle */}
               <div class="flex items-center gap-1 p-1 rounded-xl bg-slate-800/50 border border-slate-700/50">
                 <button

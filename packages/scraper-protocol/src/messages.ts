@@ -232,7 +232,7 @@ export class ScrapeResult extends Schema.Class<ScrapeResult>("ScrapeResult")({
 }) {}
 
 // Job type schemas
-export const JobTypeSchema = Schema.Literal("scrape", "process_raw", "process_ai", "clear_html", "clear_raw", "clear_processed");
+export const JobTypeSchema = Schema.Literal("scrape", "process_raw", "process_ai", "clear_html", "clear_raw", "clear_processed", "link_priceru");
 export type JobType = typeof JobTypeSchema.Type;
 
 export const AiModeSchema = Schema.Literal("realtime", "batch");
@@ -248,6 +248,8 @@ export class BulkStartParams extends Schema.Class<BulkStartParams>(
   aiMode: Schema.optional(AiModeSchema), // for process_ai jobs
   filter: Schema.optional(Schema.String), // 'all', 'unscraped', 'needs_extraction', 'needs_ai'
   slugs: Schema.optional(Schema.Array(Schema.String)),
+  source: Schema.optional(Schema.String), // 'kimovil', 'price_ru', etc.
+  dataKind: Schema.optional(Schema.String), // 'specs', 'prices', 'price_links', etc.
 }) {}
 
 export class BulkSubscribeParams extends Schema.Class<BulkSubscribeParams>(

@@ -19,6 +19,7 @@ export interface DeviceSourceLink {
   externalId: string;
   url: string | null;
   status: SourceStatus;
+  metadata: Record<string, unknown> | null;
   firstSeen: number;
   lastSeen: number;
 }
@@ -54,6 +55,17 @@ export interface DeviceRegistryService {
     source: string;
     externalId: string;
     url?: string | null;
+    status?: SourceStatus;
+    metadata?: Record<string, unknown> | null;
+  }) => Effect.Effect<void, DeviceRegistryError>;
+  readonly getSourcesByDeviceAndSource: (
+    deviceId: string,
+    source: string,
+  ) => Effect.Effect<DeviceSourceLink[], DeviceRegistryError>;
+  readonly markSourceNotFound: (input: {
+    deviceId: string;
+    source: string;
+    searchedQuery: string;
   }) => Effect.Effect<void, DeviceRegistryError>;
   readonly getDeviceSources: (
     deviceId: string,
@@ -89,6 +101,7 @@ type DeviceSourceRow = {
   external_id: string;
   url: string | null;
   status: SourceStatus;
+  metadata: string | null;
   first_seen: number;
   last_seen: number;
 };
@@ -103,12 +116,22 @@ const mapDeviceRow = (row: DeviceRow): Device => ({
   releaseDate: row.release_date,
 });
 
+const parseMetadata = (raw: string | null): Record<string, unknown> | null => {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
 const mapDeviceSourceRow = (row: DeviceSourceRow): DeviceSourceLink => ({
   deviceId: row.device_id,
   source: row.source,
   externalId: row.external_id,
   url: row.url,
   status: row.status,
+  metadata: parseMetadata(row.metadata),
   firstSeen: row.first_seen,
   lastSeen: row.last_seen,
 });
@@ -172,15 +195,44 @@ export const DeviceRegistryServiceLive = Layer.effect(
           ),
         ),
 
-      linkDeviceToSource: (input) =>
-        sql`
-          INSERT INTO device_sources (device_id, source, external_id, url, status, first_seen, last_seen)
-          VALUES (${input.deviceId}, ${input.source}, ${input.externalId}, ${input.url ?? null}, 'active', unixepoch(), unixepoch())
+      linkDeviceToSource: (input) => {
+        const status = input.status ?? "active";
+        const metadata = input.metadata ? JSON.stringify(input.metadata) : null;
+        return sql`
+          INSERT INTO device_sources (device_id, source, external_id, url, status, metadata, first_seen, last_seen)
+          VALUES (${input.deviceId}, ${input.source}, ${input.externalId}, ${input.url ?? null}, ${status}, ${metadata}, unixepoch(), unixepoch())
           ON CONFLICT(source, external_id) DO UPDATE SET
             device_id = excluded.device_id,
             url = COALESCE(excluded.url, device_sources.url),
+            status = excluded.status,
+            metadata = COALESCE(excluded.metadata, device_sources.metadata),
             last_seen = unixepoch()
-        `.pipe(Effect.asVoid, Effect.mapError(wrapSqlError)),
+        `.pipe(Effect.asVoid, Effect.mapError(wrapSqlError));
+      },
+
+      getSourcesByDeviceAndSource: (deviceId: string, source: string) =>
+        sql<DeviceSourceRow>`
+          SELECT * FROM device_sources WHERE device_id = ${deviceId} AND source = ${source}
+        `.pipe(
+          Effect.map((rows) => rows.map(mapDeviceSourceRow)),
+          Effect.mapError(wrapSqlError),
+        ),
+
+      markSourceNotFound: (input) => {
+        const metadata = JSON.stringify({
+          searched: input.searchedQuery,
+          at: Date.now(),
+        });
+        const syntheticExternalId = `not_found:${input.deviceId}`;
+        return sql`
+          INSERT INTO device_sources (device_id, source, external_id, url, status, metadata, first_seen, last_seen)
+          VALUES (${input.deviceId}, ${input.source}, ${syntheticExternalId}, NULL, 'not_found', ${metadata}, unixepoch(), unixepoch())
+          ON CONFLICT(source, external_id) DO UPDATE SET
+            status = 'not_found',
+            metadata = excluded.metadata,
+            last_seen = unixepoch()
+        `.pipe(Effect.asVoid, Effect.mapError(wrapSqlError));
+      },
 
       getDeviceSources: (deviceId: string) =>
         sql<DeviceSourceRow>`

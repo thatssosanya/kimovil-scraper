@@ -7,6 +7,7 @@ interface BulkStartPanelProps {
   onStartJob: (
     filter: "all" | "unscraped" | "needs_extraction" | "needs_ai",
     jobType: JobType,
+    options?: { source?: string; dataKind?: string },
   ) => void;
 }
 
@@ -15,6 +16,8 @@ type JobConfig = {
   label: string;
   color: string;
   filters: { value: string; label: string }[];
+  source?: string;
+  dataKind?: string;
 };
 
 const jobConfigs: JobConfig[] = [
@@ -45,6 +48,24 @@ const jobConfigs: JobConfig[] = [
       { value: "all", label: "All with Raw" },
     ],
   },
+  {
+    type: "link_priceru",
+    label: "Link price.ru offers",
+    color: "orange",
+    filters: [
+      { value: "all", label: "All Devices" },
+    ],
+  },
+  {
+    type: "scrape",
+    label: "Get prices from price.ru",
+    color: "amber",
+    source: "price_ru",
+    dataKind: "prices",
+    filters: [
+      { value: "all", label: "All Linked" },
+    ],
+  },
 ];
 
 const colorClasses: Record<string, { bg: string; hover: string; ring: string }> = {
@@ -63,12 +84,22 @@ const colorClasses: Record<string, { bg: string; hover: string; ring: string }> 
     hover: "hover:bg-violet-500",
     ring: "ring-violet-500/30",
   },
+  orange: {
+    bg: "bg-orange-600",
+    hover: "hover:bg-orange-500",
+    ring: "ring-orange-500/30",
+  },
+  amber: {
+    bg: "bg-amber-600",
+    hover: "hover:bg-amber-500",
+    ring: "ring-amber-500/30",
+  },
 };
 
 export function BulkStartPanel(props: BulkStartPanelProps) {
-  const [activeJob, setActiveJob] = createSignal<JobType>("scrape");
+  const [activeIdx, setActiveIdx] = createSignal(0);
 
-  const currentConfig = () => jobConfigs.find((c) => c.type === activeJob())!;
+  const currentConfig = () => jobConfigs[activeIdx()];
   const colors = () => colorClasses[currentConfig().color];
 
   return (
@@ -76,8 +107,8 @@ export function BulkStartPanel(props: BulkStartPanelProps) {
       {/* Job type tabs */}
       <div class="flex border-b border-zinc-200 dark:border-slate-800">
         <For each={jobConfigs}>
-          {(config) => {
-            const isActive = () => activeJob() === config.type;
+          {(config, idx) => {
+            const isActive = () => activeIdx() === idx();
             const clr = colorClasses[config.color];
             return (
               <button
@@ -85,7 +116,7 @@ export function BulkStartPanel(props: BulkStartPanelProps) {
                   flex-1 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-all cursor-pointer
                   ${isActive() ? `${clr.bg} text-white` : "text-zinc-500 dark:text-slate-400 hover:text-zinc-700 dark:hover:text-slate-200 hover:bg-zinc-100 dark:hover:bg-slate-800/50"}
                 `}
-                onClick={() => setActiveJob(config.type)}
+                onClick={() => setActiveIdx(idx())}
               >
                 {config.label}
               </button>
@@ -106,27 +137,31 @@ export function BulkStartPanel(props: BulkStartPanelProps) {
         </div>
         <div class="flex gap-2">
           <For each={currentConfig().filters}>
-            {(filter, idx) => (
-              <button
-                class={`
-                  cursor-pointer px-3 py-1.5 text-xs font-medium rounded-lg transition-all active:scale-95
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                  ${idx() === 0
-                    ? `${colors().bg} ${colors().hover} text-white`
-                    : "bg-zinc-200 dark:bg-slate-700 hover:bg-zinc-300 dark:hover:bg-slate-600 text-zinc-900 dark:text-white"
+            {(filter, idx) => {
+              const cfg = currentConfig();
+              return (
+                <button
+                  class={`
+                    cursor-pointer px-3 py-1.5 text-xs font-medium rounded-lg transition-all active:scale-95
+                    disabled:opacity-50 disabled:cursor-not-allowed
+                    ${idx() === 0
+                      ? `${colors().bg} ${colors().hover} text-white`
+                      : "bg-zinc-200 dark:bg-slate-700 hover:bg-zinc-300 dark:hover:bg-slate-600 text-zinc-900 dark:text-white"
+                    }
+                  `}
+                  onClick={() =>
+                    props.onStartJob(
+                      filter.value as "all" | "unscraped" | "needs_extraction" | "needs_ai",
+                      cfg.type,
+                      cfg.source || cfg.dataKind ? { source: cfg.source, dataKind: cfg.dataKind } : undefined,
+                    )
                   }
-                `}
-                onClick={() =>
-                  props.onStartJob(
-                    filter.value as "all" | "unscraped" | "needs_extraction" | "needs_ai",
-                    activeJob(),
-                  )
-                }
-                disabled={props.bulkJobLoading || !props.wsConnected}
-              >
-                {filter.label}
-              </button>
-            )}
+                  disabled={props.bulkJobLoading || !props.wsConnected}
+                >
+                  {filter.label}
+                </button>
+              );
+            }}
           </For>
         </div>
       </div>

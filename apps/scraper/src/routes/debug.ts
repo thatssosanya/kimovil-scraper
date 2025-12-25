@@ -11,7 +11,7 @@ import { Effect } from "effect";
 import { LiveRuntime } from "../layers/live";
 import { DeviceDiscoveryService } from "../services/device-discovery";
 import { HtmlCacheService } from "../services/html-cache";
-import { PhoneDataService } from "../services/phone-data";
+
 import { JobQueueService } from "../services/job-queue";
 import { DeviceRegistryService } from "../services/device-registry";
 import { EntityDataService } from "../services/entity-data";
@@ -50,7 +50,6 @@ export const createDebugRoutes = () =>
           LiveRuntime,
           DeviceDiscoveryService,
           HtmlCacheService,
-          PhoneDataService,
           JobQueueService,
           DeviceRegistryService,
           EntityDataService,

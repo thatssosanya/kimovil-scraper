@@ -52,8 +52,8 @@ npx tsx scripts/debug-eval.ts html <slug>
 ### Custom Queries
 For arbitrary queries, pass raw JS code that returns a value:
 ```bash
-# Count devices with raw data
-npx tsx scripts/debug-eval.ts 'return await LiveRuntime.runPromise(PhoneDataService.pipe(Effect.flatMap(s => s.getRawCount())))'
+# Count devices with raw entity data
+npx tsx scripts/debug-eval.ts 'return await LiveRuntime.runPromise(EntityDataService.pipe(Effect.flatMap(s => s.getRawDataCount("kimovil", "specs"))))'
 
 # Get error queue items
 npx tsx scripts/debug-eval.ts 'return await LiveRuntime.runPromise(JobQueueService.pipe(Effect.flatMap(s => s.getErrorQueueItems())))'
@@ -70,11 +70,10 @@ npx tsx scripts/debug-eval.ts stats | jq '.result'
 ### Available Services in Eval Context
 - `Effect`, `LiveRuntime` — Effect runtime
 - `JobQueueService` — Jobs and queue management
-- `DeviceService` — Device registry
-- `DeviceRegistryService` — Multi-source device linking
-- `HtmlCacheService` — Raw HTML cache
-- `PhoneDataService` — Raw + AI phone data
-- `EntityDataService` — Multi-source entity data
+- `DeviceDiscoveryService` — Device discovery and prefix crawling
+- `DeviceRegistryService` — Canonical device registry + source linking
+- `HtmlCacheService` — HTML cache via scrapes + scrape_html
+- `EntityDataService` — Raw + final entity data storage
 - `ScrapeRecordService` — Scrape lifecycle tracking
 - `PriceService` — Price quotes
 
@@ -100,8 +99,8 @@ curl -s -X POST http://localhost:1488/debug/eval \
 - **@effect/sql**: All DB access via `SqlClient` from `apps/scraper/src/sql/`
 - **Schema**: `apps/scraper/src/sql/schema.ts` — auto-migrates on startup
 - **Quarantine**: Corrupted data goes to `quarantine` table instead of crashing
-- **Tables**: `jobs`, `job_queue`, `raw_html`, `scrape_verification`, `phone_data_raw`, `phone_data`, `kimovil_devices`, `kimovil_prefix_state`
-- **Multi-source ready**: `raw_html` and `scrape_verification` support `source` column (default: `"kimovil"`)
+- **Tables**: `devices`, `device_sources`, `scrapes`, `scrape_html`, `scrape_verification`, `entity_data_raw`, `entity_data`, `jobs`, `job_queue`, `job_schedules`, `discovery_queue`, `price_quotes`, `price_summary`, `quarantine`
+- **Multi-source ready**: All tables use `source` and `data_kind` columns for multi-source architecture
 
 ## Effect Patterns
 - **ManagedRuntime**: `LiveRuntime` in `apps/scraper/src/layers/live.ts` — memoized, single instance
@@ -115,16 +114,17 @@ curl -s -X POST http://localhost:1488/debug/eval \
 - **ScrapeService**: Full phone data scraping via Playwright + Bright Data (or local browser)
 - **OpenAIService**: Data normalization/translation using **gemini-3-flash-preview** (~25s per phone)
 - **HtmlCacheService**: SQLite cache for raw HTML with verification status
-- **PhoneDataService**: Raw + AI-normalized phone data storage with quarantine fallback
+- **EntityDataService**: Raw + AI-normalized data storage with quarantine fallback
 - **JobQueueService**: Job and queue item management with transactions and race guards
-- **DeviceService**: Kimovil device registry and prefix crawler state
+- **DeviceDiscoveryService**: Device discovery and prefix crawler state
+- **DeviceRegistryService**: Canonical device registry + source linking
 - **BrowserService**: Playwright browser lifecycle with `acquireRelease`
 
 ## Scraping Pipeline
 1. **Browser** launches (local or Bright Data) — ~1-2s
 2. **Navigate** to Kimovil phone page — ~1-2s  
 3. **Extract** structured data from HTML (cameras, specs, SKUs) — instant
-4. **Cache** raw HTML to SQLite — instant
+4. **Cache** raw HTML to `scrape_html` (keyed by scrape_id) — instant
 5. **Normalize** via Gemini (translate to Russian, clean features) — **~25s with Gemini 3 Flash**
 6. **Return** PhoneData to frontend
 
@@ -249,13 +249,13 @@ BULK_RETRY_MAX_MS=900000
 ```
 
 ## Phone Data API
-- `GET /api/phone-data/raw/:slug` — Raw extracted data (before AI)
-- `GET /api/phone-data/:slug` — AI-processed/normalized data
+- `GET /api/phone-data/raw/:slug` — Raw extracted data (before AI) via EntityDataService
+- `GET /api/phone-data/:slug` — AI-processed/normalized data via EntityDataService
 - `GET /api/scrape/status?slugs=...` — Returns `hasHtml`, `hasRawData`, `hasAiData`, corruption status
 - Stats endpoint includes `rawData` and `aiData` counts
 
 ## Phone Data Storage
-- **Tables**: `phone_data_raw` (extracted), `phone_data` (AI-normalized)
+- **Tables**: `entity_data_raw` (extracted), `entity_data` (AI-normalized)
 - **Format**: JSON stored as TEXT, decoded via Effect Schema on read
 - **Quarantine**: Malformed JSON or schema failures quarantined instead of throwing
 

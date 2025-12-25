@@ -6,6 +6,8 @@ interface SelectionBarProps {
   onQueueScrape: () => void;
   onQueueExtract: () => void;
   onQueueAi: () => void;
+  onQueueLinkPriceRu: () => void;
+  onQueuePriceRuPrices: () => void;
 }
 
 export function SelectionBar(props: SelectionBarProps) {
@@ -69,6 +71,24 @@ export function SelectionBar(props: SelectionBarProps) {
     let count = 0;
     for (const slug of selectedSlugs()) {
       if (status[slug]?.hasAiData) count++;
+    }
+    return count;
+  });
+
+  const notLinkedToPriceRuCount = createMemo(() => {
+    const status = scrapeStatus();
+    let count = 0;
+    for (const slug of selectedSlugs()) {
+      if (!status[slug]?.hasPriceRuLink) count++;
+    }
+    return count;
+  });
+
+  const linkedToPriceRuCount = createMemo(() => {
+    const status = scrapeStatus();
+    let count = 0;
+    for (const slug of selectedSlugs()) {
+      if (status[slug]?.hasPriceRuLink) count++;
     }
     return count;
   });
@@ -160,6 +180,31 @@ export function SelectionBar(props: SelectionBarProps) {
                 >
                   AI ({needsAiCount()})
                 </button>
+              </Show>
+
+              {/* price.ru operations */}
+              <Show when={notLinkedToPriceRuCount() > 0 || linkedToPriceRuCount() > 0}>
+                <div class="w-px h-6 bg-zinc-300 dark:bg-slate-600 mx-1" />
+                <Show when={notLinkedToPriceRuCount() > 0}>
+                  <button
+                    class="cursor-pointer px-3 py-1.5 text-xs font-semibold bg-orange-600 hover:bg-orange-500 text-white rounded-lg transition-all active:scale-95 disabled:opacity-50"
+                    onClick={props.onQueueLinkPriceRu}
+                    disabled={props.bulkLoading}
+                    title="Find matching offers on price.ru"
+                  >
+                    Link price.ru ({notLinkedToPriceRuCount()})
+                  </button>
+                </Show>
+                <Show when={linkedToPriceRuCount() > 0}>
+                  <button
+                    class="cursor-pointer px-3 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white rounded-lg transition-all active:scale-95 disabled:opacity-50"
+                    onClick={props.onQueuePriceRuPrices}
+                    disabled={props.bulkLoading}
+                    title="Fetch prices from price.ru"
+                  >
+                    Get prices ({linkedToPriceRuCount()})
+                  </button>
+                </Show>
               </Show>
 
               {/* Verify & Clear */}

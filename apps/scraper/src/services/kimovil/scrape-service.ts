@@ -12,7 +12,8 @@ import {
 } from "@repo/scraper-protocol";
 import { BrowserService, BrowserError } from "../browser";
 import { HtmlCacheService, HtmlCacheError } from "../html-cache";
-import { PhoneDataService, PhoneDataError } from "../phone-data";
+import { EntityDataService, EntityDataError } from "../entity-data";
+import { DeviceRegistryService, DeviceRegistryError } from "../device-registry";
 import { RobotService, RobotError } from "../robot";
 import { ScrapeRecordService, ScrapeRecordError } from "../scrape-record";
 import { getHtmlValidationError } from "./validators";
@@ -146,12 +147,13 @@ const createPageScoped = (
 type ScrapeServiceDeps = {
   browserService: BrowserService;
   htmlCache: HtmlCacheService;
-  phoneDataService: PhoneDataService;
+  entityData: EntityDataService;
+  deviceRegistry: DeviceRegistryService;
   robotService: RobotService;
   scrapeRecord: ScrapeRecordService;
 };
 
-type AllErrors = ScrapeError | BrowserError | HtmlCacheError | RobotError | ScrapeRecordError;
+type AllErrors = ScrapeError | BrowserError | HtmlCacheError | RobotError | ScrapeRecordError | EntityDataError | DeviceRegistryError;
 
 const backgroundRefresh = (
   slug: string,
@@ -168,15 +170,30 @@ const backgroundRefresh = (
         yield* deps.browserService.abortExtraResources(page);
         const { data, fullHtml } = yield* scrapePhoneData(page, slug);
 
-        yield* deps.phoneDataService
-          .saveRaw(slug, data as unknown as Record<string, unknown>)
-          .pipe(
-            Effect.catchAll((error) =>
-              Effect.logWarning("Failed to save raw data").pipe(
-                Effect.annotateLogs({ service: "SWR", slug, error }),
-              ),
+        const device = yield* deps.deviceRegistry.getDeviceBySlug(slug).pipe(
+          Effect.catchAll((error) =>
+            Effect.logWarning("Failed to lookup device").pipe(
+              Effect.annotateLogs({ service: "SWR", slug, error }),
+              Effect.map(() => null),
             ),
-          );
+          ),
+        );
+        if (device) {
+          yield* deps.entityData
+            .saveRawData({
+              deviceId: device.id,
+              source: "kimovil",
+              dataKind: "specs",
+              data: data as unknown as Record<string, unknown>,
+            })
+            .pipe(
+              Effect.catchAll((error) =>
+                Effect.logWarning("Failed to save raw data").pipe(
+                  Effect.annotateLogs({ service: "SWR", slug, error }),
+                ),
+              ),
+            );
+        }
         yield* Effect.logInfo("Background refresh complete").pipe(
           Effect.annotateLogs({ service: "SWR", slug }),
         );
@@ -567,15 +584,29 @@ const scrapeWithCache = (
 
     const phoneData = buildPhoneData(normalizedData, images);
 
-    yield* deps.phoneDataService
-      .save(slug, phoneData as unknown as Record<string, unknown>)
-      .pipe(
-        Effect.catchAll((error) =>
-          Effect.logWarning("Failed to save phone data").pipe(
-            Effect.annotateLogs({ slug, error }),
-          ),
+    const device = yield* deps.deviceRegistry.getDeviceBySlug(slug).pipe(
+      Effect.catchAll((error) =>
+        Effect.logWarning("Failed to lookup device").pipe(
+          Effect.annotateLogs({ slug, error }),
+          Effect.map(() => null),
         ),
-      );
+      ),
+    );
+    if (device) {
+      yield* deps.entityData
+        .saveFinalData({
+          deviceId: device.id,
+          dataKind: "specs",
+          data: phoneData as unknown as Record<string, unknown>,
+        })
+        .pipe(
+          Effect.catchAll((error) =>
+            Effect.logWarning("Failed to save phone data").pipe(
+              Effect.annotateLogs({ slug, error }),
+            ),
+          ),
+        );
+    }
 
     emit(new ScrapeResult({ data: phoneData }));
 
@@ -777,9 +808,24 @@ const scrapeFastImpl = (
                 ),
               );
           }
-          yield* deps.phoneDataService
-            .saveRaw(slug, data as unknown as Record<string, unknown>)
-            .pipe(Effect.catchAll(() => Effect.void));
+          const device = yield* deps.deviceRegistry.getDeviceBySlug(slug).pipe(
+            Effect.catchAll((error) =>
+              Effect.logWarning("Failed to lookup device").pipe(
+                Effect.annotateLogs({ slug, error }),
+                Effect.map(() => null),
+              ),
+            ),
+          );
+          if (device) {
+            yield* deps.entityData
+              .saveRawData({
+                deviceId: device.id,
+                source: "kimovil",
+                dataKind: "specs",
+                data: data as unknown as Record<string, unknown>,
+              })
+              .pipe(Effect.catchAll(() => Effect.void));
+          }
 
           emit({ type: "progress", stage: "Данные сохранены", percent: 90 });
           emit({
@@ -851,14 +897,16 @@ export const ScrapeServiceKimovil = Layer.effect(
   Effect.gen(function* () {
     const browserService = yield* BrowserService;
     const htmlCache = yield* HtmlCacheService;
-    const phoneDataService = yield* PhoneDataService;
+    const entityData = yield* EntityDataService;
+    const deviceRegistry = yield* DeviceRegistryService;
     const robotService = yield* RobotService;
     const scrapeRecord = yield* ScrapeRecordService;
 
     const deps: ScrapeServiceDeps = {
       browserService,
       htmlCache,
-      phoneDataService,
+      entityData,
+      deviceRegistry,
       robotService,
       scrapeRecord,
     };

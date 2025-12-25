@@ -17,6 +17,8 @@ interface PhoneDataModalProps {
   onStatusChange?: () => void;
   fetchAllQuotes?: (slug: string, source?: string, externalId?: string) => Promise<PriceOffer[]>;
   fetchDeviceSources?: (slug: string, source?: string) => Promise<DeviceSource[]>;
+  onLinkPriceRu?: (slug: string) => Promise<void>;
+  onGetPriceRuPrices?: (slug: string) => Promise<void>;
 }
 
 interface ProcessButtonProps {
@@ -603,6 +605,9 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
                 onRefreshQuotes={refreshQuotes}
                 scraping={yandexScraping() || yandexLinking()}
                 scrapeProgress={scrapeProgress()}
+                hasPriceRuLink={props.status?.hasPriceRuLink}
+                onLinkPriceRu={props.onLinkPriceRu ? () => props.onLinkPriceRu!(props.slug!) : undefined}
+                onGetPriceRuPrices={props.onGetPriceRuPrices ? () => props.onGetPriceRuPrices!(props.slug!) : undefined}
               />
             </Show>
           </div>

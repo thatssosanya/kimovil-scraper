@@ -2,6 +2,7 @@ import { Layer, ManagedRuntime } from "effect";
 
 import "../sources/kimovil";
 import "../sources/yandex_market";
+import "../sources/price_ru";
 
 import { SearchServiceKimovil } from "../services/search-kimovil";
 import { BrowserServiceLive } from "../services/browser";
@@ -10,13 +11,14 @@ import { ScrapeServiceKimovil } from "../services/kimovil";
 import { HtmlCacheServiceLive } from "../services/html-cache";
 import { JobQueueServiceLive } from "../services/job-queue";
 import { DeviceDiscoveryServiceLive } from "../services/device-discovery";
-import { PhoneDataServiceLive } from "../services/phone-data";
+
 import { DeviceRegistryServiceLive } from "../services/device-registry";
 import { EntityDataServiceLive } from "../services/entity-data";
 import { ScrapeRecordServiceLive } from "../services/scrape-record";
 import { PriceServiceLive } from "../services/price";
 import { SchedulerServiceLive } from "../services/scheduler";
 import { SqlClientLive, SchemaLive } from "../sql";
+import { PriceRuClientLive } from "../sources/price_ru";
 
 const SearchServiceLayer = SearchServiceKimovil.pipe(
   Layer.provide(BrowserServiceLive),
@@ -52,10 +54,8 @@ const SchedulerLayer = SchedulerServiceLive.pipe(
   Layer.provide(SqlLayer),
 );
 
-// PhoneDataService depends on DeviceRegistry + EntityData, so layer it on top
-const DataLayer = BaseDataLayer.pipe(
-  Layer.provideMerge(PhoneDataServiceLive.pipe(Layer.provide(BaseDataLayer), Layer.provide(SqlLayer))),
-);
+// DataLayer is just BaseDataLayer now (PhoneDataService removed)
+const DataLayer = BaseDataLayer;
 
 const ScrapeServiceLayer = ScrapeServiceKimovil.pipe(
   Layer.provide(BrowserServiceLive),
@@ -71,6 +71,7 @@ export const LiveLayer = Layer.mergeAll(
   DataLayer,
   SchedulerLayer,
   SqlLayer,
+  PriceRuClientLive,
 );
 
 export type LiveLayerType = typeof LiveLayer;

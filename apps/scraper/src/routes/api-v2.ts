@@ -2,7 +2,6 @@ import { Elysia } from "elysia";
 import { Effect } from "effect";
 import { SqlClient } from "@effect/sql";
 import { HtmlCacheService } from "../services/html-cache";
-import { PhoneDataService } from "../services/phone-data";
 import { JobQueueService, type JobType, type ScrapeMode } from "../services/job-queue";
 import { EntityDataService } from "../services/entity-data";
 import { DeviceRegistryService } from "../services/device-registry";
@@ -231,7 +230,6 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
 
       const program = Effect.gen(function* () {
         const htmlCache = yield* HtmlCacheService;
-        const phoneData = yield* PhoneDataService;
         const deviceRegistry = yield* DeviceRegistryService;
         const entityData = yield* EntityDataService;
 
@@ -241,12 +239,11 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
             hasHtml: boolean;
             hasRawData: boolean;
             hasAiData: boolean;
-            hasEntityRaw: boolean;
-            hasEntityFinal: boolean;
             isCorrupted: boolean | null;
             corruptionReason: string | null;
             priceSourceCount: number;
             hasPrices: boolean;
+            hasPriceRuLink: boolean;
           }
         > = {};
 
@@ -254,12 +251,6 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
 
         for (const slug of slugs) {
           const hasHtml = yield* htmlCache.hasHtmlForSlug(slug, source, "specs").pipe(
-            Effect.catchAll(() => Effect.succeed(false)),
-          );
-          const hasRawData = yield* phoneData.hasRaw(slug).pipe(
-            Effect.catchAll(() => Effect.succeed(false)),
-          );
-          const hasAiData = yield* phoneData.has(slug).pipe(
             Effect.catchAll(() => Effect.succeed(false)),
           );
           const verification = yield* htmlCache.getVerificationStatus(slug, source).pipe(
@@ -270,11 +261,11 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
             Effect.catchAll(() => Effect.succeed(null)),
           );
 
-          let hasEntityRaw = false;
-          let hasEntityFinal = false;
-
+          let hasRawData = false;
+          let hasAiData = false;
           let priceSourceCount = 0;
           let hasPrices = false;
+          let hasPriceRuLink = false;
 
           if (device) {
             const entityRaw = yield* entityData.getRawData(device.id, source, "specs").pipe(
@@ -283,14 +274,20 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
             const entityFinal = yield* entityData.getFinalData(device.id, "specs").pipe(
               Effect.catchAll(() => Effect.succeed(null)),
             );
-            hasEntityRaw = entityRaw !== null;
-            hasEntityFinal = entityFinal !== null;
+            hasRawData = entityRaw !== null;
+            hasAiData = entityFinal !== null;
 
             const priceSourceRows = yield* sql<{ count: number }>`
               SELECT COUNT(*) as count FROM device_sources
-              WHERE device_id = ${device.id} AND source IN ('yandex_market', 'price_ru')
+              WHERE device_id = ${device.id} AND source IN ('yandex_market', 'price_ru') AND status = 'active'
             `.pipe(Effect.catchAll(() => Effect.succeed([])));
             priceSourceCount = priceSourceRows[0]?.count ?? 0;
+
+            const priceRuLinkRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM device_sources
+              WHERE device_id = ${device.id} AND source = 'price_ru' AND status = 'active'
+            `.pipe(Effect.catchAll(() => Effect.succeed([])));
+            hasPriceRuLink = (priceRuLinkRows[0]?.count ?? 0) > 0;
 
             const priceRows = yield* sql<{ count: number }>`
               SELECT COUNT(*) as count FROM price_quotes WHERE device_id = ${device.id} LIMIT 1
@@ -302,12 +299,11 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
             hasHtml,
             hasRawData,
             hasAiData,
-            hasEntityRaw,
-            hasEntityFinal,
             isCorrupted: verification?.isCorrupted ?? null,
             corruptionReason: verification?.reason ?? null,
             priceSourceCount,
             hasPrices,
+            hasPriceRuLink,
           };
         }
 

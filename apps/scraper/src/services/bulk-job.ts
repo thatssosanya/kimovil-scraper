@@ -8,7 +8,8 @@ import type { LiveRuntimeType } from "../layers/live";
 import { sleep, formatDuration, createRateLimiter } from "../utils/helpers";
 import { classifyScrapeError } from "../utils/errors";
 import { HtmlCacheService as HtmlCacheTag } from "./html-cache";
-import { PhoneDataService as PhoneDataTag } from "./phone-data";
+import { EntityDataService as EntityDataTag } from "./entity-data";
+import { DeviceRegistryService as DeviceRegistryTag } from "./device-registry";
 import {
   JobQueueService as JobQueueTag,
   type JobQueueItem,
@@ -18,12 +19,14 @@ import { BrowserService } from "./browser";
 import { RobotService } from "./robot";
 import { extractPhoneData, getHtmlValidationError } from "./kimovil";
 import { ScrapeResult } from "@repo/scraper-protocol";
+import { getStageHandler, type PipelineContext } from "../pipeline/registry";
 
 export type Ws = { send: (data: string) => void };
 
 type Services = {
   htmlCache: Context.Tag.Service<typeof HtmlCacheTag>;
-  phoneData: Context.Tag.Service<typeof PhoneDataTag>;
+  entityData: Context.Tag.Service<typeof EntityDataTag>;
+  deviceRegistry: Context.Tag.Service<typeof DeviceRegistryTag>;
   jobQueue: Context.Tag.Service<typeof JobQueueTag>;
   scrapeService: ScrapeService;
 };
@@ -207,10 +210,11 @@ export class BulkJobManager {
   private async getServices(): Promise<Services> {
     const program = Effect.gen(function* () {
       const htmlCache = yield* HtmlCacheTag;
-      const phoneData = yield* PhoneDataTag;
+      const entityData = yield* EntityDataTag;
+      const deviceRegistry = yield* DeviceRegistryTag;
       const jobQueue = yield* JobQueueTag;
       const scrapeService = yield* ScrapeService;
-      return { htmlCache, phoneData, jobQueue, scrapeService };
+      return { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService };
     });
     return this.runtime.runPromise(program);
   }
@@ -240,7 +244,8 @@ export class BulkJobManager {
     slug: string,
     services: {
       htmlCache: Services["htmlCache"];
-      phoneData: Services["phoneData"];
+      entityData: Services["entityData"];
+      deviceRegistry: Services["deviceRegistry"];
     }
   ): Promise<void> {
     const html = await Effect.runPromise(
@@ -257,6 +262,7 @@ export class BulkJobManager {
       throw new Error(`Page invalid: ${validationError}`);
     }
 
+    const { entityData, deviceRegistry } = services;
     await this.runtime.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -270,10 +276,15 @@ export class BulkJobManager {
             page.setContent(html, { waitUntil: "domcontentloaded" })
           );
           const result = yield* extractPhoneData(page, slug);
-          yield* services.phoneData.saveRawWithEntity(
-            slug,
-            result.data as unknown as Record<string, unknown>
-          );
+          const device = yield* deviceRegistry.getDeviceBySlug(slug);
+          if (device) {
+            yield* entityData.saveRawData({
+              deviceId: device.id,
+              source: "kimovil",
+              dataKind: "specs",
+              data: result.data as unknown as Record<string, unknown>,
+            });
+          }
         })
       )
     );
@@ -281,9 +292,17 @@ export class BulkJobManager {
 
   private async runProcessAi(
     slug: string,
-    phoneData: Services["phoneData"]
+    entityData: Services["entityData"],
+    deviceRegistry: Services["deviceRegistry"]
   ): Promise<void> {
-    const rawData = await Effect.runPromise(phoneData.getRaw(slug));
+    const device = await Effect.runPromise(deviceRegistry.getDeviceBySlug(slug));
+    if (!device) {
+      throw new Error(`No device found for slug: ${slug}`);
+    }
+
+    const rawData = await Effect.runPromise(
+      entityData.getRawData(device.id, "kimovil", "specs")
+    );
     if (!rawData) {
       throw new Error(`No raw data for slug: ${slug}`);
     }
@@ -293,7 +312,11 @@ export class BulkJobManager {
     );
 
     await Effect.runPromise(
-      phoneData.saveWithEntity(slug, normalized as Record<string, unknown>)
+      entityData.saveFinalData({
+        deviceId: device.id,
+        dataKind: "specs",
+        data: normalized as Record<string, unknown>,
+      })
     );
   }
 
@@ -301,7 +324,8 @@ export class BulkJobManager {
     item: JobQueueItem | null,
     services: {
       htmlCache: Services["htmlCache"];
-      phoneData: Services["phoneData"];
+      entityData: Services["entityData"];
+      deviceRegistry: Services["deviceRegistry"];
       jobQueue: Services["jobQueue"];
     },
     scrapeService: ScrapeService
@@ -337,17 +361,54 @@ export class BulkJobManager {
       } else if (jobType === "process_raw") {
         await this.runProcessRaw(item.externalId, {
           htmlCache: services.htmlCache,
-          phoneData: services.phoneData,
+          entityData: services.entityData,
+          deviceRegistry: services.deviceRegistry,
         });
       } else if (jobType === "process_ai") {
-        await this.runProcessAi(item.externalId, services.phoneData);
+        await this.runProcessAi(item.externalId, services.entityData, services.deviceRegistry);
       } else if (jobType === "clear_html") {
         const source = item.source ?? "kimovil";
         await Effect.runPromise(services.jobQueue.clearScrapeData(source, item.externalId));
       } else if (jobType === "clear_raw") {
-        await Effect.runPromise(services.phoneData.deleteRaw(item.externalId));
+        const source = item.source ?? "kimovil";
+        const device = await Effect.runPromise(services.deviceRegistry.getDeviceBySlug(item.externalId));
+        if (device) {
+          await Effect.runPromise(services.entityData.deleteRawData(device.id, source, "specs"));
+        }
       } else if (jobType === "clear_processed") {
-        await Effect.runPromise(services.phoneData.delete(item.externalId));
+        const device = await Effect.runPromise(services.deviceRegistry.getDeviceBySlug(item.externalId));
+        if (device) {
+          await Effect.runPromise(services.entityData.deleteFinalData(device.id, "specs"));
+        }
+      } else {
+        // Pipeline-based job types (e.g., link_priceru)
+        const source = item.source ?? "kimovil";
+        const dataKind = item.dataKind ?? "specs";
+        const stageHandler = getStageHandler(source, dataKind, "scrape");
+        if (stageHandler) {
+          // Look up metadata from device_sources if available
+          let metadata: Record<string, unknown> | undefined;
+          if (item.deviceId) {
+            const sources = await Effect.runPromise(
+              services.deviceRegistry.getSourcesByDeviceAndSource(item.deviceId, source)
+            );
+            const link = sources.find(s => s.externalId === item.externalId);
+            metadata = link?.metadata ?? undefined;
+          }
+
+          const ctx: PipelineContext = {
+            jobId: item.jobId ?? "",
+            deviceId: item.deviceId,
+            source,
+            dataKind: dataKind as PipelineContext["dataKind"],
+            externalId: item.externalId,
+            scrapeId: item.scrapeId,
+            metadata,
+          };
+          await this.runtime.runPromise(stageHandler(ctx) as Effect.Effect<void, unknown, never>);
+        } else {
+          log.warn(tag, `No pipeline handler found for ${source}:${dataKind}:scrape`);
+        }
       }
 
       const duration = Date.now() - startTime;
@@ -431,7 +492,7 @@ export class BulkJobManager {
     state.paused = false;
 
     try {
-      const { htmlCache, phoneData, jobQueue, scrapeService } =
+      const { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService } =
         await this.getServices();
       await Effect.runPromise(jobQueue.updateJobStatus(jobId, "running"));
       this.broadcastJobUpdate(jobId, "running", state.workerCount);
@@ -506,7 +567,7 @@ export class BulkJobManager {
 
             const result = await this.runQueueItem(
               item,
-              { htmlCache, phoneData, jobQueue },
+              { htmlCache, entityData, deviceRegistry, jobQueue },
               scrapeService
             );
             if (result && !result.rescheduled) {

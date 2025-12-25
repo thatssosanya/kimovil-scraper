@@ -67,18 +67,26 @@ export function progressBarClass(status: DisplayStatus): string {
   return "bg-indigo-500";
 }
 
-export function jobTypeBadgeClass(jobType: string): string {
+export function jobTypeBadgeClass(jobType: string, source?: string, dataKind?: string): string {
+  if (source === "price_ru" && dataKind === "prices") {
+    return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+  }
   if (jobType === "scrape") {
     return "bg-indigo-500/10 text-indigo-400 border-indigo-500/20";
   }
   if (jobType === "process_raw") {
     return "bg-cyan-500/10 text-cyan-400 border-cyan-500/20";
   }
+  if (jobType === "link_priceru") {
+    return "bg-orange-500/10 text-orange-400 border-orange-500/20";
+  }
   return "bg-violet-500/10 text-violet-400 border-violet-500/20";
 }
 
-export function jobTypeLabel(jobType: string, batchStatus?: string): string {
+export function jobTypeLabel(jobType: string, batchStatus?: string, source?: string, dataKind?: string): string {
+  if (source === "price_ru" && dataKind === "prices") return "price.ru prices";
   if (jobType === "scrape") return "Scrape";
   if (jobType === "process_raw") return "Extract";
+  if (jobType === "link_priceru") return "price.ru link";
   return batchStatus ? `AI (${batchStatus})` : "AI";
 }

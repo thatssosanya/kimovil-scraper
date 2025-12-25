@@ -264,7 +264,8 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
 
   const startBulkJob = async (
     filterType: "all" | "unscraped" | "needs_extraction" | "needs_ai",
-    jobType: "scrape" | "process_raw" | "process_ai" = "scrape",
+    jobType: "scrape" | "process_raw" | "process_ai" | "link_priceru" = "scrape",
+    options?: { source?: string; dataKind?: string },
   ) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       alert("WebSocket not connected");
@@ -280,7 +281,7 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
       JSON.stringify({
         id: reqId,
         method: "bulk.start",
-        params: { mode: "fast", filter: filterType, jobType },
+        params: { mode: "fast", filter: filterType, jobType, ...options },
       }),
     );
 
@@ -289,7 +290,8 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
 
   const queueBulk = async (
     slugsToQueue: string[],
-    jobType: "scrape" | "process_raw" | "process_ai" = "scrape",
+    jobType: "scrape" | "process_raw" | "process_ai" | "link_priceru" = "scrape",
+    options?: { source?: string; dataKind?: string },
   ) => {
     if (slugsToQueue.length === 0) {
       alert("No items to process");
@@ -311,7 +313,7 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
       JSON.stringify({
         id: reqId,
         method: "bulk.start",
-        params: { mode: "fast", slugs: slugsToQueue, jobType },
+        params: { mode: "fast", slugs: slugsToQueue, jobType, ...options },
       }),
     );
 
