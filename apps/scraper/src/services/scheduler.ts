@@ -193,6 +193,54 @@ export const SchedulerServiceLive = Layer.effect(
 
       upsertSchedule: (input) =>
         Effect.gen(function* () {
+          // Validate cron expression
+          yield* Effect.try({
+            try: () => {
+              const cron = new Cron(input.cronExpression);
+              if (!cron.nextRun()) {
+                throw new Error("Cron expression has no future runs");
+              }
+            },
+            catch: (error) =>
+              new SchedulerError({
+                message: `Invalid cron expression: ${input.cronExpression}`,
+                cause: error,
+              }),
+          });
+
+          // Validate timezone if provided
+          if (input.timezone) {
+            yield* Effect.try({
+              try: () => {
+                // Test if timezone is valid by using it with Intl.DateTimeFormat
+                new Intl.DateTimeFormat("en-US", { timeZone: input.timezone });
+              },
+              catch: () =>
+                new SchedulerError({ message: `Invalid timezone: ${input.timezone}` }),
+            });
+          }
+
+          // Validate filter if provided
+          if (input.filter !== undefined && input.filter !== null) {
+            const filterValue = input.filter;
+            yield* Effect.try({
+              try: () => {
+                const parsed = JSON.parse(filterValue);
+                if (!Array.isArray(parsed)) {
+                  throw new Error("Filter must be a JSON array");
+                }
+                if (!parsed.every((item) => typeof item === "string")) {
+                  throw new Error("Filter must be an array of strings");
+                }
+              },
+              catch: (error) =>
+                new SchedulerError({
+                  message: `Invalid filter: ${error instanceof Error ? error.message : String(error)}`,
+                  cause: error,
+                }),
+            });
+          }
+
           const jobType = input.jobType ?? "scrape";
           const mode = input.mode ?? "fast";
           const timezone = input.timezone ?? "UTC";
@@ -224,6 +272,25 @@ export const SchedulerServiceLive = Layer.effect(
                 new SchedulerError({ message: `Schedule ${input.id} not found` }),
               );
             }
+
+            // After UPDATE, check if we need to recompute next_run_at
+            if (row.enabled === 1) {
+              const nextRunAt = yield* Effect.try({
+                try: () => computeNextRunTime(input.cronExpression, timezone),
+                catch: (error) =>
+                  new SchedulerError({
+                    message: `Invalid cron expression: ${input.cronExpression}`,
+                    cause: error,
+                  }),
+              });
+
+              yield* sql`
+                UPDATE job_schedules
+                SET next_run_at = ${nextRunAt}, updated_at = unixepoch()
+                WHERE id = ${input.id}
+              `.pipe(Effect.mapError(wrapSqlError));
+            }
+
             return mapScheduleRow(row);
           }
 
@@ -274,7 +341,7 @@ export const SchedulerServiceLive = Layer.effect(
 
           yield* sql`
             UPDATE job_schedules
-            SET enabled = 1, next_run_at = ${nextRunAt}, updated_at = unixepoch()
+            SET enabled = 1, next_run_at = ${nextRunAt}, locked_until = NULL, updated_at = unixepoch()
             WHERE id = ${id}
           `.pipe(Effect.mapError(wrapSqlError));
         }),
@@ -405,8 +472,12 @@ export const SchedulerServiceLive = Layer.effect(
             UPDATE job_schedules
             SET last_run_at = ${now},
                 last_status = ${result.status},
-                last_error = ${result.error ?? null},
-                last_job_id = ${result.jobId ?? null},
+                last_error = CASE 
+                  WHEN ${result.status} = 'error' THEN ${result.error ?? null}
+                  WHEN ${result.status} = 'success' THEN NULL
+                  ELSE last_error
+                END,
+                last_job_id = COALESCE(${result.jobId ?? null}, last_job_id),
                 next_run_at = ${nextRunAt},
                 locked_until = NULL,
                 updated_at = unixepoch()
@@ -514,8 +585,18 @@ export const runScheduleOnce = (
     }
 
     const result = yield* Effect.gen(function* () {
-      const jobId = generateJobId();
+      // 1. Get slugs FIRST
+      const slugs = yield* scheduler.getSlugsForSchedule(schedule);
 
+      if (slugs.length === 0) {
+        yield* Effect.logWarning("runScheduleOnce: no slugs to enqueue").pipe(
+          Effect.annotateLogs({ scheduleId, name: schedule.name, caller: options.caller }),
+        );
+        return { status: "skipped" as const };
+      }
+
+      // 2. Only create job if we have slugs
+      const jobId = generateJobId();
       yield* jobQueue.createJob({
         id: jobId,
         jobType: schedule.jobType,
@@ -529,15 +610,7 @@ export const runScheduleOnce = (
         ),
       );
 
-      const slugs = yield* scheduler.getSlugsForSchedule(schedule);
-
-      if (slugs.length === 0) {
-        yield* Effect.logWarning("runScheduleOnce: no slugs to enqueue").pipe(
-          Effect.annotateLogs({ scheduleId, name: schedule.name, caller: options.caller }),
-        );
-        return { status: "skipped" as const, jobId };
-      }
-
+      // 3. Enqueue slugs
       yield* jobQueue.enqueueJobSlugs(jobId, schedule.jobType, schedule.mode, slugs, {
         source: schedule.source,
         dataKind: schedule.dataKind,
@@ -576,7 +649,13 @@ export const runScheduleOnce = (
             };
           });
         }
-        return Effect.fail(error);
+        // Release lock before failing when not swallowing errors
+        return Effect.gen(function* () {
+          if (claimLock) {
+            yield* scheduler.releaseSchedule(scheduleId);
+          }
+          return yield* Effect.fail(error);
+        });
       }),
     );
 
