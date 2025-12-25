@@ -253,7 +253,7 @@ export function useSlugsApi() {
 
     setClearLoading(true);
     try {
-      await fetch("http://localhost:1488/api/v2/jobs", {
+      const res = await fetch("http://localhost:1488/api/v2/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -262,6 +262,11 @@ export function useSlugsApi() {
           source: "kimovil",
         }),
       });
+      if (!res.ok) {
+        console.error("Failed to clear bulk: HTTP", res.status);
+        setClearLoading(false);
+        return false;
+      }
       for (const slug of slugsToClear) {
         setScrapeStatus((prev) => {
           const next = { ...prev };
@@ -276,6 +281,8 @@ export function useSlugsApi() {
       }
     } catch (error) {
       console.error("Failed to clear bulk:", error);
+      setClearLoading(false);
+      return false;
     }
     setClearLoading(false);
     return true;
@@ -428,7 +435,7 @@ export function useSlugsApi() {
 
     setClearRawLoading(true);
     try {
-      await fetch("http://localhost:1488/api/v2/jobs", {
+      const res = await fetch("http://localhost:1488/api/v2/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -438,6 +445,11 @@ export function useSlugsApi() {
           dataKind: "specs",
         }),
       });
+      if (!res.ok) {
+        console.error("Failed to clear raw bulk: HTTP", res.status);
+        setClearRawLoading(false);
+        return 0;
+      }
       for (const slug of slugsToClear) {
         setScrapeStatus((prev) => ({
           ...prev,
@@ -446,6 +458,8 @@ export function useSlugsApi() {
       }
     } catch (error) {
       console.error("Failed to clear raw bulk:", error);
+      setClearRawLoading(false);
+      return 0;
     }
     setClearRawLoading(false);
     return slugsToClear.length;
@@ -459,7 +473,7 @@ export function useSlugsApi() {
 
     setClearAiLoading(true);
     try {
-      await fetch("http://localhost:1488/api/v2/jobs", {
+      const res = await fetch("http://localhost:1488/api/v2/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -469,6 +483,11 @@ export function useSlugsApi() {
           dataKind: "specs",
         }),
       });
+      if (!res.ok) {
+        console.error("Failed to clear AI bulk: HTTP", res.status);
+        setClearAiLoading(false);
+        return 0;
+      }
       for (const slug of slugsToClear) {
         setScrapeStatus((prev) => ({
           ...prev,
@@ -477,6 +496,8 @@ export function useSlugsApi() {
       }
     } catch (error) {
       console.error("Failed to clear AI bulk:", error);
+      setClearAiLoading(false);
+      return 0;
     }
     setClearAiLoading(false);
     return slugsToClear.length;
