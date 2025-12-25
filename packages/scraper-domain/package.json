@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/utils/device-id.d.ts",
+      "default": "./dist/utils/device-id.js"
     }
   },
   "scripts": {
@@ -22,6 +26,7 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
+    "@types/node": "^22.10.6",
     "typescript": "^5.9.2"
   }
 }

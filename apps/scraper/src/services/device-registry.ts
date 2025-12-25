@@ -1,6 +1,6 @@
 import { Effect, Layer, Context } from "effect";
 import { SqlClient, SqlError } from "@effect/sql";
-import { createHash } from "crypto";
+import { generateDeviceId } from "@repo/scraper-domain/server";
 import type { SourceStatus } from "@repo/scraper-domain";
 
 export interface Device {
@@ -115,9 +115,6 @@ const mapDeviceSourceRow = (row: DeviceSourceRow): DeviceSourceLink => ({
 
 const wrapSqlError = (error: SqlError.SqlError): DeviceRegistryError =>
   new DeviceRegistryError(error.message, error);
-
-const generateDeviceId = (slug: string): string =>
-  createHash("sha256").update(slug).digest("hex").slice(0, 16);
 
 export const DeviceRegistryServiceLive = Layer.effect(
   DeviceRegistryService,

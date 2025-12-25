@@ -1,6 +1,6 @@
 import { Effect, Layer, Context } from "effect";
-import { createHash } from "crypto";
 import { SqlClient } from "@effect/sql";
+import { generateDeviceId } from "@repo/scraper-domain/server";
 
 export interface KimovilDevice {
   id: string;
@@ -71,10 +71,6 @@ export interface DeviceService {
 
 export const DeviceService = Context.GenericTag<DeviceService>("DeviceService");
 
-const hashSlug = (slug: string): string => {
-  return createHash("sha256").update(slug).digest("hex").slice(0, 16);
-};
-
 type DeviceRow = {
   id: string;
   slug: string;
@@ -129,7 +125,7 @@ export const DeviceServiceLive = Layer.effect(
     return DeviceService.of({
       upsertDevice: (device) =>
         Effect.gen(function* () {
-          const id = hashSlug(device.slug);
+          const id = generateDeviceId(device.slug);
           const isRumor = device.isRumor ? 1 : 0;
           yield* sql`
             INSERT INTO kimovil_devices (id, slug, name, brand, is_rumor, raw, first_seen, last_seen)

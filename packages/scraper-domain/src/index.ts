@@ -2,6 +2,8 @@ export * from "./services/search";
 export * from "./services/scrape";
 export * from "./models";
 
+// NOTE: Server-only utils are in "@repo/scraper-domain/server" subpath
+
 // Re-export plain TypeScript types for frontend use (no @effect/schema runtime dependency)
 export type {
   // Enum types

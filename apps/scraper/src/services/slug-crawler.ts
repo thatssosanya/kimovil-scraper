@@ -1,6 +1,6 @@
 import { Effect, Layer, Context } from "effect";
 import { chromium, Page, Browser, BrowserContext } from "playwright";
-import { createHash } from "crypto";
+import { generateDeviceId } from "@repo/scraper-domain/server";
 import { DeviceService, DeviceError } from "./device";
 import { inferBrand, isValidChildPrefix, isPrefixWorthExpanding } from "./kimovil/slug-logic";
 
@@ -174,11 +174,7 @@ export const SlugCrawlerServiceLive = Layer.effect(
           if (isNew) {
             knownSlugs.add(slug);
             newDevices++;
-            // Generate same hash as storage uses
-            const id = createHash("sha256")
-              .update(slug)
-              .digest("hex")
-              .slice(0, 16);
+            const id = generateDeviceId(slug);
             newlyAdded.push({ id, name });
           }
 

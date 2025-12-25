@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect";
 import { SqlClient, SqlError } from "@effect/sql";
-import { createHash } from "crypto";
+import { generateDeviceId } from "@repo/scraper-domain/server";
 
 const tableExists = (
   sql: SqlClient.SqlClient,
@@ -167,9 +167,6 @@ const dropLegacyTables = (
     Effect.tap(() => Effect.logInfo("Dropped legacy tables (bulk_jobs, scrape_queue)")),
     Effect.asVoid,
   );
-
-const generateDeviceId = (slug: string): string =>
-  createHash("sha256").update(slug).digest("hex").slice(0, 16);
 
 interface KimovilDeviceRow {
   id: string;
