@@ -20,7 +20,7 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
       });
 
       const result = await LiveRuntime.runPromise(program);
-      if (!result.html) {
+      if (result.html === null) {
         set.status = 404;
         return { error: "HTML not found", slug, source };
       }
@@ -53,13 +53,13 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
       });
 
       const result = await LiveRuntime.runPromise(program);
-      if (!result) {
+      if (result === null) {
         set.status = 404;
         return { error: "Raw data not found", slug, source, dataKind };
       }
       return { slug, source, dataKind, data: result };
     })
-    .delete("/devices/:slug/sources/:source/raw-data/:dataKind", async ({ params }) => {
+    .delete("/devices/:slug/sources/:source/raw-data/:dataKind", async ({ params, set }) => {
       const { slug, source, dataKind } = params;
 
       const program = Effect.gen(function* () {
@@ -68,14 +68,19 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
 
         const device = yield* deviceRegistry.getDeviceBySlug(slug);
         if (!device) {
-          return { success: false, error: "Device not found", slug };
+          return { found: false as const, slug };
         }
 
         const deleted = yield* entityData.deleteRawData(device.id, source, dataKind);
-        return { success: true, slug, source, dataKind, deleted };
+        return { found: true as const, slug, source, dataKind, deleted };
       });
 
-      return LiveRuntime.runPromise(program);
+      const result = await LiveRuntime.runPromise(program);
+      if (!result.found) {
+        set.status = 404;
+        return { error: "Device not found", slug };
+      }
+      return { success: true, slug: result.slug, source: result.source, dataKind: result.dataKind, deleted: result.deleted };
     })
     .get("/devices/:slug/data/:dataKind", async ({ params, set }) => {
       const { slug, dataKind } = params;
@@ -93,13 +98,13 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
       });
 
       const result = await LiveRuntime.runPromise(program);
-      if (!result) {
+      if (result === null) {
         set.status = 404;
         return { error: "Data not found", slug, dataKind };
       }
       return { slug, dataKind, data: result };
     })
-    .delete("/devices/:slug/data/:dataKind", async ({ params }) => {
+    .delete("/devices/:slug/data/:dataKind", async ({ params, set }) => {
       const { slug, dataKind } = params;
 
       const program = Effect.gen(function* () {
@@ -108,14 +113,19 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
 
         const device = yield* deviceRegistry.getDeviceBySlug(slug);
         if (!device) {
-          return { success: false, error: "Device not found", slug };
+          return { found: false as const, slug };
         }
 
         const deleted = yield* entityData.deleteFinalData(device.id, dataKind);
-        return { success: true, slug, dataKind, deleted };
+        return { found: true as const, slug, dataKind, deleted };
       });
 
-      return LiveRuntime.runPromise(program);
+      const result = await LiveRuntime.runPromise(program);
+      if (!result.found) {
+        set.status = 404;
+        return { error: "Device not found", slug };
+      }
+      return { success: true, slug: result.slug, dataKind: result.dataKind, deleted: result.deleted };
     })
     .get("/devices/bulk-status", async ({ query, set }) => {
       const slugsParam = query.slugs as string;
@@ -148,10 +158,18 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
         > = {};
 
         for (const slug of slugs) {
-          const hasHtml = yield* htmlCache.hasScrapedHtml(slug, source);
-          const hasRawData = yield* phoneData.hasRaw(slug);
-          const hasProcessedData = yield* phoneData.has(slug);
-          const verification = yield* htmlCache.getVerificationStatus(slug, source);
+          const hasHtml = yield* htmlCache.hasScrapedHtml(slug, source).pipe(
+            Effect.catchAll(() => Effect.succeed(false)),
+          );
+          const hasRawData = yield* phoneData.hasRaw(slug).pipe(
+            Effect.catchAll(() => Effect.succeed(false)),
+          );
+          const hasProcessedData = yield* phoneData.has(slug).pipe(
+            Effect.catchAll(() => Effect.succeed(false)),
+          );
+          const verification = yield* htmlCache.getVerificationStatus(slug, source).pipe(
+            Effect.catchAll(() => Effect.succeed(null)),
+          );
 
           const device = yield* deviceRegistry.getDeviceBySlug(slug).pipe(
             Effect.catchAll(() => Effect.succeed(null)),

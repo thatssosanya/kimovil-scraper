@@ -265,9 +265,12 @@ export const HtmlCacheServiceLive = Layer.effect(
         wrapError(
           Effect.gen(function* () {
             yield* sql`DELETE FROM raw_html WHERE slug = ${slug} AND source = ${source}`;
+            const htmlRows = yield* sql<{ count: number }>`SELECT changes() as count`;
+            const htmlDeleted = (htmlRows[0]?.count ?? 0) > 0;
             yield* sql`DELETE FROM scrape_verification WHERE slug = ${slug} AND source = ${source}`;
-            const rows = yield* sql<{ count: number }>`SELECT changes() as count`;
-            return (rows[0]?.count ?? 0) > 0;
+            const verifyRows = yield* sql<{ count: number }>`SELECT changes() as count`;
+            const verifyDeleted = (verifyRows[0]?.count ?? 0) > 0;
+            return htmlDeleted || verifyDeleted;
           }),
         ),
     });
