@@ -644,23 +644,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
 
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_discovery_queue_source_status ON discovery_queue(source, status, depth, query)`);
 
-    yield* sql.unsafe(`
-      CREATE TABLE IF NOT EXISTS phone_data_raw (
-        slug TEXT PRIMARY KEY,
-        data TEXT NOT NULL,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-      )
-    `);
 
-    yield* sql.unsafe(`
-      CREATE TABLE IF NOT EXISTS phone_data (
-        slug TEXT PRIMARY KEY,
-        data TEXT NOT NULL,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-      )
-    `);
 
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS quarantine (
@@ -818,6 +802,10 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
 
     // Migrate legacy phone_data_* tables to entity_data_* tables
     yield* sql.withTransaction(migratePhoneDataToEntityData(sql));
+
+    // Drop legacy phone_data tables (migrated to entity_data_*)
+    yield* sql.unsafe(`DROP TABLE IF EXISTS phone_data_raw`);
+    yield* sql.unsafe(`DROP TABLE IF EXISTS phone_data`);
 
     // Migrate kimovil_prefix_state → discovery_queue
     yield* sql.withTransaction(migrateKimovilPrefixState(sql));

@@ -1,6 +1,7 @@
 import { Effect, Layer, Context } from "effect";
 import { SqlClient, SqlError } from "@effect/sql";
 import type { ScrapeMode, ScrapeStatus, JobStatus, JobType, AiMode } from "@repo/scraper-domain";
+import { ScrapeRecordService } from "./scrape-record";
 
 export type { ScrapeMode, ScrapeStatus, JobType, AiMode };
 export type BulkJobStatus = JobStatus;
@@ -168,6 +169,8 @@ export interface JobQueueService {
       maxAttempts?: number;
       nextAttemptAt?: number | null;
       source?: string;
+      dataKind?: string;
+      scrapeId?: number;
     },
   ) => Effect.Effect<JobQueueItem, JobQueueError>;
 
@@ -293,6 +296,7 @@ export const JobQueueServiceLive = Layer.effect(
   JobQueueService,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const scrapeRecord = yield* ScrapeRecordService;
 
     return JobQueueService.of({
       createJob: (input) =>
@@ -396,9 +400,16 @@ export const JobQueueServiceLive = Layer.effect(
             const source = options?.source ?? "kimovil";
             const dataKind = options?.dataKind ?? "specs";
             for (const target of targets) {
+              const scrape = yield* scrapeRecord.createScrape({
+                deviceId: target.deviceId,
+                source,
+                dataKind,
+                externalId: target.externalId,
+                url: source === "kimovil" ? `https://www.kimovil.com/en/where-to-buy-${target.externalId}` : undefined,
+              });
               yield* sql`
-                INSERT OR IGNORE INTO job_queue (external_id, device_id, job_id, job_type, mode, status, max_attempts, created_at, updated_at, source, data_kind)
-                VALUES (${target.externalId}, ${target.deviceId}, ${jobId}, ${jobType}, ${mode}, 'pending', ${maxAttempts}, unixepoch(), unixepoch(), ${source}, ${dataKind})
+                INSERT OR IGNORE INTO job_queue (external_id, device_id, job_id, job_type, mode, status, max_attempts, created_at, updated_at, source, data_kind, scrape_id)
+                VALUES (${target.externalId}, ${target.deviceId}, ${jobId}, ${jobType}, ${mode}, 'pending', ${maxAttempts}, unixepoch(), unixepoch(), ${source}, ${dataKind}, ${scrape.id})
               `;
             }
             const countRows = yield* sql<{ count: number }>`
@@ -406,7 +417,11 @@ export const JobQueueServiceLive = Layer.effect(
             `;
             return { queued: countRows[0]?.count ?? 0 };
           }),
-        ).pipe(Effect.mapError(wrapSqlError)),
+        ).pipe(Effect.mapError((e) => {
+          if (e instanceof JobQueueError) return e;
+          if (e instanceof Error) return new JobQueueError(e.message);
+          return wrapSqlError(e as SqlError.SqlError);
+        })),
 
       claimNextJobQueueItem: (jobId: string, jobType?: JobType) =>
         sql.withTransaction(
@@ -669,22 +684,27 @@ export const JobQueueServiceLive = Layer.effect(
           maxAttempts?: number;
           nextAttemptAt?: number | null;
           source?: string;
+          dataKind?: string;
+          scrapeId?: number;
         },
       ) =>
         Effect.gen(function* () {
           const jobId = options?.jobId ?? null;
           const maxAttempts = options?.maxAttempts ?? 5;
           const nextAttemptAt = options?.nextAttemptAt ?? null;
-
           const source = options?.source ?? "kimovil";
+          const dataKind = options?.dataKind ?? "specs";
+          const scrapeId = options?.scrapeId ?? null;
+
           if (jobId) {
             yield* sql`
-              INSERT INTO job_queue (external_id, device_id, job_id, mode, status, max_attempts, next_attempt_at, created_at, updated_at, source)
-              VALUES (${externalId}, ${deviceId}, ${jobId}, ${mode}, 'pending', ${maxAttempts}, ${nextAttemptAt}, unixepoch(), unixepoch(), ${source})
+              INSERT INTO job_queue (external_id, device_id, job_id, mode, status, max_attempts, next_attempt_at, created_at, updated_at, source, data_kind, scrape_id)
+              VALUES (${externalId}, ${deviceId}, ${jobId}, ${mode}, 'pending', ${maxAttempts}, ${nextAttemptAt}, unixepoch(), unixepoch(), ${source}, ${dataKind}, ${scrapeId})
               ON CONFLICT(job_id, source, external_id) DO UPDATE SET
                 status = 'pending',
                 next_attempt_at = excluded.next_attempt_at,
-                updated_at = unixepoch()
+                updated_at = unixepoch(),
+                scrape_id = COALESCE(excluded.scrape_id, job_queue.scrape_id)
             `;
             const rows = yield* sql<QueueRow>`
               SELECT * FROM job_queue WHERE job_id = ${jobId} AND source = ${source} AND external_id = ${externalId}
@@ -696,8 +716,8 @@ export const JobQueueServiceLive = Layer.effect(
             return mapQueueRow(row);
           } else {
             yield* sql`
-              INSERT INTO job_queue (external_id, device_id, mode, status, max_attempts, next_attempt_at, created_at, updated_at)
-              VALUES (${externalId}, ${deviceId}, ${mode}, 'pending', ${maxAttempts}, ${nextAttemptAt}, unixepoch(), unixepoch())
+              INSERT INTO job_queue (external_id, device_id, mode, status, max_attempts, next_attempt_at, created_at, updated_at, data_kind, scrape_id)
+              VALUES (${externalId}, ${deviceId}, ${mode}, 'pending', ${maxAttempts}, ${nextAttemptAt}, unixepoch(), unixepoch(), ${dataKind}, ${scrapeId})
             `;
             const rows = yield* sql<QueueRow>`
               SELECT * FROM job_queue WHERE rowid = last_insert_rowid()

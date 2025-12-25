@@ -24,16 +24,27 @@ const SearchServiceLayer = SearchServiceKimovil.pipe(
 
 const SqlLayer = SchemaLive.pipe(Layer.provideMerge(SqlClientLive));
 
-// Base services that don't depend on each other
+// ScrapeRecordService is a base service (no deps beyond SQL)
+const ScrapeRecordLayer = ScrapeRecordServiceLive.pipe(Layer.provide(SqlLayer));
+
+// JobQueueService depends on ScrapeRecordService
+const JobQueueLayer = JobQueueServiceLive.pipe(
+  Layer.provide(ScrapeRecordLayer),
+  Layer.provide(SqlLayer),
+);
+
+// Base services that don't depend on each other (except JobQueue -> ScrapeRecord)
 const BaseDataLayer = Layer.mergeAll(
   HtmlCacheServiceLive,
-  JobQueueServiceLive,
   DeviceDiscoveryServiceLive,
   DeviceRegistryServiceLive,
   EntityDataServiceLive,
-  ScrapeRecordServiceLive,
   PriceServiceLive,
-).pipe(Layer.provide(SqlLayer));
+).pipe(
+  Layer.provide(SqlLayer),
+  Layer.provideMerge(JobQueueLayer),
+  Layer.provideMerge(ScrapeRecordLayer),
+);
 
 // SchedulerService depends on JobQueueService, so layer it on top
 const SchedulerLayer = SchedulerServiceLive.pipe(

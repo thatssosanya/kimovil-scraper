@@ -14,6 +14,7 @@ import { BrowserService, BrowserError } from "../browser";
 import { HtmlCacheService, HtmlCacheError } from "../html-cache";
 import { PhoneDataService, PhoneDataError } from "../phone-data";
 import { RobotService, RobotError } from "../robot";
+import { ScrapeRecordService, ScrapeRecordError } from "../scrape-record";
 import { getHtmlValidationError } from "./validators";
 import {
   extractPhoneData,
@@ -147,9 +148,10 @@ type ScrapeServiceDeps = {
   htmlCache: HtmlCacheService;
   phoneDataService: PhoneDataService;
   robotService: RobotService;
+  scrapeRecord: ScrapeRecordService;
 };
 
-type AllErrors = ScrapeError | BrowserError | HtmlCacheError | RobotError;
+type AllErrors = ScrapeError | BrowserError | HtmlCacheError | RobotError | ScrapeRecordError;
 
 const backgroundRefresh = (
   slug: string,
@@ -608,6 +610,7 @@ const scrapeWithCache = (
 const scrapeFastImpl = (
   slug: string,
   deps: ScrapeServiceDeps,
+  scrapeId?: number,
 ): Stream.Stream<ScrapeEvent, ScrapeError> => {
   const scrapeEffect = Effect.gen(function* () {
     const events: ScrapeEvent[] = [];
@@ -622,181 +625,236 @@ const scrapeFastImpl = (
       return duration;
     };
 
-    emit({ type: "progress", stage: "Проверка кэша", percent: 1 });
-    emit({
-      type: "log",
-      level: "info",
-      message: `[Fast] Начинаю скрейпинг: ${slug}`,
-    });
-
-    const existingHtml = yield* deps.htmlCache
-      .getRawHtml(slug)
-      .pipe(
+    if (scrapeId != null) {
+      yield* deps.scrapeRecord.startScrape(scrapeId).pipe(
         Effect.catchAll((error) =>
-          Effect.logWarning("Cache read failed").pipe(
-            Effect.annotateLogs({ slug, error }),
-            Effect.map(() => null),
+          Effect.logWarning("Failed to start scrape record").pipe(
+            Effect.annotateLogs({ slug, scrapeId, error }),
           ),
         ),
       );
+    }
 
-    if (existingHtml) {
-      const totalMs = Date.now() - totalStart;
-      emit({
-        type: "progress",
-        stage: "Кэш найден",
-        percent: 100,
-        durationMs: totalMs,
-      });
+    const runScrape = Effect.gen(function* () {
+      emit({ type: "progress", stage: "Проверка кэша", percent: 1 });
       emit({
         type: "log",
         level: "info",
-        message: `✓ [Fast] Уже в кэше, пропускаю (${totalMs}ms)`,
+        message: `[Fast] Начинаю скрейпинг: ${slug}`,
       });
-      return events;
-    }
 
-    emit({ type: "progress", stage: "Запуск браузера", percent: 5 });
-
-    emit({
-      type: "log",
-      level: "info",
-      message: `Rate limit: ожидание ${RATE_LIMIT_DELAY_MS}ms...`,
-    });
-    yield* Effect.sleep(RATE_LIMIT_DELAY_MS);
-
-    yield* deps.browserService.withPooledBrowserPage((page) =>
-      Effect.gen(function* () {
-        const browserMs = elapsed();
-
-        emit({
-          type: "progress",
-          stage: "Браузер готов",
-          percent: 15,
-          durationMs: browserMs,
-        });
-        emit({
-          type: "log",
-          level: "info",
-          message: `Браузер из пула за ${browserMs}ms`,
-        });
-
-        yield* deps.browserService.abortExtraResources(page);
-
-        let lastError: ScrapeError | null = null;
-        let data: RawPhoneData | null = null;
-        let fullHtml: string | null = null;
-
-        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-          const result = yield* Effect.gen(function* () {
-            emit({
-              type: "progress",
-              stage: `Загрузка страницы (попытка ${attempt}/${MAX_RETRIES})`,
-              percent: 20 + (attempt - 1) * 15,
-            });
-            emit({
-              type: "log",
-              level: "info",
-              message: `Попытка ${attempt}/${MAX_RETRIES}: kimovil.com/${slug}...`,
-            });
-
-            const scrapeResult = yield* scrapePhoneData(page, slug);
-            return scrapeResult;
-          }).pipe(
-            Effect.map((r) => ({ success: true as const, data: r })),
-            Effect.catchAll((error) =>
-              Effect.succeed({ success: false as const, error }),
+      const existingHtml = yield* deps.htmlCache
+        .getRawHtml(slug)
+        .pipe(
+          Effect.catchAll((error) =>
+            Effect.logWarning("Cache read failed").pipe(
+              Effect.annotateLogs({ slug, error }),
+              Effect.map(() => null),
             ),
-          );
+          ),
+        );
 
-          if (result.success) {
-            data = result.data.data;
-            fullHtml = result.data.fullHtml;
-            lastError = null;
-            break;
-          } else {
-            lastError = result.error;
-            const isBotBlock =
-              lastError.message.includes("Bot protection") ||
-              lastError.message.includes("Page blocked") ||
-              lastError.message.includes("Page invalid");
-
-            if (isBotBlock && attempt < MAX_RETRIES) {
-              emit({
-                type: "retry",
-                attempt,
-                maxAttempts: MAX_RETRIES,
-                delay: RETRY_DELAY_MS,
-                reason: lastError.message,
-              });
-              emit({
-                type: "log",
-                level: "warn",
-                message: `Попытка ${attempt} неудачна: ${lastError.message}. Повтор через ${RETRY_DELAY_MS / 1000}s...`,
-              });
-              yield* Effect.sleep(RETRY_DELAY_MS);
-              yield* Effect.tryPromise({
-                try: () =>
-                  page.reload({
-                    waitUntil: "domcontentloaded",
-                    timeout: RELOAD_TIMEOUT,
-                  }),
-                catch: () => new ScrapeError("Reload failed"),
-              }).pipe(Effect.catchAll(() => Effect.void));
-            } else if (!isBotBlock) {
-              break;
-            }
-          }
-        }
-
-        if (lastError || !data || !fullHtml) {
-          return yield* Effect.fail(
-            lastError || new ScrapeError("Failed to scrape after retries"),
-          );
-        }
-
-        const scrapeMs = elapsed();
-
-        emit({
-          type: "progress",
-          stage: "Данные извлечены",
-          percent: 70,
-          durationMs: scrapeMs,
-        });
-        emit({
-          type: "log",
-          level: "info",
-          message: `Страница загружена за ${scrapeMs}ms — ${data.cameras.length} камер, ${data.skus.length} SKU`,
-        });
-
-        yield* deps.htmlCache
-          .saveRawHtml(slug, fullHtml)
-          .pipe(Effect.catchAll(() => Effect.void));
-
-        yield* deps.phoneDataService
-          .saveRaw(slug, data as unknown as Record<string, unknown>)
-          .pipe(Effect.catchAll(() => Effect.void));
-
-        emit({ type: "progress", stage: "Данные сохранены", percent: 90 });
-        emit({
-          type: "log",
-          level: "info",
-          message: `Raw HTML + phone data сохранены в кэш`,
-        });
-
+      if (existingHtml) {
         const totalMs = Date.now() - totalStart;
         emit({
           type: "progress",
-          stage: "Готово (fast)",
+          stage: "Кэш найден",
           percent: 100,
           durationMs: totalMs,
         });
         emit({
           type: "log",
           level: "info",
-          message: `✓ Fast scrape завершён за ${(totalMs / 1000).toFixed(1)}s (без AI)`,
+          message: `✓ [Fast] Уже в кэше, пропускаю (${totalMs}ms)`,
         });
+        return;
+      }
+
+      emit({ type: "progress", stage: "Запуск браузера", percent: 5 });
+
+      emit({
+        type: "log",
+        level: "info",
+        message: `Rate limit: ожидание ${RATE_LIMIT_DELAY_MS}ms...`,
+      });
+      yield* Effect.sleep(RATE_LIMIT_DELAY_MS);
+
+      yield* deps.browserService.withPooledBrowserPage((page) =>
+        Effect.gen(function* () {
+          const browserMs = elapsed();
+
+          emit({
+            type: "progress",
+            stage: "Браузер готов",
+            percent: 15,
+            durationMs: browserMs,
+          });
+          emit({
+            type: "log",
+            level: "info",
+            message: `Браузер из пула за ${browserMs}ms`,
+          });
+
+          yield* deps.browserService.abortExtraResources(page);
+
+          let lastError: ScrapeError | null = null;
+          let data: RawPhoneData | null = null;
+          let fullHtml: string | null = null;
+
+          for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            const result = yield* Effect.gen(function* () {
+              emit({
+                type: "progress",
+                stage: `Загрузка страницы (попытка ${attempt}/${MAX_RETRIES})`,
+                percent: 20 + (attempt - 1) * 15,
+              });
+              emit({
+                type: "log",
+                level: "info",
+                message: `Попытка ${attempt}/${MAX_RETRIES}: kimovil.com/${slug}...`,
+              });
+
+              const scrapeResult = yield* scrapePhoneData(page, slug);
+              return scrapeResult;
+            }).pipe(
+              Effect.map((r) => ({ success: true as const, data: r })),
+              Effect.catchAll((error) =>
+                Effect.succeed({ success: false as const, error }),
+              ),
+            );
+
+            if (result.success) {
+              data = result.data.data;
+              fullHtml = result.data.fullHtml;
+              lastError = null;
+              break;
+            } else {
+              lastError = result.error;
+              const isBotBlock =
+                lastError.message.includes("Bot protection") ||
+                lastError.message.includes("Page blocked") ||
+                lastError.message.includes("Page invalid");
+
+              if (isBotBlock && attempt < MAX_RETRIES) {
+                emit({
+                  type: "retry",
+                  attempt,
+                  maxAttempts: MAX_RETRIES,
+                  delay: RETRY_DELAY_MS,
+                  reason: lastError.message,
+                });
+                emit({
+                  type: "log",
+                  level: "warn",
+                  message: `Попытка ${attempt} неудачна: ${lastError.message}. Повтор через ${RETRY_DELAY_MS / 1000}s...`,
+                });
+                yield* Effect.sleep(RETRY_DELAY_MS);
+                yield* Effect.tryPromise({
+                  try: () =>
+                    page.reload({
+                      waitUntil: "domcontentloaded",
+                      timeout: RELOAD_TIMEOUT,
+                    }),
+                  catch: () => new ScrapeError("Reload failed"),
+                }).pipe(Effect.catchAll(() => Effect.void));
+              } else if (!isBotBlock) {
+                break;
+              }
+            }
+          }
+
+          if (lastError || !data || !fullHtml) {
+            return yield* Effect.fail(
+              lastError || new ScrapeError("Failed to scrape after retries"),
+            );
+          }
+
+          const scrapeMs = elapsed();
+
+          emit({
+            type: "progress",
+            stage: "Данные извлечены",
+            percent: 70,
+            durationMs: scrapeMs,
+          });
+          emit({
+            type: "log",
+            level: "info",
+            message: `Страница загружена за ${scrapeMs}ms — ${data.cameras.length} камер, ${data.skus.length} SKU`,
+          });
+
+          if (scrapeId != null) {
+            yield* deps.htmlCache
+              .saveHtmlByScrapeId(scrapeId, fullHtml)
+              .pipe(
+                Effect.catchAll((error) =>
+                  Effect.logWarning("Failed to save HTML by scrapeId").pipe(
+                    Effect.annotateLogs({ slug, scrapeId, error }),
+                  ),
+                ),
+              );
+          }
+          yield* deps.htmlCache
+            .saveRawHtml(slug, fullHtml)
+            .pipe(Effect.catchAll(() => Effect.void));
+
+          yield* deps.phoneDataService
+            .saveRaw(slug, data as unknown as Record<string, unknown>)
+            .pipe(Effect.catchAll(() => Effect.void));
+
+          emit({ type: "progress", stage: "Данные сохранены", percent: 90 });
+          emit({
+            type: "log",
+            level: "info",
+            message: `Raw HTML + phone data сохранены в кэш`,
+          });
+
+          const totalMs = Date.now() - totalStart;
+          emit({
+            type: "progress",
+            stage: "Готово (fast)",
+            percent: 100,
+            durationMs: totalMs,
+          });
+          emit({
+            type: "log",
+            level: "info",
+            message: `✓ Fast scrape завершён за ${(totalMs / 1000).toFixed(1)}s (без AI)`,
+          });
+        }),
+      );
+    });
+
+    yield* runScrape.pipe(
+      Effect.tap(() => {
+        if (scrapeId != null) {
+          return deps.scrapeRecord.completeScrape(scrapeId).pipe(
+            Effect.catchAll((error) =>
+              Effect.logWarning("Failed to complete scrape record").pipe(
+                Effect.annotateLogs({ slug, scrapeId, error }),
+              ),
+            ),
+          );
+        }
+        return Effect.void;
       }),
+      Effect.catchAll((error) =>
+        Effect.gen(function* () {
+          if (scrapeId != null) {
+            yield* deps.scrapeRecord.failScrape(
+              scrapeId,
+              error instanceof Error ? error.message : String(error),
+            ).pipe(
+              Effect.catchAll((recordError) =>
+                Effect.logWarning("Failed to record scrape failure").pipe(
+                  Effect.annotateLogs({ slug, scrapeId, error: recordError }),
+                ),
+              ),
+            );
+          }
+          return yield* Effect.fail(error);
+        }),
+      ),
     );
 
     return events;
@@ -816,12 +874,14 @@ export const ScrapeServiceKimovil = Layer.effect(
     const htmlCache = yield* HtmlCacheService;
     const phoneDataService = yield* PhoneDataService;
     const robotService = yield* RobotService;
+    const scrapeRecord = yield* ScrapeRecordService;
 
     const deps: ScrapeServiceDeps = {
       browserService,
       htmlCache,
       phoneDataService,
       robotService,
+      scrapeRecord,
     };
 
     return ScrapeService.of({

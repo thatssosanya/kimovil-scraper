@@ -5,6 +5,7 @@ import { PriceService } from "../services/price";
 import { HtmlCacheService } from "../services/html-cache";
 import { PhoneDataService } from "../services/phone-data";
 import { JobQueueService, type ScrapeMode } from "../services/job-queue";
+import { ScrapeRecordService } from "../services/scrape-record";
 import { BulkJobManager } from "../services/bulk-job";
 import { DeviceRegistryService } from "../services/device-registry";
 import { SchedulerService } from "../services/scheduler";
@@ -29,13 +30,25 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
       const program = Effect.gen(function* () {
         const jobQueue = yield* JobQueueService;
         const deviceRegistry = yield* DeviceRegistryService;
+        const scrapeRecord = yield* ScrapeRecordService;
 
         const device = yield* deviceRegistry.lookupDevice(source, externalId);
         if (!device) {
           return { error: `No device found for ${source}/${externalId}` };
         }
 
-        return yield* jobQueue.queueScrape(externalId, device.id, mode, { source });
+        const scrape = yield* scrapeRecord.createScrape({
+          deviceId: device.id,
+          source,
+          dataKind: "specs",
+          externalId,
+          url: source === "kimovil" ? `https://www.kimovil.com/en/where-to-buy-${externalId}` : undefined,
+        });
+
+        return yield* jobQueue.queueScrape(externalId, device.id, mode, {
+          source,
+          scrapeId: scrape.id,
+        });
       });
 
       const result = await LiveRuntime.runPromise(program);
