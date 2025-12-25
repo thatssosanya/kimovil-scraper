@@ -1,6 +1,7 @@
 import { Effect } from "effect";
+import type { DataKind } from "@repo/scraper-domain";
 
-export type DataKind = "specs" | "prices" | "reviews" | "availability";
+export type { DataKind };
 export type PipelineStage = "scrape" | "process_raw" | "process_ai";
 
 export interface PipelineContext {

@@ -1,11 +1,9 @@
 import { Effect, Layer, Context } from "effect";
 import { SqlClient, SqlError } from "@effect/sql";
+import type { ScrapeMode, ScrapeStatus, JobStatus, JobType, AiMode } from "@repo/scraper-domain";
 
-export type ScrapeMode = "fast" | "complex";
-export type ScrapeStatus = "pending" | "running" | "done" | "error";
-export type BulkJobStatus = "pending" | "running" | "pausing" | "paused" | "done" | "error";
-export type JobType = "scrape" | "process_raw" | "process_ai" | "clear_html" | "clear_raw" | "clear_processed";
-export type AiMode = "realtime" | "batch";
+export type { ScrapeMode, ScrapeStatus, JobType, AiMode };
+export type BulkJobStatus = JobStatus;
 
 export interface JobQueueItem {
   id: number;
