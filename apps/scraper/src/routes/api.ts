@@ -81,7 +81,9 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
       const { source, externalId } = params;
       const program = Effect.gen(function* () {
         const htmlCache = yield* HtmlCacheService;
-        const html = yield* htmlCache.getRawHtml(externalId, source);
+        const html = yield* htmlCache.getHtmlBySlug(externalId, source, "specs").pipe(
+          Effect.catchAll(() => Effect.succeed(null))
+        );
         return { source, externalId, html };
       });
       return LiveRuntime.runPromise(program);
@@ -120,7 +122,7 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         > = {};
 
         for (const externalId of externalIds) {
-          const hasHtml = yield* htmlCache.hasScrapedHtml(externalId, source);
+          const hasHtml = yield* htmlCache.hasHtmlForSlug(externalId, source, "specs");
           const hasRawData = yield* phoneData.hasRaw(externalId);
           const hasAiData = yield* phoneData.has(externalId);
           const queueItem = yield* jobQueue.getQueueItemByTarget(
@@ -315,7 +317,7 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           await LiveRuntime.runPromise(program);
 
         const hasHtml = await LiveRuntime.runPromise(
-          htmlCache.hasScrapedHtml(externalId, resolvedSource),
+          htmlCache.hasHtmlForSlug(externalId, resolvedSource, "specs"),
         );
         if (!hasHtml) {
           return {

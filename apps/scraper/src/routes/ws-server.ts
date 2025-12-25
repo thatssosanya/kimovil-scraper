@@ -216,26 +216,27 @@ const createHandlers = (
         if (params.filter === "all") {
           targetSlugs = allSlugs;
         } else {
-          const scraped = yield* htmlCache.getScrapedSlugs();
-          const scrapedSet = new Set(scraped);
+          const validSlugs = yield* htmlCache.getValidSlugs();
+          const validSet = new Set(validSlugs);
           targetSlugs = allSlugs.filter(
-            (slug: string) => !scrapedSet.has(slug),
+            (slug: string) => !validSet.has(slug),
           );
         }
       } else if (jobType === "process_raw") {
         if (params.filter === "all") {
-          targetSlugs = yield* htmlCache.getScrapedSlugs();
+          const validSlugs = yield* htmlCache.getValidSlugs();
+          targetSlugs = validSlugs;
         } else {
           targetSlugs = yield* phoneData.getSlugsNeedingExtraction();
         }
       } else if (jobType === "process_ai") {
         if (params.filter === "all") {
           const kimovilDevices = yield* deviceRegistry.getDevicesBySource("kimovil");
-          const rawSlugs = new Set(
-            (yield* phoneData.getSlugsNeedingAi()).concat(
-              (yield* htmlCache.getScrapedSlugs()).filter(() => true),
-            ),
-          );
+          const rawSlugs = new Set(yield* phoneData.getSlugsNeedingAi());
+          const validSlugs = yield* htmlCache.getValidSlugs();
+          for (const slug of validSlugs) {
+            rawSlugs.add(slug);
+          }
           targetSlugs = kimovilDevices
             .map((d) => d.slug)
             .filter((s: string) => rawSlugs.has(s));
@@ -716,8 +717,6 @@ const createHandlers = (
           ),
         ),
       );
-
-      yield* htmlCache.saveRawHtml(externalId, html, "yandex_market");
 
       const offers = parseYandexPrices(html);
 

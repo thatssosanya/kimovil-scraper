@@ -167,15 +167,7 @@ const backgroundRefresh = (
         const page = yield* createPageScoped(browser);
         yield* deps.browserService.abortExtraResources(page);
         const { data, fullHtml } = yield* scrapePhoneData(page, slug);
-        yield* deps.htmlCache
-          .saveRawHtml(slug, fullHtml)
-          .pipe(
-            Effect.catchAll((error) =>
-              Effect.logWarning("Failed to save raw HTML").pipe(
-                Effect.annotateLogs({ service: "SWR", slug, error }),
-              ),
-            ),
-          );
+
         yield* deps.phoneDataService
           .saveRaw(slug, data as unknown as Record<string, unknown>)
           .pipe(
@@ -377,7 +369,7 @@ const scrapeWithCache = (
     });
 
     const cacheResult = yield* deps.htmlCache
-      .getRawHtmlWithAge(slug)
+      .getHtmlBySlugWithAge(slug, "kimovil", "specs")
       .pipe(
         Effect.catchAll((error) =>
           Effect.logWarning("Cache check failed").pipe(
@@ -398,7 +390,7 @@ const scrapeWithCache = (
     let data: RawPhoneData | undefined;
     let images: string[] | null = null;
 
-    if (useCache) {
+    if (useCache && cacheResult) {
       const ageDays = Math.floor(cacheResult.ageSeconds / 86400);
       emit({
         type: "progress",
@@ -536,16 +528,6 @@ const scrapeWithCache = (
             message: `Страница загружена за ${scrapeMs}ms — ${result.data.cameras.length} камер, ${result.data.skus.length} SKU`,
           });
 
-          yield* deps.htmlCache
-            .saveRawHtml(slug, result.fullHtml)
-            .pipe(
-              Effect.catchAll((error) =>
-                Effect.logWarning("Failed to cache HTML").pipe(
-                  Effect.annotateLogs({ slug, error }),
-                ),
-              ),
-            );
-
           return result;
         }),
       );
@@ -643,8 +625,9 @@ const scrapeFastImpl = (
         message: `[Fast] Начинаю скрейпинг: ${slug}`,
       });
 
-      const existingHtml = yield* deps.htmlCache
-        .getRawHtml(slug)
+      // Try new scrape-based lookup first
+      let existingHtml = yield* deps.htmlCache
+        .getHtmlBySlug(slug, "kimovil", "specs")
         .pipe(
           Effect.catchAll((error) =>
             Effect.logWarning("Cache read failed").pipe(
@@ -794,10 +777,6 @@ const scrapeFastImpl = (
                 ),
               );
           }
-          yield* deps.htmlCache
-            .saveRawHtml(slug, fullHtml)
-            .pipe(Effect.catchAll(() => Effect.void));
-
           yield* deps.phoneDataService
             .saveRaw(slug, data as unknown as Record<string, unknown>)
             .pipe(Effect.catchAll(() => Effect.void));

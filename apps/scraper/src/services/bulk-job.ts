@@ -243,7 +243,11 @@ export class BulkJobManager {
       phoneData: Services["phoneData"];
     }
   ): Promise<void> {
-    const html = await Effect.runPromise(services.htmlCache.getRawHtml(slug));
+    const html = await Effect.runPromise(
+      services.htmlCache.getHtmlBySlug(slug, "kimovil", "specs").pipe(
+        Effect.catchAll(() => Effect.succeed(null))
+      )
+    );
     if (!html) {
       throw new Error(`No cached HTML for slug: ${slug}`);
     }
@@ -339,7 +343,7 @@ export class BulkJobManager {
         await this.runProcessAi(item.externalId, services.phoneData);
       } else if (jobType === "clear_html") {
         const source = item.source ?? "kimovil";
-        await Effect.runPromise(services.htmlCache.deleteRawHtml(item.externalId, source));
+        await Effect.runPromise(services.jobQueue.clearScrapeData(source, item.externalId));
       } else if (jobType === "clear_raw") {
         await Effect.runPromise(services.phoneData.deleteRaw(item.externalId));
       } else if (jobType === "clear_processed") {

@@ -36,7 +36,9 @@ const processRawHandler = (ctx: PipelineContext) =>
       return;
     }
 
-    const html = yield* htmlCache.getRawHtml(ctx.externalId, "yandex_market");
+    const html = yield* htmlCache.getHtmlBySlug(ctx.externalId, "yandex_market", "prices").pipe(
+      Effect.catchAll(() => Effect.succeed(null))
+    );
     if (!html) {
       yield* Effect.logWarning("No HTML found for Yandex prices").pipe(
         Effect.annotateLogs({ externalId: ctx.externalId }),

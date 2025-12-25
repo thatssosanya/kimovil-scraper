@@ -522,15 +522,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* migrateDeviceSourcesRemoveUniqueConstraint(sql);
     yield* migrateJobQueueSlugToExternalId(sql);
 
-    yield* sql.unsafe(`
-      CREATE TABLE IF NOT EXISTS raw_html (
-        slug TEXT NOT NULL,
-        source TEXT NOT NULL DEFAULT 'kimovil',
-        html TEXT NOT NULL,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-        PRIMARY KEY (slug, source)
-      )
-    `);
+    yield* sql.unsafe(`DROP TABLE IF EXISTS raw_html`);
 
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS scrape_verification (
@@ -544,8 +536,6 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     `);
 
     yield* ensureColumn(sql, "scrape_verification", "source", "TEXT NOT NULL DEFAULT 'kimovil'");
-
-    yield* ensureColumn(sql, "raw_html", "source", "TEXT NOT NULL DEFAULT 'kimovil'");
 
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS job_queue (
@@ -667,7 +657,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* ensureColumn(sql, "job_queue", "source", "TEXT NOT NULL DEFAULT 'kimovil'");
     yield* ensureColumn(sql, "job_queue", "data_kind", "TEXT NOT NULL DEFAULT 'specs'");
     yield* ensureColumn(sql, "job_queue", "scrape_id", "INTEGER");
-    yield* ensureColumn(sql, "raw_html", "scrape_id", "INTEGER");
+    
     yield* ensureColumn(sql, "scrape_verification", "scrape_id", "INTEGER");
 
     // Canonical device registry

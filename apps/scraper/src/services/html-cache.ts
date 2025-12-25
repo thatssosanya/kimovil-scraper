@@ -1,11 +1,6 @@
 import { Effect, Layer, Context } from "effect";
 import { SqlClient } from "@effect/sql";
-
-export interface RawHtmlCacheHit {
-  html: string;
-  createdAt: number;
-  ageSeconds: number;
-}
+import { ScrapeRecordService } from "./scrape-record";
 
 export class HtmlCacheError extends Error {
   readonly _tag = "HtmlCacheError";
@@ -17,37 +12,6 @@ export class HtmlCacheError extends Error {
 }
 
 export interface HtmlCacheService {
-  readonly saveRawHtml: (
-    slug: string,
-    html: string,
-    source?: string,
-  ) => Effect.Effect<void, HtmlCacheError>;
-
-  readonly getRawHtml: (
-    slug: string,
-    source?: string,
-  ) => Effect.Effect<string | null, HtmlCacheError>;
-
-  readonly getRawHtmlIfFresh: (
-    slug: string,
-    maxAgeSeconds: number,
-    source?: string,
-  ) => Effect.Effect<RawHtmlCacheHit | null, HtmlCacheError>;
-
-  readonly getRawHtmlWithAge: (
-    slug: string,
-    source?: string,
-  ) => Effect.Effect<RawHtmlCacheHit | null, HtmlCacheError>;
-
-  readonly hasScrapedHtml: (
-    slug: string,
-    source?: string,
-  ) => Effect.Effect<boolean, HtmlCacheError>;
-
-  readonly getScrapedSlugs: (
-    source?: string,
-  ) => Effect.Effect<string[], HtmlCacheError>;
-
   readonly recordVerification: (
     slug: string,
     isCorrupted: boolean,
@@ -73,9 +37,8 @@ export interface HtmlCacheService {
 
   readonly getCorruptedSlugs: (source?: string) => Effect.Effect<string[], HtmlCacheError>;
   readonly getValidSlugs: (source?: string) => Effect.Effect<string[], HtmlCacheError>;
-  readonly deleteRawHtml: (slug: string, source?: string) => Effect.Effect<boolean, HtmlCacheError>;
 
-  // New scrape_id-based methods for multi-source architecture
+  // scrape_id-based methods for multi-source architecture
   readonly saveHtmlByScrapeId: (
     scrapeId: number,
     html: string,
@@ -88,6 +51,32 @@ export interface HtmlCacheService {
   readonly deleteHtmlByScrapeId: (
     scrapeId: number,
   ) => Effect.Effect<void, HtmlCacheError>;
+
+  // Slug-based lookup helpers (use scrapes + scrape_html internally)
+  readonly getHtmlBySlug: (
+    slug: string,
+    source: string,
+    dataKind: string,
+  ) => Effect.Effect<string | null, HtmlCacheError>;
+
+  readonly getHtmlBySlugWithAge: (
+    slug: string,
+    source: string,
+    dataKind: string,
+  ) => Effect.Effect<{ html: string; createdAt: number; ageSeconds: number } | null, HtmlCacheError>;
+
+  readonly getHtmlBySlugIfFresh: (
+    slug: string,
+    source: string,
+    dataKind: string,
+    maxAgeSeconds: number,
+  ) => Effect.Effect<string | null, HtmlCacheError>;
+
+  readonly hasHtmlForSlug: (
+    slug: string,
+    source: string,
+    dataKind: string,
+  ) => Effect.Effect<boolean, HtmlCacheError>;
 }
 
 export const HtmlCacheService =
@@ -105,77 +94,9 @@ export const HtmlCacheServiceLive = Layer.effect(
   HtmlCacheService,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const scrapeRecord = yield* ScrapeRecordService;
 
     return HtmlCacheService.of({
-      saveRawHtml: (slug: string, html: string, source = "kimovil") =>
-        wrapError(
-          sql`
-            INSERT OR REPLACE INTO raw_html (slug, source, html, created_at)
-            VALUES (${slug}, ${source}, ${html}, unixepoch())
-          `.pipe(
-            Effect.tap(() =>
-              Effect.logDebug(`[HtmlCache] Saved raw HTML for slug: ${slug} (source: ${source})`)
-            ),
-            Effect.asVoid,
-          ),
-        ),
-
-      getRawHtml: (slug: string, source = "kimovil") =>
-        wrapError(
-          sql<{ html: string }>`
-            SELECT html FROM raw_html WHERE slug = ${slug} AND source = ${source}
-          `.pipe(
-            Effect.map((rows) => rows[0]?.html ?? null),
-          ),
-        ),
-
-      getRawHtmlIfFresh: (slug: string, maxAgeSeconds: number, source = "kimovil") =>
-        wrapError(
-          Effect.gen(function* () {
-            const now = Math.floor(Date.now() / 1000);
-            const rows = yield* sql<{ html: string; created_at: number }>`
-              SELECT html, created_at FROM raw_html WHERE slug = ${slug} AND source = ${source}
-            `;
-            const row = rows[0];
-            if (!row) return null;
-            const ageSeconds = now - row.created_at;
-            if (ageSeconds > maxAgeSeconds) return null;
-            return { html: row.html, createdAt: row.created_at, ageSeconds };
-          }),
-        ),
-
-      getRawHtmlWithAge: (slug: string, source = "kimovil") =>
-        wrapError(
-          Effect.gen(function* () {
-            const now = Math.floor(Date.now() / 1000);
-            const rows = yield* sql<{ html: string; created_at: number }>`
-              SELECT html, created_at FROM raw_html WHERE slug = ${slug} AND source = ${source}
-            `;
-            const row = rows[0];
-            if (!row) return null;
-            const ageSeconds = now - row.created_at;
-            return { html: row.html, createdAt: row.created_at, ageSeconds };
-          }),
-        ),
-
-      hasScrapedHtml: (slug: string, source = "kimovil") =>
-        wrapError(
-          sql<{ count: number }>`
-            SELECT COUNT(*) as count FROM raw_html WHERE slug = ${slug} AND source = ${source}
-          `.pipe(
-            Effect.map((rows) => (rows[0]?.count ?? 0) > 0),
-          ),
-        ),
-
-      getScrapedSlugs: (source = "kimovil") =>
-        wrapError(
-          sql<{ slug: string }>`
-            SELECT slug FROM raw_html WHERE source = ${source}
-          `.pipe(
-            Effect.map((rows) => rows.map((r) => r.slug)),
-          ),
-        ),
-
       recordVerification: (slug: string, isCorrupted: boolean, reason: string | null, source = "kimovil") =>
         wrapError(
           sql`
@@ -189,57 +110,72 @@ export const HtmlCacheServiceLive = Layer.effect(
         ),
 
       verifyHtml: (slug: string, source = "kimovil") =>
-        wrapError(
-          Effect.gen(function* () {
-            const rows = yield* sql<{ html: string }>`
-              SELECT html FROM raw_html WHERE slug = ${slug} AND source = ${source}
-            `;
-
-            if (!rows[0]?.html) {
-              // No HTML found - record as missing and return null for isCorrupted
-              yield* sql`
-                INSERT INTO scrape_verification (slug, source, is_corrupted, verified_at, corruption_reason)
-                VALUES (${slug}, ${source}, 0, unixepoch(), 'No HTML found')
-                ON CONFLICT(slug, source) DO UPDATE SET
-                  is_corrupted = 0,
-                  verified_at = excluded.verified_at,
-                  corruption_reason = 'No HTML found'
-              `;
-              return { isCorrupted: null, reason: "No HTML found" };
-            }
-
-            const html = rows[0].html;
-            let reason: string | null = null;
-
-            if (html.includes("Enable JavaScript and cookies to continue")) {
-              reason = "Bot protection: JavaScript/cookies required";
-            } else if (html.includes("Please verify you are a human")) {
-              reason = "Bot protection: Human verification required";
-            } else if (html.includes("Access denied")) {
-              reason = "Bot protection: Access denied";
-            } else if (!html.includes("<main")) {
-              reason = "Missing main content element";
-            } else if (
-              !html.includes("k-dltable") &&
-              !html.includes("container-sheet")
-            ) {
-              reason = "Missing expected content structure";
-            }
-
-            const isCorrupted = reason !== null;
-
+        Effect.gen(function* () {
+          const scrape = yield* scrapeRecord.getLatestScrape(source, slug, "specs");
+          if (!scrape) {
             yield* sql`
               INSERT INTO scrape_verification (slug, source, is_corrupted, verified_at, corruption_reason)
-              VALUES (${slug}, ${source}, ${isCorrupted ? 1 : 0}, unixepoch(), ${reason})
+              VALUES (${slug}, ${source}, 0, unixepoch(), 'No HTML found')
               ON CONFLICT(slug, source) DO UPDATE SET
-                is_corrupted = excluded.is_corrupted,
+                is_corrupted = 0,
                 verified_at = excluded.verified_at,
-                corruption_reason = excluded.corruption_reason
+                corruption_reason = 'No HTML found'
             `;
+            return { isCorrupted: null, reason: "No HTML found" };
+          }
 
-            return { isCorrupted, reason };
-          }),
-        ),
+          const rows = yield* sql<{ html: string }>`
+            SELECT html FROM scrape_html WHERE scrape_id = ${scrape.id}
+          `;
+
+          if (!rows[0]?.html) {
+            yield* sql`
+              INSERT INTO scrape_verification (slug, source, is_corrupted, verified_at, corruption_reason)
+              VALUES (${slug}, ${source}, 0, unixepoch(), 'No HTML found')
+              ON CONFLICT(slug, source) DO UPDATE SET
+                is_corrupted = 0,
+                verified_at = excluded.verified_at,
+                corruption_reason = 'No HTML found'
+            `;
+            return { isCorrupted: null, reason: "No HTML found" };
+          }
+
+          const html = rows[0].html;
+          let reason: string | null = null;
+
+          if (html.includes("Enable JavaScript and cookies to continue")) {
+            reason = "Bot protection: JavaScript/cookies required";
+          } else if (html.includes("Please verify you are a human")) {
+            reason = "Bot protection: Human verification required";
+          } else if (html.includes("Access denied")) {
+            reason = "Bot protection: Access denied";
+          } else if (!html.includes("<main")) {
+            reason = "Missing main content element";
+          } else if (
+            !html.includes("k-dltable") &&
+            !html.includes("container-sheet")
+          ) {
+            reason = "Missing expected content structure";
+          }
+
+          const isCorrupted = reason !== null;
+
+          yield* sql`
+            INSERT INTO scrape_verification (slug, source, is_corrupted, verified_at, corruption_reason)
+            VALUES (${slug}, ${source}, ${isCorrupted ? 1 : 0}, unixepoch(), ${reason})
+            ON CONFLICT(slug, source) DO UPDATE SET
+              is_corrupted = excluded.is_corrupted,
+              verified_at = excluded.verified_at,
+              corruption_reason = excluded.corruption_reason
+          `;
+
+          return { isCorrupted, reason };
+        }).pipe(Effect.mapError((e) =>
+          new HtmlCacheError(
+            e instanceof Error ? e.message : String(e),
+            e instanceof Error ? { cause: e } : undefined,
+          )
+        )),
 
       getVerificationStatus: (slug: string, source = "kimovil") =>
         wrapError(
@@ -275,20 +211,7 @@ export const HtmlCacheServiceLive = Layer.effect(
           ),
         ),
 
-      deleteRawHtml: (slug: string, source = "kimovil") =>
-        wrapError(
-          Effect.gen(function* () {
-            yield* sql`DELETE FROM raw_html WHERE slug = ${slug} AND source = ${source}`;
-            const htmlRows = yield* sql<{ count: number }>`SELECT changes() as count`;
-            const htmlDeleted = (htmlRows[0]?.count ?? 0) > 0;
-            yield* sql`DELETE FROM scrape_verification WHERE slug = ${slug} AND source = ${source}`;
-            const verifyRows = yield* sql<{ count: number }>`SELECT changes() as count`;
-            const verifyDeleted = (verifyRows[0]?.count ?? 0) > 0;
-            return htmlDeleted || verifyDeleted;
-          }),
-        ),
-
-      // New scrape_id-based methods
+      // scrape_id-based methods
       saveHtmlByScrapeId: (scrapeId: number, html: string) =>
         wrapError(
           sql`
@@ -311,6 +234,72 @@ export const HtmlCacheServiceLive = Layer.effect(
             DELETE FROM scrape_html WHERE scrape_id = ${scrapeId}
           `.pipe(Effect.asVoid),
         ),
+
+      // Slug-based lookup helpers
+      getHtmlBySlug: (slug: string, source: string, dataKind: string) =>
+        Effect.gen(function* () {
+          const scrape = yield* scrapeRecord.getLatestScrape(source, slug, dataKind);
+          if (!scrape) return null;
+          const rows = yield* sql<{ html: string }>`
+            SELECT html FROM scrape_html WHERE scrape_id = ${scrape.id}
+          `;
+          return rows[0]?.html ?? null;
+        }).pipe(Effect.mapError((e) =>
+          new HtmlCacheError(
+            e instanceof Error ? e.message : String(e),
+            e instanceof Error ? { cause: e } : undefined,
+          )
+        )),
+
+      getHtmlBySlugWithAge: (slug: string, source: string, dataKind: string) =>
+        Effect.gen(function* () {
+          const scrape = yield* scrapeRecord.getLatestScrape(source, slug, dataKind);
+          if (!scrape || !scrape.completedAt) return null;
+          const rows = yield* sql<{ html: string }>`
+            SELECT html FROM scrape_html WHERE scrape_id = ${scrape.id}
+          `;
+          const html = rows[0]?.html;
+          if (!html) return null;
+          const ageSeconds = Math.floor(Date.now() / 1000 - scrape.completedAt);
+          return { html, createdAt: scrape.completedAt, ageSeconds };
+        }).pipe(Effect.mapError((e) =>
+          new HtmlCacheError(
+            e instanceof Error ? e.message : String(e),
+            e instanceof Error ? { cause: e } : undefined,
+          )
+        )),
+
+      getHtmlBySlugIfFresh: (slug: string, source: string, dataKind: string, maxAgeSeconds: number) =>
+        Effect.gen(function* () {
+          const scrape = yield* scrapeRecord.getLatestScrape(source, slug, dataKind);
+          if (!scrape || !scrape.completedAt) return null;
+          const ageSeconds = Math.floor(Date.now() / 1000 - scrape.completedAt);
+          if (ageSeconds > maxAgeSeconds) return null;
+          const rows = yield* sql<{ html: string }>`
+            SELECT html FROM scrape_html WHERE scrape_id = ${scrape.id}
+          `;
+          return rows[0]?.html ?? null;
+        }).pipe(Effect.mapError((e) =>
+          new HtmlCacheError(
+            e instanceof Error ? e.message : String(e),
+            e instanceof Error ? { cause: e } : undefined,
+          )
+        )),
+
+      hasHtmlForSlug: (slug: string, source: string, dataKind: string) =>
+        Effect.gen(function* () {
+          const scrape = yield* scrapeRecord.getLatestScrape(source, slug, dataKind);
+          if (!scrape) return false;
+          const rows = yield* sql<{ count: number }>`
+            SELECT COUNT(*) as count FROM scrape_html WHERE scrape_id = ${scrape.id}
+          `;
+          return (rows[0]?.count ?? 0) > 0;
+        }).pipe(Effect.mapError((e) =>
+          new HtmlCacheError(
+            e instanceof Error ? e.message : String(e),
+            e instanceof Error ? { cause: e } : undefined,
+          )
+        )),
     });
   }),
 );

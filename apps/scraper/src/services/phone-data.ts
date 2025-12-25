@@ -250,9 +250,17 @@ export const PhoneDataServiceLive = Layer.effect(
 
       getSlugsNeedingExtraction: () =>
         sql`
-          SELECT r.slug FROM raw_html r
-          LEFT JOIN phone_data_raw p ON r.slug = p.slug
-          WHERE p.slug IS NULL
+          SELECT DISTINCT s.external_id as slug 
+          FROM scrapes s
+          JOIN scrape_html sh ON s.id = sh.scrape_id
+          LEFT JOIN entity_data_raw edr ON edr.device_id = (
+            SELECT ds.device_id FROM device_sources ds 
+            WHERE ds.source = s.source AND ds.external_id = s.external_id
+          ) AND edr.source = s.source AND edr.data_kind = s.data_kind
+          WHERE s.source = 'kimovil' 
+            AND s.data_kind = 'specs'
+            AND s.status = 'done'
+            AND edr.id IS NULL
         `.pipe(
           Effect.map((rows) => rows.map((r) => (r as { slug: string }).slug)),
           Effect.mapError(mapError),

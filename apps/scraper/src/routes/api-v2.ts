@@ -33,11 +33,10 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
         const entityData = yield* EntityDataService;
 
         const devices = yield* deviceRegistry.getAllDevices();
-        const scrapedSlugs = yield* htmlCache.getScrapedSlugs(source);
         const corruptedSlugs = yield* htmlCache.getCorruptedSlugs(source);
         const validSlugs = yield* htmlCache.getValidSlugs(source);
 
-        const scrapedSet = new Set(scrapedSlugs);
+        const scrapedSet = new Set([...corruptedSlugs, ...validSlugs]);
         const corruptedSet = new Set(corruptedSlugs);
         const validSet = new Set(validSlugs);
 
@@ -83,7 +82,7 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
           stats: {
             corrupted: corruptedSlugs.length,
             valid: validSlugs.length,
-            scraped: scrapedSlugs.length,
+            scraped: scrapedSet.size,
             rawData: rawDataDeviceIds.size,
             aiData: aiDataDeviceIds.size,
           },
@@ -105,7 +104,9 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
 
       const program = Effect.gen(function* () {
         const htmlCache = yield* HtmlCacheService;
-        const html = yield* htmlCache.getRawHtml(slug, source);
+        const html = yield* htmlCache.getHtmlBySlug(slug, source, "specs").pipe(
+          Effect.catchAll(() => Effect.succeed(null))
+        );
         return { slug, source, html };
       });
 
@@ -120,9 +121,9 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
       const { slug, source } = params;
 
       const program = Effect.gen(function* () {
-        const htmlCache = yield* HtmlCacheService;
-        const deleted = yield* htmlCache.deleteRawHtml(slug, source);
-        return { success: true, slug, source, deleted };
+        const jobQueue = yield* JobQueueService;
+        yield* jobQueue.clearScrapeData(source, slug);
+        return { success: true, slug, source };
       });
 
       return LiveRuntime.runPromise(program);
@@ -252,7 +253,7 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
         const sql = yield* SqlClient.SqlClient;
 
         for (const slug of slugs) {
-          const hasHtml = yield* htmlCache.hasScrapedHtml(slug, source).pipe(
+          const hasHtml = yield* htmlCache.hasHtmlForSlug(slug, source, "specs").pipe(
             Effect.catchAll(() => Effect.succeed(false)),
           );
           const hasRawData = yield* phoneData.hasRaw(slug).pipe(

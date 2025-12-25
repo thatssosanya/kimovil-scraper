@@ -150,8 +150,11 @@ export const ScrapeRecordServiceLive = Layer.effect(
       getLatestScrape: (source: string, externalId: string, dataKind: string) =>
         sql<ScrapeRow>`
           SELECT * FROM scrapes
-          WHERE source = ${source} AND external_id = ${externalId} AND data_kind = ${dataKind}
-          ORDER BY requested_at DESC
+          WHERE source = ${source}
+            AND external_id = ${externalId}
+            AND data_kind = ${dataKind}
+            AND status = 'done'
+          ORDER BY completed_at DESC
           LIMIT 1
         `.pipe(
           Effect.map((rows) => (rows[0] ? mapScrapeRow(rows[0]) : null)),

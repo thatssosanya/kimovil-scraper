@@ -6,7 +6,7 @@ import {
 
 const scrapeHandler = (_ctx: PipelineContext) =>
   Effect.gen(function* () {
-    // This stage fetches HTML and saves to raw_html
+    // This stage fetches HTML and saves to scrape_html
     // The existing ScrapeService.scrapeFast handles this
     // For now, just mark that this stage exists - actual integration
     // will use existing scrape-kimovil code
