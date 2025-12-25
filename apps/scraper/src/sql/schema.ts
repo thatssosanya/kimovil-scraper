@@ -5,7 +5,7 @@ import { createHash } from "crypto";
 const tableExists = (
   sql: SqlClient.SqlClient,
   table: string,
-): Effect.Effect<boolean, SqlError.SqlError> =>
+)=>
   sql`SELECT name FROM sqlite_master WHERE type='table' AND name=${table}`.pipe(
     Effect.map((rows) => rows.length > 0),
   );
@@ -15,45 +15,37 @@ const ensureColumn = (
   table: string,
   column: string,
   definition: string,
-): Effect.Effect<void, SqlError.SqlError> =>
-  sql.unsafe(`PRAGMA table_info(${table})`).pipe(
-    Effect.map((columns) =>
-      (columns as Array<{ name: string }>).some((c) => c.name === column),
-    ),
-    Effect.flatMap((hasColumn) =>
-      hasColumn
-        ? Effect.void
-        : sql.unsafe(
-            `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`,
-          ),
-    ),
-    Effect.asVoid,
-  );
+)=>
+  Effect.gen(function* () {
+    const columns = (yield* sql.unsafe(
+      `PRAGMA table_info(${table})`,
+    )) as Array<{ name: string }>;
+
+    const hasColumn = columns.some((c) => c.name === column);
+    if (hasColumn) return;
+
+    yield* sql.unsafe(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }).pipe(Effect.asVoid, Effect.mapError((e) => e as SqlError.SqlError));
 
 const migrateTableRename = (
   sql: SqlClient.SqlClient,
   oldName: string,
   newName: string,
-): Effect.Effect<void, SqlError.SqlError> =>
-  Effect.all([tableExists(sql, oldName), tableExists(sql, newName)]).pipe(
-    Effect.flatMap(([oldExists, newExists]) =>
-      oldExists && !newExists
-        ? sql
-            .unsafe(`ALTER TABLE ${oldName} RENAME TO ${newName}`)
-            .pipe(
-              Effect.tap(() =>
-                Effect.logInfo(`Migrated table ${oldName} → ${newName}`),
-              ),
-            )
-        : Effect.void,
-    ),
-    Effect.asVoid,
-  );
+)=>
+  Effect.gen(function* () {
+    const oldExists = yield* tableExists(sql, oldName);
+    const newExists = yield* tableExists(sql, newName);
+
+    if (oldExists && !newExists) {
+      yield* sql.unsafe(`ALTER TABLE ${oldName} RENAME TO ${newName}`);
+      yield* Effect.logInfo(`Migrated table ${oldName} → ${newName}`);
+    }
+  }).pipe(Effect.asVoid, Effect.mapError((e) => e as SqlError.SqlError));
 
 const getRowCount = (
   sql: SqlClient.SqlClient,
   table: string,
-): Effect.Effect<number, SqlError.SqlError> =>
+)=>
   tableExists(sql, table).pipe(
     Effect.flatMap((exists) =>
       exists
@@ -90,19 +82,75 @@ const migrateJobsData = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError
                 )
             : Effect.void,
           oldQueueCount > 0 && newQueueCount === 0
-            ? sql
-                .unsafe(
-                  `INSERT INTO job_queue (id, slug, job_id, job_type, mode, status, attempt, max_attempts, next_attempt_at, created_at, updated_at, started_at, completed_at, error_message, last_error_code)
-             SELECT id, slug, job_id, 'scrape', mode, status, attempt, max_attempts, next_attempt_at, created_at, updated_at, started_at, completed_at, error_message, last_error_code
-             FROM scrape_queue`,
-                )
-                .pipe(
-                  Effect.tap(() =>
-                    Effect.logInfo(
-                      `Migrated ${oldQueueCount} rows from scrape_queue → job_queue`,
-                    ),
-                  ),
-                )
+            ? Effect.gen(function* () {
+                // We need to populate job_queue.device_id. The legacy scrape_queue has only slug,
+                // so we deterministically derive device_id from the slug (same logic as the registry).
+                const legacyRows = (yield* sql.unsafe(
+                  `SELECT id, slug, job_id, mode, status, attempt, max_attempts, next_attempt_at, created_at, updated_at, started_at, completed_at, error_message, last_error_code
+                   FROM scrape_queue`,
+                )) as Array<{
+                  id: number;
+                  slug: string;
+                  job_id: string | null;
+                  mode: string;
+                  status: string;
+                  attempt: number;
+                  max_attempts: number;
+                  next_attempt_at: number | null;
+                  created_at: number;
+                  updated_at: number;
+                  started_at: number | null;
+                  completed_at: number | null;
+                  error_message: string | null;
+                  last_error_code: string | null;
+                }>;
+
+                for (const row of legacyRows) {
+                  const deviceId = generateDeviceId(row.slug);
+                  yield* sql`
+                    INSERT INTO job_queue (
+                      id,
+                      external_id,
+                      device_id,
+                      job_id,
+                      job_type,
+                      mode,
+                      status,
+                      attempt,
+                      max_attempts,
+                      next_attempt_at,
+                      created_at,
+                      updated_at,
+                      started_at,
+                      completed_at,
+                      error_message,
+                      last_error_code
+                    )
+                    VALUES (
+                      ${row.id},
+                      ${row.slug},
+                      ${deviceId},
+                      ${row.job_id},
+                      'scrape',
+                      ${row.mode as any},
+                      ${row.status as any},
+                      ${row.attempt},
+                      ${row.max_attempts},
+                      ${row.next_attempt_at},
+                      ${row.created_at},
+                      ${row.updated_at},
+                      ${row.started_at},
+                      ${row.completed_at},
+                      ${row.error_message},
+                      ${row.last_error_code}
+                    )
+                  `;
+                }
+
+                yield* Effect.logInfo(
+                  `Migrated ${oldQueueCount} rows from scrape_queue → job_queue`,
+                );
+              })
             : Effect.void,
         ]),
     ),
@@ -131,6 +179,94 @@ interface KimovilDeviceRow {
   first_seen: number;
   last_seen: number;
 }
+
+interface PhoneDataRow {
+  slug: string;
+  data: string;
+  created_at: number;
+  updated_at: number;
+}
+
+const migratePhoneDataToEntityData = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    const entityRawCount = yield* getRowCount(sql, "entity_data_raw");
+    const entityFinalCount = yield* getRowCount(sql, "entity_data");
+    const phoneRawCount = yield* getRowCount(sql, "phone_data_raw");
+    const phoneFinalCount = yield* getRowCount(sql, "phone_data");
+
+    // Skip if phone tables are empty (nothing to migrate)
+    if (phoneRawCount === 0 && phoneFinalCount === 0) {
+      return;
+    }
+
+    // Migrate phone_data_raw → entity_data_raw (if phone has more data)
+    if (phoneRawCount > entityRawCount) {
+      yield* Effect.logInfo(
+        `Migrating ${phoneRawCount} rows from phone_data_raw → entity_data_raw`,
+      );
+
+      const phoneRawRows = (yield* sql.unsafe(
+        `SELECT p.slug, p.data, p.created_at, p.updated_at
+         FROM phone_data_raw p
+         JOIN devices d ON d.slug = p.slug`,
+      )) as PhoneDataRow[];
+
+      let migrated = 0;
+      for (const row of phoneRawRows) {
+        yield* sql.unsafe(
+          `INSERT OR IGNORE INTO entity_data_raw (device_id, source, data_kind, data, created_at, updated_at)
+           SELECT d.id, 'kimovil', 'specs', ?, ?, ?
+           FROM devices d WHERE d.slug = ?`,
+          [row.data, row.created_at, row.updated_at, row.slug],
+        );
+        migrated++;
+        if (migrated % 1000 === 0) {
+          yield* Effect.logInfo(
+            `Migrated ${migrated}/${phoneRawCount} phone_data_raw rows`,
+          );
+        }
+      }
+
+      yield* Effect.logInfo(
+        `Completed migration: ${migrated} rows from phone_data_raw → entity_data_raw`,
+      );
+    }
+
+    // Migrate phone_data → entity_data (if phone has more data)
+    if (phoneFinalCount > entityFinalCount) {
+      yield* Effect.logInfo(
+        `Migrating ${phoneFinalCount} rows from phone_data → entity_data`,
+      );
+
+      const phoneFinalRows = (yield* sql.unsafe(
+        `SELECT p.slug, p.data, p.created_at, p.updated_at
+         FROM phone_data p
+         JOIN devices d ON d.slug = p.slug`,
+      )) as PhoneDataRow[];
+
+      let migrated = 0;
+      for (const row of phoneFinalRows) {
+        yield* sql.unsafe(
+          `INSERT OR IGNORE INTO entity_data (device_id, data_kind, data, created_at, updated_at)
+           SELECT d.id, 'specs', ?, ?, ?
+           FROM devices d WHERE d.slug = ?`,
+          [row.data, row.created_at, row.updated_at, row.slug],
+        );
+        migrated++;
+        if (migrated % 500 === 0) {
+          yield* Effect.logInfo(
+            `Migrated ${migrated}/${phoneFinalCount} phone_data rows`,
+          );
+        }
+      }
+
+      yield* Effect.logInfo(
+        `Completed migration: ${migrated} rows from phone_data → entity_data`,
+      );
+    }
+  });
 
 const migrateKimovilDevices = (
   sql: SqlClient.SqlClient,
@@ -272,6 +408,91 @@ const migrateDeviceSourcesRemoveUniqueConstraint = (
     );
   });
 
+const columnExists = (
+  sql: SqlClient.SqlClient,
+  table: string,
+  column: string,
+): Effect.Effect<boolean, SqlError.SqlError> =>
+  sql.unsafe(`PRAGMA table_info(${table})`).pipe(
+    Effect.map((columns) =>
+      (columns as Array<{ name: string }>).some((c) => c.name === column),
+    ),
+  );
+
+const migrateJobQueueSlugToExternalId = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    const hasSlug = yield* columnExists(sql, "job_queue", "slug");
+    const hasExternalId = yield* columnExists(sql, "job_queue", "external_id");
+
+    if (hasSlug && !hasExternalId) {
+      yield* sql.unsafe(`ALTER TABLE job_queue RENAME COLUMN slug TO external_id`);
+      yield* Effect.logInfo("Migrated job_queue: renamed slug → external_id");
+    }
+
+    yield* ensureColumn(sql, "job_queue", "device_id", "TEXT");
+
+    yield* sql.unsafe(`DROP INDEX IF EXISTS idx_job_queue_slug`);
+    yield* sql.unsafe(`DROP INDEX IF EXISTS idx_job_queue_job_slug`);
+  });
+
+const backfillJobQueueDeviceId = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    const missing = (yield* sql.unsafe(`
+      SELECT DISTINCT external_id, source
+      FROM job_queue
+      WHERE device_id IS NULL OR device_id = ''
+    `)) as Array<{ external_id: string; source: string | null }>;
+
+    if (missing.length === 0) return;
+
+    for (const row of missing) {
+      const externalId = row.external_id;
+      const source = row.source ?? "kimovil";
+
+      const resolved = yield* sql<{ device_id: string }>`
+        SELECT device_id FROM device_sources
+        WHERE source = ${source} AND external_id = ${externalId}
+        LIMIT 1
+      `;
+
+      let deviceId = resolved[0]?.device_id;
+      if (!deviceId) {
+        const canonicalSlug =
+          source === "kimovil" ? externalId : `${source}:${externalId}`;
+        deviceId = generateDeviceId(canonicalSlug);
+
+        yield* sql`
+          INSERT OR IGNORE INTO devices (id, slug, name, brand, created_at, updated_at)
+          VALUES (${deviceId}, ${canonicalSlug}, ${canonicalSlug}, NULL, unixepoch(), unixepoch())
+        `;
+
+        yield* sql`
+          INSERT INTO device_sources (device_id, source, external_id, url, status, first_seen, last_seen)
+          VALUES (${deviceId}, ${source}, ${externalId}, NULL, 'active', unixepoch(), unixepoch())
+          ON CONFLICT(source, external_id) DO UPDATE SET
+            device_id = excluded.device_id,
+            status = 'active',
+            last_seen = unixepoch()
+        `;
+      }
+
+      yield* sql`
+        UPDATE job_queue
+        SET device_id = ${deviceId}
+        WHERE source = ${source} AND external_id = ${externalId}
+          AND (device_id IS NULL OR device_id = '')
+      `;
+    }
+
+    yield* Effect.logInfo("Backfilled job_queue.device_id for legacy rows").pipe(
+      Effect.annotateLogs({ count: missing.length }),
+    );
+  });
+
 const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlError> =>
   Effect.gen(function* () {
     // PRAGMA settings are run once at schema init. WAL mode persists in the database file
@@ -284,6 +505,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
 
     yield* migrateJobsStatusConstraint(sql);
     yield* migrateDeviceSourcesRemoveUniqueConstraint(sql);
+    yield* migrateJobQueueSlugToExternalId(sql);
 
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS raw_html (
@@ -313,7 +535,8 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS job_queue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        slug TEXT NOT NULL,
+        external_id TEXT NOT NULL,
+        device_id TEXT NOT NULL REFERENCES devices(id),
         job_id TEXT,
         job_type TEXT NOT NULL DEFAULT 'scrape' CHECK (job_type IN ('scrape', 'process_raw', 'process_ai', 'clear_html', 'clear_raw', 'clear_processed')),
         mode TEXT NOT NULL CHECK (mode IN ('fast', 'complex')),
@@ -364,10 +587,11 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* ensureColumn(sql, "jobs", "batch_status", "TEXT");
 
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_status ON job_queue(status)`);
-    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_slug ON job_queue(slug)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_external_id ON job_queue(external_id)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_device_id ON job_queue(device_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_job_id ON job_queue(job_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_next_attempt ON job_queue(next_attempt_at)`);
-    yield* sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS idx_job_queue_job_slug ON job_queue(job_id, slug)`);
+    yield* sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS idx_job_queue_job_source_target ON job_queue(job_id, source, external_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_job_type ON job_queue(job_type)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_jobs_job_type ON jobs(job_type)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_jobs_batch_request ON jobs(batch_request_id)`);
@@ -488,6 +712,15 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
       )
     `);
 
+    // HTML artifacts keyed by scrape_id
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS scrape_html (
+        scrape_id INTEGER PRIMARY KEY REFERENCES scrapes(id),
+        html TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )
+    `);
+
     // Source-specific extracted data
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS entity_data_raw (
@@ -561,6 +794,10 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_sources_device ON device_sources(device_id)`);
 
     yield* sql.withTransaction(migrateKimovilDevices(sql));
+    yield* sql.withTransaction(backfillJobQueueDeviceId(sql));
+
+    // Migrate legacy phone_data_* tables to entity_data_* tables
+    yield* sql.withTransaction(migratePhoneDataToEntityData(sql));
 
     // Job schedules for recurring cron jobs
     yield* sql.unsafe(`

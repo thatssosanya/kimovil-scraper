@@ -81,7 +81,7 @@ export class StreamEvent extends Schema.Class<StreamEvent>("StreamEvent")({
           Schema.Struct({
             count: Schema.Number,
             nextRetryAt: Schema.NullOr(Schema.Number),
-            nextRetrySlug: Schema.NullOr(Schema.String),
+            nextRetryExternalId: Schema.NullOr(Schema.String),
           }),
         ),
       }),
@@ -107,7 +107,7 @@ export class StreamEvent extends Schema.Class<StreamEvent>("StreamEvent")({
           Schema.Struct({
             count: Schema.Number,
             nextRetryAt: Schema.NullOr(Schema.Number),
-            nextRetrySlug: Schema.NullOr(Schema.String),
+            nextRetryExternalId: Schema.NullOr(Schema.String),
           }),
         ),
       }),
@@ -132,7 +132,7 @@ export class StreamEvent extends Schema.Class<StreamEvent>("StreamEvent")({
             Schema.Struct({
               count: Schema.Number,
               nextRetryAt: Schema.NullOr(Schema.Number),
-              nextRetrySlug: Schema.NullOr(Schema.String),
+              nextRetryExternalId: Schema.NullOr(Schema.String),
             }),
           ),
         }),
@@ -305,7 +305,7 @@ export class BulkTimeoutStats extends Schema.Class<BulkTimeoutStats>(
 )({
   count: Schema.Number,
   nextRetryAt: Schema.NullOr(Schema.Number),
-  nextRetrySlug: Schema.NullOr(Schema.String),
+  nextRetryExternalId: Schema.NullOr(Schema.String),
 }) {}
 
 export class BulkJobStats extends Schema.Class<BulkJobStats>("BulkJobStats")({

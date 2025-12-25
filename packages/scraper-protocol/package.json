@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
+    "check-types": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {

@@ -74,6 +74,20 @@ export interface HtmlCacheService {
   readonly getCorruptedSlugs: (source?: string) => Effect.Effect<string[], HtmlCacheError>;
   readonly getValidSlugs: (source?: string) => Effect.Effect<string[], HtmlCacheError>;
   readonly deleteRawHtml: (slug: string, source?: string) => Effect.Effect<boolean, HtmlCacheError>;
+
+  // New scrape_id-based methods for multi-source architecture
+  readonly saveHtmlByScrapeId: (
+    scrapeId: number,
+    html: string,
+  ) => Effect.Effect<void, HtmlCacheError>;
+
+  readonly getHtmlByScrapeId: (
+    scrapeId: number,
+  ) => Effect.Effect<string | null, HtmlCacheError>;
+
+  readonly deleteHtmlByScrapeId: (
+    scrapeId: number,
+  ) => Effect.Effect<void, HtmlCacheError>;
 }
 
 export const HtmlCacheService =
@@ -272,6 +286,30 @@ export const HtmlCacheServiceLive = Layer.effect(
             const verifyDeleted = (verifyRows[0]?.count ?? 0) > 0;
             return htmlDeleted || verifyDeleted;
           }),
+        ),
+
+      // New scrape_id-based methods
+      saveHtmlByScrapeId: (scrapeId: number, html: string) =>
+        wrapError(
+          sql`
+            INSERT INTO scrape_html (scrape_id, html, created_at)
+            VALUES (${scrapeId}, ${html}, unixepoch())
+            ON CONFLICT(scrape_id) DO UPDATE SET html = excluded.html
+          `.pipe(Effect.asVoid),
+        ),
+
+      getHtmlByScrapeId: (scrapeId: number) =>
+        wrapError(
+          sql<{ html: string }>`
+            SELECT html FROM scrape_html WHERE scrape_id = ${scrapeId}
+          `.pipe(Effect.map((rows) => rows[0]?.html ?? null)),
+        ),
+
+      deleteHtmlByScrapeId: (scrapeId: number) =>
+        wrapError(
+          sql`
+            DELETE FROM scrape_html WHERE scrape_id = ${scrapeId}
+          `.pipe(Effect.asVoid),
         ),
     });
   }),

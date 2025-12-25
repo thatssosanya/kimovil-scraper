@@ -149,7 +149,7 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
           {
             hasHtml: boolean;
             hasRawData: boolean;
-            hasProcessedData: boolean;
+            hasAiData: boolean;
             hasEntityRaw: boolean;
             hasEntityFinal: boolean;
             isCorrupted: boolean | null;
@@ -164,7 +164,7 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
           const hasRawData = yield* phoneData.hasRaw(slug).pipe(
             Effect.catchAll(() => Effect.succeed(false)),
           );
-          const hasProcessedData = yield* phoneData.has(slug).pipe(
+          const hasAiData = yield* phoneData.has(slug).pipe(
             Effect.catchAll(() => Effect.succeed(false)),
           );
           const verification = yield* htmlCache.getVerificationStatus(slug, source).pipe(
@@ -192,7 +192,7 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
           results[slug] = {
             hasHtml,
             hasRawData,
-            hasProcessedData,
+            hasAiData,
             hasEntityRaw,
             hasEntityFinal,
             isCorrupted: verification?.isCorrupted ?? null,
@@ -241,6 +241,7 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
 
       const program = Effect.gen(function* () {
         const jobQueue = yield* JobQueueService;
+        const deviceRegistry = yield* DeviceRegistryService;
 
         const jobId = `${jobType}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -254,11 +255,29 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
           dataKind,
         });
 
-        const { queued } = yield* jobQueue.enqueueJobSlugs(
+        const targets: Array<{ deviceId: string; externalId: string }> = [];
+        for (const slug of input.slugs!) {
+          let device = yield* deviceRegistry.getDeviceBySlug(slug);
+          if (!device) {
+            device = yield* deviceRegistry.createDevice({
+              slug,
+              name: slug,
+              brand: null,
+            });
+            yield* deviceRegistry.linkDeviceToSource({
+              deviceId: device.id,
+              source,
+              externalId: slug,
+            });
+          }
+          targets.push({ deviceId: device.id, externalId: slug });
+        }
+
+        const { queued } = yield* jobQueue.enqueueJobTargets(
           jobId,
           jobType,
           mode,
-          input.slugs!,
+          targets,
           { source, dataKind },
         );
 

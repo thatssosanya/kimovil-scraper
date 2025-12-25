@@ -44,12 +44,12 @@ type StatsWithTimeout = {
   timeout?: {
     count: number;
     nextRetryAt: number | null;
-    nextRetrySlug: string | null;
+    nextRetryExternalId: string | null;
   };
 };
 
 type QueueItemResult = {
-  slug: string;
+  externalId: string;
   success: boolean;
   error: string | null;
   rescheduled: boolean;
@@ -266,7 +266,7 @@ export class BulkJobManager {
             page.setContent(html, { waitUntil: "domcontentloaded" })
           );
           const result = yield* extractPhoneData(page, slug);
-          yield* services.phoneData.saveRaw(
+          yield* services.phoneData.saveRawWithEntity(
             slug,
             result.data as unknown as Record<string, unknown>
           );
@@ -289,7 +289,7 @@ export class BulkJobManager {
     );
 
     await Effect.runPromise(
-      phoneData.save(slug, normalized as Record<string, unknown>)
+      phoneData.saveWithEntity(slug, normalized as Record<string, unknown>)
     );
   }
 
@@ -306,14 +306,14 @@ export class BulkJobManager {
     const tag = `Queue:${item.id}`;
     const startTime = Date.now();
     const jobType = item.jobType ?? "scrape";
-    log.info(tag, `Starting ${jobType} job: ${item.slug}`);
+    log.info(tag, `Starting ${jobType} job: ${item.externalId}`);
 
     try {
       if (jobType === "scrape") {
         const stream =
           item.mode === "fast"
-            ? scrapeService.scrapeFast(item.slug)
-            : scrapeService.scrape(item.slug);
+            ? scrapeService.scrapeFast(item.externalId)
+            : scrapeService.scrape(item.externalId);
 
         await Effect.runPromise(
           Stream.runForEach(stream, (event) =>
@@ -328,29 +328,29 @@ export class BulkJobManager {
           )
         );
         await Effect.runPromise(
-          services.htmlCache.recordVerification(item.slug, false, null)
+          services.htmlCache.recordVerification(item.externalId, false, null)
         );
       } else if (jobType === "process_raw") {
-        await this.runProcessRaw(item.slug, {
+        await this.runProcessRaw(item.externalId, {
           htmlCache: services.htmlCache,
           phoneData: services.phoneData,
         });
       } else if (jobType === "process_ai") {
-        await this.runProcessAi(item.slug, services.phoneData);
+        await this.runProcessAi(item.externalId, services.phoneData);
       } else if (jobType === "clear_html") {
         const source = item.source ?? "kimovil";
-        await Effect.runPromise(services.htmlCache.deleteRawHtml(item.slug, source));
+        await Effect.runPromise(services.htmlCache.deleteRawHtml(item.externalId, source));
       } else if (jobType === "clear_raw") {
-        await Effect.runPromise(services.phoneData.deleteRaw(item.slug));
+        await Effect.runPromise(services.phoneData.deleteRaw(item.externalId));
       } else if (jobType === "clear_processed") {
-        await Effect.runPromise(services.phoneData.delete(item.slug));
+        await Effect.runPromise(services.phoneData.delete(item.externalId));
       }
 
       const duration = Date.now() - startTime;
-      log.success(tag, `Completed ${item.slug} in ${formatDuration(duration)}`);
+      log.success(tag, `Completed ${item.externalId} in ${formatDuration(duration)}`);
       await Effect.runPromise(services.jobQueue.completeQueueItem(item.id));
       return {
-        slug: item.slug,
+        externalId: item.externalId,
         success: true,
         error: null,
         rescheduled: false,
@@ -359,7 +359,7 @@ export class BulkJobManager {
       const duration = Date.now() - startTime;
       log.error(
         tag,
-        `Failed ${item.slug} after ${formatDuration(duration)}`,
+        `Failed ${item.externalId} after ${formatDuration(duration)}`,
         error
       );
       const { retryable, code, message, validationReason } =
@@ -367,7 +367,7 @@ export class BulkJobManager {
       if (validationReason) {
         await Effect.runPromise(
           services.htmlCache.recordVerification(
-            item.slug,
+            item.externalId,
             true,
             validationReason
           )
@@ -391,7 +391,7 @@ export class BulkJobManager {
           `Rescheduled in ${formatDuration(delayMs)} (${code}): ${message}`
         );
         return {
-          slug: item.slug,
+          externalId: item.externalId,
           success: false,
           error: message,
           rescheduled: true,
@@ -403,7 +403,7 @@ export class BulkJobManager {
         services.jobQueue.completeQueueItem(item.id, message)
       );
       return {
-        slug: item.slug,
+        externalId: item.externalId,
         success: false,
         error: message,
         rescheduled: false,
@@ -494,7 +494,7 @@ export class BulkJobManager {
             await rateLimit();
 
             if (state.paused) {
-              log.info(wtag, `Paused before scrape, unclaiming ${item.slug}`);
+              log.info(wtag, `Paused before scrape, unclaiming ${item.externalId}`);
               await Effect.runPromise(jobQueue.unclaimRunningItems(jobId));
               state.activeWorkers--;
               break;
@@ -508,7 +508,7 @@ export class BulkJobManager {
             if (result && !result.rescheduled) {
               const stats = await this.getStatsWithTimeout(jobQueue, jobId);
               this.broadcastProgress(jobId, requestId, stats, {
-                slug: result.slug,
+                slug: result.externalId,
                 success: result.success,
                 error: result.error,
               });

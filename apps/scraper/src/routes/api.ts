@@ -119,9 +119,13 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
       return LiveRuntime.runPromise(program);
     })
     .post("/scrape/queue", async ({ body }) => {
-      const { slug, mode } = body as { slug: string; mode: ScrapeMode };
-      if (!slug || !mode) {
-        return { error: "slug and mode are required" };
+      const { source, externalId, mode } = body as {
+        source: string;
+        externalId: string;
+        mode: ScrapeMode;
+      };
+      if (!source || !externalId || !mode) {
+        return { error: "source, externalId, and mode are required" };
       }
       if (mode !== "fast" && mode !== "complex") {
         return { error: "mode must be 'fast' or 'complex'" };
@@ -129,10 +133,21 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
 
       const program = Effect.gen(function* () {
         const jobQueue = yield* JobQueueService;
-        return yield* jobQueue.queueScrape(slug, mode);
+        const deviceRegistry = yield* DeviceRegistryService;
+
+        const device = yield* deviceRegistry.lookupDevice(source, externalId);
+        if (!device) {
+          return { error: `No device found for ${source}/${externalId}` };
+        }
+
+        return yield* jobQueue.queueScrape(externalId, device.id, mode, { source });
       });
 
-      const item = await LiveRuntime.runPromise(program);
+      const result = await LiveRuntime.runPromise(program);
+      if ("error" in result) {
+        return result;
+      }
+      const item = result;
 
       void (async () => {
         const servicesProgram = Effect.gen(function* () {
@@ -154,28 +169,31 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
 
       return item;
     })
-    .get("/scrape/html/:slug", async ({ params }) => {
+    .get("/scrape/html/:source/:externalId", async ({ params }) => {
+      const { source, externalId } = params;
       const program = Effect.gen(function* () {
         const htmlCache = yield* HtmlCacheService;
-        const html = yield* htmlCache.getRawHtml(params.slug);
-        return { slug: params.slug, html };
+        const html = yield* htmlCache.getRawHtml(externalId, source);
+        return { source, externalId, html };
       });
       return LiveRuntime.runPromise(program);
     })
-    .delete("/scrape/html/:slug", async ({ params }) => {
+    .delete("/scrape/html/:source/:externalId", async ({ params }) => {
+      const { source, externalId } = params;
       const program = Effect.gen(function* () {
         const jobQueue = yield* JobQueueService;
-        yield* jobQueue.clearScrapeData(params.slug);
-        return { success: true, slug: params.slug };
+        yield* jobQueue.clearScrapeData(source, externalId);
+        return { success: true, source, externalId };
       });
       return LiveRuntime.runPromise(program);
     })
     .get("/scrape/status", async ({ query }) => {
-      const slugsParam = query.slugs as string;
-      if (!slugsParam) {
-        return { error: "slugs parameter required" };
+      const source = (query.source as string) || "kimovil";
+      const idsParam = query.externalIds as string;
+      if (!idsParam) {
+        return { error: "externalIds parameter required" };
       }
-      const slugs = slugsParam.split(",");
+      const externalIds = idsParam.split(",");
 
       const program = Effect.gen(function* () {
         const htmlCache = yield* HtmlCacheService;
@@ -193,13 +211,19 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           }
         > = {};
 
-        for (const slug of slugs) {
-          const hasHtml = yield* htmlCache.hasScrapedHtml(slug);
-          const hasRawData = yield* phoneData.hasRaw(slug);
-          const hasAiData = yield* phoneData.has(slug);
-          const queueItem = yield* jobQueue.getQueueItemBySlug(slug);
-          const verification = yield* htmlCache.getVerificationStatus(slug);
-          results[slug] = {
+        for (const externalId of externalIds) {
+          const hasHtml = yield* htmlCache.hasScrapedHtml(externalId, source);
+          const hasRawData = yield* phoneData.hasRaw(externalId);
+          const hasAiData = yield* phoneData.has(externalId);
+          const queueItem = yield* jobQueue.getQueueItemByTarget(
+            source,
+            externalId,
+          );
+          const verification = yield* htmlCache.getVerificationStatus(
+            externalId,
+            source,
+          );
+          results[externalId] = {
             hasHtml,
             hasRawData,
             hasAiData,
@@ -215,9 +239,13 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
       return LiveRuntime.runPromise(program);
     })
     .post("/scrape/verify", async ({ body }) => {
-      const { slugs } = body as { slugs: string[] };
-      if (!slugs || !Array.isArray(slugs) || slugs.length === 0) {
-        return { error: "slugs array required" };
+      const { source, externalIds } = body as {
+        source?: string;
+        externalIds: string[];
+      };
+      const resolvedSource = source || "kimovil";
+      if (!externalIds || !Array.isArray(externalIds) || externalIds.length === 0) {
+        return { error: "externalIds array required" };
       }
 
       const program = Effect.gen(function* () {
@@ -227,9 +255,9 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           { isCorrupted: boolean | null; reason: string | null }
         > = {};
 
-        for (const slug of slugs) {
-          const result = yield* htmlCache.verifyHtml(slug);
-          results[slug] = result;
+        for (const externalId of externalIds) {
+          const result = yield* htmlCache.verifyHtml(externalId, resolvedSource);
+          results[externalId] = result;
         }
 
         const corrupted = Object.values(results).filter(
@@ -242,7 +270,10 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           (r) => r.isCorrupted === null,
         ).length;
 
-        return { results, summary: { total: slugs.length, corrupted, valid, missing } };
+        return {
+          results,
+          summary: { total: externalIds.length, corrupted, valid, missing },
+        };
       });
 
       return LiveRuntime.runPromise(program);
@@ -260,10 +291,11 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
 
       return LiveRuntime.runPromise(program);
     })
-    .get("/scrape/queue/:slug", async ({ params }) => {
+    .get("/scrape/queue/:source/:externalId", async ({ params }) => {
+      const { source, externalId } = params;
       const program = Effect.gen(function* () {
         const jobQueue = yield* JobQueueService;
-        const item = yield* jobQueue.getQueueItemBySlug(params.slug);
+        const item = yield* jobQueue.getQueueItemByTarget(source, externalId);
         return item;
       });
 
@@ -311,13 +343,15 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         return {
           items: items.map(
             (item: {
-              slug: string;
+              externalId: string;
+              source: string;
               errorMessage: string | null;
               lastErrorCode: string | null;
               attempt: number;
               updatedAt: number;
             }) => ({
-              slug: item.slug,
+              externalId: item.externalId,
+              source: item.source,
               error: item.errorMessage,
               errorCode: item.lastErrorCode,
               attempt: item.attempt,
@@ -352,9 +386,13 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
       return { success: true, item };
     })
     .post("/process/raw", async ({ body }) => {
-      const { slug } = body as { slug: string };
-      if (!slug) {
-        return { success: false, error: "slug is required" };
+      const { source, externalId } = body as {
+        source?: string;
+        externalId: string;
+      };
+      const resolvedSource = source || "kimovil";
+      if (!externalId) {
+        return { success: false, error: "externalId is required" };
       }
 
       try {
@@ -368,14 +406,20 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         const { htmlCache, phoneData, jobQueue, scrapeService } =
           await LiveRuntime.runPromise(program);
 
-        const hasHtml = await LiveRuntime.runPromise(htmlCache.hasScrapedHtml(slug));
+        const hasHtml = await LiveRuntime.runPromise(
+          htmlCache.hasScrapedHtml(externalId, resolvedSource),
+        );
         if (!hasHtml) {
-          return { success: false, error: "No cached HTML found for this slug" };
+          return {
+            success: false,
+            error: "No cached HTML found for this externalId",
+          };
         }
 
         const dummyItem = {
           id: -1,
-          slug,
+          externalId,
+          deviceId: "",
           jobId: null,
           jobType: "process_raw" as const,
           mode: "fast" as const,
@@ -389,7 +433,7 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           completedAt: null,
           errorMessage: null,
           lastErrorCode: null,
-          source: "kimovil",
+          source: resolvedSource,
           dataKind: "specs",
           scrapeId: null,
         };
@@ -398,17 +442,21 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           { htmlCache, phoneData, jobQueue },
           scrapeService,
         );
-        return { success: true, slug };
+        return { success: true, source: resolvedSource, externalId };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        log.error("ProcessRaw", `Failed for ${slug}: ${message}`);
+        log.error("ProcessRaw", `Failed for ${externalId}: ${message}`);
         return { success: false, error: message };
       }
     })
     .post("/process/ai", async ({ body }) => {
-      const { slug } = body as { slug: string };
-      if (!slug) {
-        return { success: false, error: "slug is required" };
+      const { source, externalId } = body as {
+        source?: string;
+        externalId: string;
+      };
+      const resolvedSource = source || "kimovil";
+      if (!externalId) {
+        return { success: false, error: "externalId is required" };
       }
 
       try {
@@ -422,14 +470,18 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         const { htmlCache, phoneData, jobQueue, scrapeService } =
           await LiveRuntime.runPromise(program);
 
-        const hasRaw = await LiveRuntime.runPromise(phoneData.hasRaw(slug));
+        const hasRaw = await LiveRuntime.runPromise(phoneData.hasRaw(externalId));
         if (!hasRaw) {
-          return { success: false, error: "No raw data found for this slug" };
+          return {
+            success: false,
+            error: "No raw data found for this externalId",
+          };
         }
 
         const dummyItem = {
           id: -1,
-          slug,
+          externalId,
+          deviceId: "",
           jobId: null,
           jobType: "process_ai" as const,
           mode: "fast" as const,
@@ -443,7 +495,7 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           completedAt: null,
           errorMessage: null,
           lastErrorCode: null,
-          source: "kimovil",
+          source: resolvedSource,
           dataKind: "specs",
           scrapeId: null,
         };
@@ -452,10 +504,10 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           { htmlCache, phoneData, jobQueue },
           scrapeService,
         );
-        return { success: true, slug };
+        return { success: true, source: resolvedSource, externalId };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        log.error("ProcessAi", `Failed for ${slug}: ${message}`);
+        log.error("ProcessAi", `Failed for ${externalId}: ${message}`);
         return { success: false, error: message };
       }
     })

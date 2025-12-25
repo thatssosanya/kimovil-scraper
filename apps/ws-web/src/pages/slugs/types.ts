@@ -92,7 +92,7 @@ export interface BulkJobStats {
   timeout?: {
     count: number;
     nextRetryAt: number | null;
-    nextRetrySlug: string | null;
+    nextRetryExternalId: string | null;
   };
 }
 

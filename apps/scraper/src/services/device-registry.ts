@@ -62,6 +62,9 @@ export interface DeviceRegistryService {
     externalId: string,
     status: SourceStatus,
   ) => Effect.Effect<void, DeviceRegistryError>;
+  readonly getDevicesBySource: (
+    source: string,
+  ) => Effect.Effect<Array<{ deviceId: string; externalId: string; slug: string }>, DeviceRegistryError>;
 }
 
 export const DeviceRegistryService =
@@ -195,6 +198,21 @@ export const DeviceRegistryServiceLive = Layer.effect(
           SET status = ${status}, last_seen = unixepoch()
           WHERE source = ${source} AND external_id = ${externalId}
         `.pipe(Effect.asVoid, Effect.mapError(wrapSqlError)),
+
+      getDevicesBySource: (source: string) =>
+        sql<{ device_id: string; external_id: string; slug: string }>`
+          SELECT d.id as device_id, ds.external_id, d.slug
+          FROM devices d
+          JOIN device_sources ds ON d.id = ds.device_id
+          WHERE ds.source = ${source} AND ds.status = 'active'
+        `.pipe(
+          Effect.map((rows) => rows.map((row) => ({
+            deviceId: row.device_id,
+            externalId: row.external_id,
+            slug: row.slug,
+          }))),
+          Effect.mapError(wrapSqlError),
+        ),
     });
   }),
 );

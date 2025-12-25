@@ -2,7 +2,7 @@ import { Effect, Layer, Context, Data } from "effect";
 import { SqlClient, SqlError } from "@effect/sql";
 import { Cron } from "croner";
 import { JobQueueService, type JobType, type ScrapeMode } from "./job-queue";
-import { DeviceService } from "./device";
+import { DeviceRegistryService } from "./device-registry";
 
 export class SchedulerError extends Data.TaggedError("SchedulerError")<{
   message: string;
@@ -102,9 +102,9 @@ export interface SchedulerService {
     timezone: string,
   ) => Effect.Effect<number, SchedulerError>;
 
-  readonly getSlugsForSchedule: (
+  readonly getTargetsForSchedule: (
     schedule: JobSchedule,
-  ) => Effect.Effect<string[], SchedulerError>;
+  ) => Effect.Effect<Array<{ deviceId: string; externalId: string }>, SchedulerError>;
 }
 
 export const SchedulerService =
@@ -172,7 +172,7 @@ export const SchedulerServiceLive = Layer.effect(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const jobQueue = yield* JobQueueService;
-    const deviceService = yield* DeviceService;
+    const deviceRegistry = yield* DeviceRegistryService;
 
     const self: SchedulerService = {
       listSchedules: () =>
@@ -495,13 +495,24 @@ export const SchedulerServiceLive = Layer.effect(
             }),
         }),
 
-      getSlugsForSchedule: (schedule) =>
+      getTargetsForSchedule: (schedule) =>
         Effect.gen(function* () {
           if (schedule.filter) {
             try {
-              const slugs = JSON.parse(schedule.filter) as string[];
-              if (Array.isArray(slugs)) {
-                return slugs;
+              const parsed = JSON.parse(schedule.filter) as string[];
+              if (Array.isArray(parsed) && parsed.every(item => typeof item === "string")) {
+                const targets: Array<{ deviceId: string; externalId: string }> = [];
+                for (const externalId of parsed) {
+                  const rows = yield* sql<{ device_id: string }>`
+                    SELECT device_id FROM device_sources 
+                    WHERE source = ${schedule.source} AND external_id = ${externalId} AND status = 'active'
+                    LIMIT 1
+                  `.pipe(Effect.mapError(e => new SchedulerError({ message: e.message, cause: e })));
+                  if (rows[0]) {
+                    targets.push({ deviceId: rows[0].device_id, externalId });
+                  }
+                }
+                return targets;
               }
             } catch {
               yield* Effect.logWarning("Invalid filter JSON in schedule").pipe(
@@ -510,12 +521,12 @@ export const SchedulerServiceLive = Layer.effect(
             }
           }
 
-          const devices = yield* deviceService.getAllDevices().pipe(
+          const devices = yield* deviceRegistry.getDevicesBySource(schedule.source).pipe(
             Effect.mapError(
               (e) => new SchedulerError({ message: e.message, cause: e }),
             ),
           );
-          return devices.map((d) => d.slug);
+          return devices.map((d) => ({ deviceId: d.deviceId, externalId: d.externalId }));
         }),
     };
 
@@ -585,17 +596,17 @@ export const runScheduleOnce = (
     }
 
     const result = yield* Effect.gen(function* () {
-      // 1. Get slugs FIRST
-      const slugs = yield* scheduler.getSlugsForSchedule(schedule);
+      // 1. Get targets FIRST
+      const targets = yield* scheduler.getTargetsForSchedule(schedule);
 
-      if (slugs.length === 0) {
-        yield* Effect.logWarning("runScheduleOnce: no slugs to enqueue").pipe(
+      if (targets.length === 0) {
+        yield* Effect.logWarning("runScheduleOnce: no targets to enqueue").pipe(
           Effect.annotateLogs({ scheduleId, name: schedule.name, caller: options.caller }),
         );
         return { status: "skipped" as const };
       }
 
-      // 2. Only create job if we have slugs
+      // 2. Only create job if we have targets
       const jobId = generateJobId();
       yield* jobQueue.createJob({
         id: jobId,
@@ -610,8 +621,8 @@ export const runScheduleOnce = (
         ),
       );
 
-      // 3. Enqueue slugs
-      yield* jobQueue.enqueueJobSlugs(jobId, schedule.jobType, schedule.mode, slugs, {
+      // 3. Enqueue targets
+      yield* jobQueue.enqueueJobTargets(jobId, schedule.jobType, schedule.mode, targets, {
         source: schedule.source,
         dataKind: schedule.dataKind,
       }).pipe(
@@ -620,13 +631,13 @@ export const runScheduleOnce = (
         ),
       );
 
-      yield* Effect.logInfo("runScheduleOnce: job created and slugs enqueued").pipe(
+      yield* Effect.logInfo("runScheduleOnce: job created and targets enqueued").pipe(
         Effect.annotateLogs({
           scheduleId,
           name: schedule.name,
           caller: options.caller,
           jobId,
-          slugCount: slugs.length,
+          targetCount: targets.length,
         }),
       );
 

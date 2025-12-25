@@ -204,6 +204,7 @@ const createHandlers = (
       const htmlCache = yield* HtmlCacheService;
       const phoneData = yield* PhoneDataService;
       const jobQueue = yield* JobQueueService;
+      const deviceRegistry = yield* DeviceRegistryService;
       const jobType: StorageJobType =
         (params.jobType as StorageJobType) ?? "scrape";
 
@@ -256,11 +257,31 @@ const createHandlers = (
         queuedCount: 0,
       });
 
-      const enqueueResult = yield* jobQueue.enqueueJobSlugs(
+      // WS bulk start is currently kimovil-slug driven; treat slug as external_id for source=kimovil
+      // and ensure a canonical device_id exists for queue storage.
+      const targets: Array<{ deviceId: string; externalId: string }> = [];
+      for (const slug of targetSlugs) {
+        let device = yield* deviceRegistry.getDeviceBySlug(slug);
+        if (!device) {
+          device = yield* deviceRegistry.createDevice({
+            slug,
+            name: slug,
+            brand: null,
+          });
+        }
+        yield* deviceRegistry.linkDeviceToSource({
+          deviceId: device.id,
+          source: "kimovil",
+          externalId: slug,
+        });
+        targets.push({ deviceId: device.id, externalId: slug });
+      }
+
+      const enqueueResult = yield* jobQueue.enqueueJobTargets(
         jobId,
         jobType,
         mode,
-        targetSlugs,
+        targets,
       );
 
       yield* jobQueue.updateJobCounts(
@@ -378,7 +399,11 @@ const createHandlers = (
           }),
           stats: new BulkJobStats({
             ...stats,
-            timeout: timeout.count > 0 ? timeout : undefined,
+            timeout: timeout.count > 0 ? {
+              count: timeout.count,
+              nextRetryAt: timeout.nextRetryAt,
+              nextRetryExternalId: timeout.nextRetryExternalId,
+            } : undefined,
           }),
         });
       }
@@ -582,7 +607,11 @@ const createHandlers = (
         state.workerCount,
         {
           ...stats,
-          timeout: timeout.count > 0 ? timeout : undefined,
+          timeout: timeout.count > 0 ? {
+            count: timeout.count,
+            nextRetryAt: timeout.nextRetryAt,
+            nextRetryExternalId: timeout.nextRetryExternalId,
+          } : undefined,
         },
       );
 
