@@ -9,7 +9,7 @@ import { RobotServiceLive } from "../services/robot";
 import { ScrapeServiceKimovil } from "../services/kimovil";
 import { HtmlCacheServiceLive } from "../services/html-cache";
 import { JobQueueServiceLive } from "../services/job-queue";
-import { DeviceServiceLive } from "../services/device";
+import { DeviceDiscoveryServiceLive } from "../services/device-discovery";
 import { PhoneDataServiceLive } from "../services/phone-data";
 import { DeviceRegistryServiceLive } from "../services/device-registry";
 import { EntityDataServiceLive } from "../services/entity-data";
@@ -28,7 +28,7 @@ const SqlLayer = SchemaLive.pipe(Layer.provideMerge(SqlClientLive));
 const BaseDataLayer = Layer.mergeAll(
   HtmlCacheServiceLive,
   JobQueueServiceLive,
-  DeviceServiceLive,
+  DeviceDiscoveryServiceLive,
   DeviceRegistryServiceLive,
   EntityDataServiceLive,
   ScrapeRecordServiceLive,

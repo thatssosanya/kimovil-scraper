@@ -9,7 +9,7 @@ interface DataStatusIconsProps {
 
 interface StatusBadgeProps {
   active: boolean;
-  color: "slate" | "cyan" | "violet" | "emerald" | "rose";
+  color: "slate" | "cyan" | "violet" | "emerald" | "rose" | "amber";
   title: string;
   clickable?: boolean;
   onClick?: (e: MouseEvent) => void;
@@ -41,6 +41,11 @@ function StatusBadge(props: StatusBadgeProps) {
     rose: {
       active: "bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50",
       activeHover: "hover:bg-rose-100 dark:hover:bg-rose-900/60 hover:text-rose-700 dark:hover:text-rose-300",
+      inactive: "bg-transparent text-zinc-300 dark:text-slate-700 border-transparent",
+    },
+    amber: {
+      active: "bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800/50",
+      activeHover: "hover:bg-amber-100 dark:hover:bg-amber-900/60 hover:text-amber-700 dark:hover:text-amber-300",
       inactive: "bg-transparent text-zinc-300 dark:text-slate-700 border-transparent",
     },
   };
@@ -140,6 +145,22 @@ export function DataStatusIcons(props: DataStatusIconsProps) {
           <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
+        </StatusBadge>
+      </Show>
+
+      {/* Prices */}
+      <Show when={status()?.hasPrices || (status()?.priceSourceCount ?? 0) > 0}>
+        <StatusBadge
+          active={!!status()?.hasPrices || (status()?.priceSourceCount ?? 0) > 0}
+          color="amber"
+          title={status()?.hasPrices ? "Has prices (click to view)" : `${status()?.priceSourceCount} price source(s) linked`}
+          clickable={!!props.onOpenTab}
+          onClick={() => props.onOpenTab?.("prices")}
+        >
+          <span class="text-xs font-medium">₽</span>
+          <Show when={(status()?.priceSourceCount ?? 0) > 0}>
+            <span class="text-[10px] ml-0.5">{status()?.priceSourceCount}</span>
+          </Show>
         </StatusBadge>
       </Show>
     </div>

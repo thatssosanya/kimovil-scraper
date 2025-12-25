@@ -46,7 +46,7 @@ const PRESETS: Record<string, (args: string[]) => string> = {
   },
 
   devices: () => {
-    return `${run("DeviceService", "getAllDevices()")}.then(d => ({ count: d.length }))`;
+    return `${run("DeviceRegistryService", "getDeviceCount()")}.then(count => ({ count }))`;
   },
 
   queue: (args) => {
@@ -63,10 +63,12 @@ const PRESETS: Record<string, (args: string[]) => string> = {
 
   stats: () => {
     return `return await LiveRuntime.runPromise(Effect.gen(function* () {
-      const devices = yield* DeviceService.pipe(Effect.flatMap(s => s.getAllDevices()));
+      const deviceCount = yield* DeviceRegistryService.pipe(Effect.flatMap(s => s.getDeviceCount()));
       const jobs = yield* JobQueueService.pipe(Effect.flatMap(s => s.getAllJobs()));
+      const pendingQueries = yield* DeviceDiscoveryService.pipe(Effect.flatMap(s => s.getPendingCount("kimovil")));
       return {
-        devices: devices.length,
+        devices: deviceCount,
+        pendingQueries,
         jobs: { total: jobs.length, active: jobs.filter(j => j.status !== "done").length }
       };
     }))`;
@@ -97,7 +99,7 @@ Options:
 Examples:
   debug-eval jobs | jq '.result | length'
   debug-eval jobs --status paused | jq '.result'
-  debug-eval 'return await LiveRuntime.runPromise(DeviceService.pipe(Effect.flatMap(s => s.getAllDevices()))).then(d => d.length)'
+  debug-eval 'return await LiveRuntime.runPromise(DeviceRegistryService.pipe(Effect.flatMap(s => s.getDeviceCount())))'
 `);
     process.exit(0);
   }

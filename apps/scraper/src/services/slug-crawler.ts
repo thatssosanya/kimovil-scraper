@@ -1,7 +1,7 @@
 import { Effect, Layer, Context } from "effect";
 import { chromium, Page, Browser, BrowserContext } from "playwright";
 import { generateDeviceId } from "@repo/scraper-domain/server";
-import { DeviceService, DeviceError } from "./device";
+import { DeviceDiscoveryService, DeviceDiscoveryError } from "./device-discovery";
 import { DeviceRegistryService, DeviceRegistryError } from "./device-registry";
 import { inferBrand, isValidChildPrefix, isPrefixWorthExpanding } from "./kimovil/slug-logic";
 
@@ -29,11 +29,11 @@ interface AutocompleteResponse {
 export interface SlugCrawlerService {
   readonly runFullCrawl: () => Effect.Effect<
     void,
-    SlugCrawlerError | DeviceError | DeviceRegistryError
+    SlugCrawlerError | DeviceDiscoveryError | DeviceRegistryError
   >;
   readonly getCrawlStats: () => Effect.Effect<
     { devices: number; pendingPrefixes: number },
-    DeviceError | DeviceRegistryError
+    DeviceDiscoveryError | DeviceRegistryError
   >;
 }
 
@@ -91,7 +91,7 @@ const getSmartChildPrefixes = (
 export const SlugCrawlerServiceLive = Layer.effect(
   SlugCrawlerService,
   Effect.gen(function* () {
-    const deviceService = yield* DeviceService;
+    const discoveryService = yield* DeviceDiscoveryService;
     const deviceRegistry = yield* DeviceRegistryService;
 
     // In-memory cache of known slugs to detect new devices
@@ -152,7 +152,7 @@ export const SlugCrawlerServiceLive = Layer.effect(
       depth: number,
     ): Effect.Effect<
       { total: number; newDevices: number },
-      SlugCrawlerError | DeviceError | DeviceRegistryError
+      SlugCrawlerError | DeviceDiscoveryError | DeviceRegistryError
     > =>
       Effect.gen(function* () {
         const results = yield* Effect.tryPromise({
@@ -209,7 +209,7 @@ export const SlugCrawlerServiceLive = Layer.effect(
             for (const child of smartChildren) {
               const childDepth = child.length;
               if (isPrefixWorthExpanding(child, childDepth)) {
-                yield* deviceService.enqueuePrefix(child, childDepth);
+                yield* discoveryService.enqueueQuery("kimovil", child, childDepth);
               }
             }
           } else {
@@ -221,13 +221,13 @@ export const SlugCrawlerServiceLive = Layer.effect(
                 isValidChildPrefix(child) &&
                 isPrefixWorthExpanding(child, childDepth)
               ) {
-                yield* deviceService.enqueuePrefix(child, childDepth);
+                yield* discoveryService.enqueueQuery("kimovil", child, childDepth);
               }
             }
           }
         }
 
-        yield* deviceService.markPrefixDone(prefix, count);
+        yield* discoveryService.completeQuery("kimovil", prefix, count);
 
         return { total: count, newDevices };
       });
@@ -273,12 +273,21 @@ export const SlugCrawlerServiceLive = Layer.effect(
           // Load existing slugs into memory for deduplication
           yield* loadKnownSlugs();
 
-          const pendingCount = yield* deviceService.getPendingPrefixCount();
+          const pendingCount = yield* discoveryService.getPendingCount("kimovil");
           if (pendingCount === 0) {
             yield* Effect.logInfo("No pending prefixes, seeding initial...").pipe(
               Effect.annotateLogs({ service: "Crawler" }),
             );
-            yield* deviceService.seedInitialPrefixes();
+            // Seed initial 2-char prefixes for Kimovil
+            const chars = "abcdefghijklmnopqrstuvwxyz0123456789".split("");
+            for (const c1 of chars) {
+              for (const c2 of chars) {
+                yield* discoveryService.enqueueQuery("kimovil", c1 + c2, 2);
+              }
+            }
+            yield* Effect.logInfo(`Seeded ${chars.length * chars.length} initial prefixes`).pipe(
+              Effect.annotateLogs({ service: "Crawler" }),
+            );
           }
 
           const { browser, page } = yield* Effect.tryPromise({
@@ -294,16 +303,16 @@ export const SlugCrawlerServiceLive = Layer.effect(
 
           const crawlLoop = Effect.gen(function* () {
             while (true) {
-              const nextPrefix = yield* deviceService.getNextPendingPrefix();
-              if (!nextPrefix) {
+              const nextQuery = yield* discoveryService.getNextPendingQuery("kimovil");
+              if (!nextQuery) {
                 yield* Effect.logInfo("No more pending prefixes, done!").pipe(
                   Effect.annotateLogs({ service: "Crawler" }),
                 );
                 break;
               }
 
-              const { prefix, depth } = nextPrefix;
-              const pendingLeft = yield* deviceService.getPendingPrefixCount();
+              const { query: prefix, depth } = nextQuery;
+              const pendingLeft = yield* discoveryService.getPendingCount("kimovil");
 
               process.stdout.write(
                 `\r[Crawler] "${prefix}" (d${depth}) | ${processed} done, ${pendingLeft} pending, ${knownSlugs.size} devices, +${totalNewDevices} new   `,
@@ -332,7 +341,7 @@ export const SlugCrawlerServiceLive = Layer.effect(
       getCrawlStats: () =>
         Effect.gen(function* () {
           const devices = yield* deviceRegistry.getDeviceCount();
-          const pendingPrefixes = yield* deviceService.getPendingPrefixCount();
+          const pendingPrefixes = yield* discoveryService.getPendingCount("kimovil");
           return { devices, pendingPrefixes };
         }),
     };

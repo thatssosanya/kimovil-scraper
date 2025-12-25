@@ -305,6 +305,24 @@ const migrateKimovilDevices = (
     yield* Effect.logInfo(`Completed migration: ${migrated} devices from kimovil_devices`);
   });
 
+const migrateKimovilPrefixState = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    const oldExists = yield* tableExists(sql, "kimovil_prefix_state");
+    const newCount = yield* getRowCount(sql, "discovery_queue");
+
+    if (oldExists && newCount === 0) {
+      yield* sql.unsafe(`
+        INSERT INTO discovery_queue (source, query, depth, status, last_result_count, last_run_at, created_at)
+        SELECT 'kimovil', prefix, depth, status, last_result_count, last_run_at, COALESCE(last_run_at, unixepoch())
+        FROM kimovil_prefix_state
+      `);
+      const migrated = yield* getRowCount(sql, "discovery_queue");
+      yield* Effect.logInfo(`Migrated ${migrated} rows from kimovil_prefix_state → discovery_queue`);
+    }
+  });
+
 const migrateJobsStatusConstraint = (
   sql: SqlClient.SqlClient,
 ): Effect.Effect<void, SqlError.SqlError> =>
@@ -625,6 +643,21 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     `);
 
     yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS discovery_queue (
+        source TEXT NOT NULL,
+        query TEXT NOT NULL,
+        depth INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'done')),
+        last_result_count INTEGER,
+        last_run_at INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        PRIMARY KEY (source, query)
+      )
+    `);
+
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_discovery_queue_source_status ON discovery_queue(source, status, depth, query)`);
+
+    yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS phone_data_raw (
         slug TEXT PRIMARY KEY,
         data TEXT NOT NULL,
@@ -795,6 +828,10 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
 
     // Migrate legacy phone_data_* tables to entity_data_* tables
     yield* sql.withTransaction(migratePhoneDataToEntityData(sql));
+
+    // Migrate kimovil_prefix_state → discovery_queue
+    yield* sql.withTransaction(migrateKimovilPrefixState(sql));
+    yield* sql.unsafe(`DROP TABLE IF EXISTS kimovil_prefix_state`);
 
     // Job schedules for recurring cron jobs
     yield* sql.unsafe(`

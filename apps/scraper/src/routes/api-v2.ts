@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import { Effect } from "effect";
+import { SqlClient } from "@effect/sql";
 import { HtmlCacheService } from "../services/html-cache";
 import { PhoneDataService } from "../services/phone-data";
 import { JobQueueService, type JobType, type ScrapeMode } from "../services/job-queue";
@@ -243,8 +244,12 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
             hasEntityFinal: boolean;
             isCorrupted: boolean | null;
             corruptionReason: string | null;
+            priceSourceCount: number;
+            hasPrices: boolean;
           }
         > = {};
+
+        const sql = yield* SqlClient.SqlClient;
 
         for (const slug of slugs) {
           const hasHtml = yield* htmlCache.hasScrapedHtml(slug, source).pipe(

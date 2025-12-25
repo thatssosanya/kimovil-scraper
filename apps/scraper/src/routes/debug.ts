@@ -9,7 +9,7 @@ import { Elysia, t } from "elysia";
 import { Effect } from "effect";
 
 import { LiveRuntime } from "../layers/live";
-import { DeviceService } from "../services/device";
+import { DeviceDiscoveryService } from "../services/device-discovery";
 import { HtmlCacheService } from "../services/html-cache";
 import { PhoneDataService } from "../services/phone-data";
 import { JobQueueService } from "../services/job-queue";
@@ -48,7 +48,7 @@ export const createDebugRoutes = () =>
         const context = {
           Effect,
           LiveRuntime,
-          DeviceService,
+          DeviceDiscoveryService,
           HtmlCacheService,
           PhoneDataService,
           JobQueueService,

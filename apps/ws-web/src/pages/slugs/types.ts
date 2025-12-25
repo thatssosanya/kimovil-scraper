@@ -53,6 +53,8 @@ export interface ScrapeStatus {
   queueStatus: string | null;
   isCorrupted: boolean | null;
   corruptionReason: string | null;
+  priceSourceCount?: number;
+  hasPrices?: boolean;
 }
 
 // API response wrapper for phone data
