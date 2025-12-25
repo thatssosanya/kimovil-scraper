@@ -125,7 +125,6 @@ export function useSlugsApi() {
 
   const fetchScrapeStatus = async (slugs: string[]) => {
     if (slugs.length === 0) return;
-    // Batch into chunks to avoid URL length limits
     const BATCH_SIZE = 200;
     const batches: string[][] = [];
     for (let i = 0; i < slugs.length; i += BATCH_SIZE) {
@@ -135,7 +134,7 @@ export function useSlugsApi() {
       const results = await Promise.all(
         batches.map(async (batch) => {
           const res = await fetch(
-            `http://localhost:1488/api/scrape/status?slugs=${batch.join(",")}`,
+            `http://localhost:1488/api/v2/devices/bulk-status?slugs=${batch.join(",")}&source=kimovil`,
           );
           return res.json() as Promise<Record<string, ScrapeStatus>>;
         }),
@@ -222,7 +221,7 @@ export function useSlugsApi() {
 
     try {
       await fetch(
-        `http://localhost:1488/api/scrape/html/${encodeURIComponent(slug)}`,
+        `http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/html`,
         { method: "DELETE" },
       );
       setScrapeStatus((prev) => {
@@ -253,12 +252,17 @@ export function useSlugsApi() {
       return false;
 
     setClearLoading(true);
-    for (const slug of slugsToClear) {
-      try {
-        await fetch(
-          `http://localhost:1488/api/scrape/html/${encodeURIComponent(slug)}`,
-          { method: "DELETE" },
-        );
+    try {
+      await fetch("http://localhost:1488/api/v2/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobType: "clear_html",
+          slugs: slugsToClear,
+          source: "kimovil",
+        }),
+      });
+      for (const slug of slugsToClear) {
         setScrapeStatus((prev) => {
           const next = { ...prev };
           delete next[slug];
@@ -269,9 +273,9 @@ export function useSlugsApi() {
           delete next[slug];
           return next;
         });
-      } catch (error) {
-        console.error(`Failed to clear ${slug}:`, error);
       }
+    } catch (error) {
+      console.error("Failed to clear bulk:", error);
     }
     setClearLoading(false);
     return true;
@@ -282,7 +286,7 @@ export function useSlugsApi() {
   ): Promise<{ html: string | null; error?: string }> => {
     try {
       const res = await fetch(
-        `http://localhost:1488/api/scrape/html/${encodeURIComponent(slug)}`,
+        `http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/html`,
       );
       const data = await res.json();
       return { html: data.html || null };
@@ -297,7 +301,7 @@ export function useSlugsApi() {
   ): Promise<PhoneDataRaw | null> => {
     try {
       const res = await fetch(
-        `http://localhost:1488/api/phone-data/raw/${encodeURIComponent(slug)}`,
+        `http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/raw-data/specs`,
       );
       const data: PhoneDataResponse<PhoneDataRaw> = await res.json();
       return data.data;
@@ -312,7 +316,7 @@ export function useSlugsApi() {
   ): Promise<PhoneDataAi | null> => {
     try {
       const res = await fetch(
-        `http://localhost:1488/api/phone-data/${encodeURIComponent(slug)}`,
+        `http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/data/specs`,
       );
       const data: PhoneDataResponse<PhoneDataAi> = await res.json();
       return data.data;
@@ -374,11 +378,10 @@ export function useSlugsApi() {
     }
   };
 
-  // Clear raw data (phone_data_raw)
   const clearRawData = async (slug: string): Promise<boolean> => {
     try {
       const res = await fetch(
-        `http://localhost:1488/api/phone-data/raw/${encodeURIComponent(slug)}`,
+        `http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/raw-data/specs`,
         { method: "DELETE" },
       );
       const data = await res.json();
@@ -396,11 +399,10 @@ export function useSlugsApi() {
     }
   };
 
-  // Clear AI data (phone_data)
   const clearAiData = async (slug: string): Promise<boolean> => {
     try {
       const res = await fetch(
-        `http://localhost:1488/api/phone-data/${encodeURIComponent(slug)}`,
+        `http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/data/specs`,
         { method: "DELETE" },
       );
       const data = await res.json();
@@ -418,7 +420,6 @@ export function useSlugsApi() {
     }
   };
 
-  // Bulk clear raw data
   const clearRawBulk = async (slugs: string[]): Promise<number> => {
     const status = scrapeStatus();
     const slugsToClear = slugs.filter((slug) => status[slug]?.hasRawData);
@@ -426,16 +427,30 @@ export function useSlugsApi() {
     if (slugsToClear.length === 0) return 0;
 
     setClearRawLoading(true);
-    let clearedCount = 0;
-    for (const slug of slugsToClear) {
-      const success = await clearRawData(slug);
-      if (success) clearedCount++;
+    try {
+      await fetch("http://localhost:1488/api/v2/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobType: "clear_raw",
+          slugs: slugsToClear,
+          source: "kimovil",
+          dataKind: "specs",
+        }),
+      });
+      for (const slug of slugsToClear) {
+        setScrapeStatus((prev) => ({
+          ...prev,
+          [slug]: { ...prev[slug], hasRawData: false },
+        }));
+      }
+    } catch (error) {
+      console.error("Failed to clear raw bulk:", error);
     }
     setClearRawLoading(false);
-    return clearedCount;
+    return slugsToClear.length;
   };
 
-  // Bulk clear AI data
   const clearAiBulk = async (slugs: string[]): Promise<number> => {
     const status = scrapeStatus();
     const slugsToClear = slugs.filter((slug) => status[slug]?.hasAiData);
@@ -443,13 +458,28 @@ export function useSlugsApi() {
     if (slugsToClear.length === 0) return 0;
 
     setClearAiLoading(true);
-    let clearedCount = 0;
-    for (const slug of slugsToClear) {
-      const success = await clearAiData(slug);
-      if (success) clearedCount++;
+    try {
+      await fetch("http://localhost:1488/api/v2/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobType: "clear_processed",
+          slugs: slugsToClear,
+          source: "kimovil",
+          dataKind: "specs",
+        }),
+      });
+      for (const slug of slugsToClear) {
+        setScrapeStatus((prev) => ({
+          ...prev,
+          [slug]: { ...prev[slug], hasAiData: false },
+        }));
+      }
+    } catch (error) {
+      console.error("Failed to clear AI bulk:", error);
     }
     setClearAiLoading(false);
-    return clearedCount;
+    return slugsToClear.length;
   };
 
   const fetchPrices = async (deviceId: string): Promise<PriceSummary | null> => {

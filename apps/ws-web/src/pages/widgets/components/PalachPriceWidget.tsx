@@ -228,7 +228,7 @@ export function PalachPriceWidget(props: PalachPriceWidgetProps) {
 
     try {
       const [phoneRes, quotesRes] = await Promise.all([
-        fetch(`http://localhost:1488/api/phone-data/raw/${encodeURIComponent(slug)}`),
+        fetch(`http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/raw-data/specs`),
         fetch(`http://localhost:1488/api/prices/${encodeURIComponent(slug)}/quotes?limit=10`),
       ]);
 

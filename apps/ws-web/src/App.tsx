@@ -72,7 +72,7 @@ function App() {
     if (slugs.length === 0) return;
     try {
       const res = await fetch(
-        `http://localhost:1488/api/scrape/status?slugs=${slugs.join(",")}`,
+        `http://localhost:1488/api/v2/devices/bulk-status?slugs=${slugs.join(",")}&source=kimovil`,
       );
       const data: Record<string, ScrapeStatus> = await res.json();
       setSlugStatus(data);
