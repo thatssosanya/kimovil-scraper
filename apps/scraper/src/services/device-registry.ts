@@ -10,6 +10,7 @@ export interface Device {
   brand: string | null;
   createdAt: number;
   updatedAt: number;
+  releaseDate: string | null;
 }
 
 export interface DeviceSourceLink {
@@ -65,6 +66,8 @@ export interface DeviceRegistryService {
   readonly getDevicesBySource: (
     source: string,
   ) => Effect.Effect<Array<{ deviceId: string; externalId: string; slug: string }>, DeviceRegistryError>;
+  readonly getAllDevices: () => Effect.Effect<Device[], DeviceRegistryError>;
+  readonly getDeviceCount: () => Effect.Effect<number, DeviceRegistryError>;
 }
 
 export const DeviceRegistryService =
@@ -77,6 +80,7 @@ type DeviceRow = {
   brand: string | null;
   created_at: number;
   updated_at: number;
+  release_date: string | null;
 };
 
 type DeviceSourceRow = {
@@ -96,6 +100,7 @@ const mapDeviceRow = (row: DeviceRow): Device => ({
   brand: row.brand,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+  releaseDate: row.release_date,
 });
 
 const mapDeviceSourceRow = (row: DeviceSourceRow): DeviceSourceLink => ({
@@ -211,6 +216,36 @@ export const DeviceRegistryServiceLive = Layer.effect(
             externalId: row.external_id,
             slug: row.slug,
           }))),
+          Effect.mapError(wrapSqlError),
+        ),
+
+      getAllDevices: () =>
+        sql<DeviceRow>`
+          SELECT 
+            d.id,
+            d.slug,
+            d.name,
+            d.brand,
+            d.created_at,
+            d.updated_at,
+            json_extract(edr.data, '$.releaseDate') as release_date
+          FROM devices d
+          LEFT JOIN entity_data_raw edr 
+            ON d.id = edr.device_id 
+            AND edr.source = 'kimovil' 
+            AND edr.data_kind = 'specs'
+          ORDER BY 
+            CASE WHEN json_extract(edr.data, '$.releaseDate') IS NULL THEN 1 ELSE 0 END,
+            json_extract(edr.data, '$.releaseDate') DESC,
+            d.name
+        `.pipe(
+          Effect.map((rows) => rows.map(mapDeviceRow)),
+          Effect.mapError(wrapSqlError),
+        ),
+
+      getDeviceCount: () =>
+        sql<{ count: number }>`SELECT COUNT(*) as count FROM devices`.pipe(
+          Effect.map((rows) => rows[0]?.count ?? 0),
           Effect.mapError(wrapSqlError),
         ),
     });

@@ -67,7 +67,7 @@ export function useSlugsApi() {
   ) => {
     setLoading(true);
     try {
-      let url = "http://localhost:1488/api/slugs";
+      let url = "http://localhost:1488/api/v2/devices";
       const params = new URLSearchParams();
       if (searchQuery) params.set("search", searchQuery);
       if (filterType !== "all") params.set("filter", filterType);
@@ -96,7 +96,7 @@ export function useSlugsApi() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch("http://localhost:1488/api/slugs/stats");
+      const res = await fetch("http://localhost:1488/api/v2/devices/stats");
       const data: Stats = await res.json();
       setStats(data);
     } catch (error) {

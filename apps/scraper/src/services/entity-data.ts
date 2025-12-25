@@ -54,6 +54,24 @@ export interface EntityDataService {
     deviceId: string,
     dataKind: string,
   ) => Effect.Effect<boolean, EntityDataError>;
+
+  readonly getRawDataDeviceIds: (
+    source: string,
+    dataKind: string,
+  ) => Effect.Effect<string[], EntityDataError>;
+
+  readonly getFinalDataDeviceIds: (
+    dataKind: string,
+  ) => Effect.Effect<string[], EntityDataError>;
+
+  readonly getRawDataCount: (
+    source: string,
+    dataKind: string,
+  ) => Effect.Effect<number, EntityDataError>;
+
+  readonly getFinalDataCount: (
+    dataKind: string,
+  ) => Effect.Effect<number, EntityDataError>;
 }
 
 export const EntityDataService =
@@ -175,6 +193,38 @@ export const EntityDataServiceLive = Layer.effect(
           const rows = yield* sql<{ count: number }>`SELECT changes() as count`;
           return (rows[0]?.count ?? 0) > 0;
         }).pipe(Effect.mapError(wrapSqlError)),
+
+      getRawDataDeviceIds: (source: string, dataKind: string) =>
+        sql<{ device_id: string }>`
+          SELECT DISTINCT device_id FROM entity_data_raw WHERE source = ${source} AND data_kind = ${dataKind}
+        `.pipe(
+          Effect.map((rows) => rows.map((r) => r.device_id)),
+          Effect.mapError(wrapSqlError),
+        ),
+
+      getFinalDataDeviceIds: (dataKind: string) =>
+        sql<{ device_id: string }>`
+          SELECT DISTINCT device_id FROM entity_data WHERE data_kind = ${dataKind}
+        `.pipe(
+          Effect.map((rows) => rows.map((r) => r.device_id)),
+          Effect.mapError(wrapSqlError),
+        ),
+
+      getRawDataCount: (source: string, dataKind: string) =>
+        sql<{ count: number }>`
+          SELECT COUNT(*) as count FROM entity_data_raw WHERE source = ${source} AND data_kind = ${dataKind}
+        `.pipe(
+          Effect.map((rows) => rows[0]?.count ?? 0),
+          Effect.mapError(wrapSqlError),
+        ),
+
+      getFinalDataCount: (dataKind: string) =>
+        sql<{ count: number }>`
+          SELECT COUNT(*) as count FROM entity_data WHERE data_kind = ${dataKind}
+        `.pipe(
+          Effect.map((rows) => rows[0]?.count ?? 0),
+          Effect.mapError(wrapSqlError),
+        ),
     });
   }),
 );

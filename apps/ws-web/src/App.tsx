@@ -56,8 +56,8 @@ function App() {
   const fetchStats = async () => {
     try {
       const [statsRes, slugsRes] = await Promise.all([
-        fetch("http://localhost:1488/api/slugs/stats"),
-        fetch("http://localhost:1488/api/slugs?limit=1"),
+        fetch("http://localhost:1488/api/v2/devices/stats"),
+        fetch("http://localhost:1488/api/v2/devices?limit=1"),
       ]);
       const statsData: Stats = await statsRes.json();
       const slugsData = await slugsRes.json();

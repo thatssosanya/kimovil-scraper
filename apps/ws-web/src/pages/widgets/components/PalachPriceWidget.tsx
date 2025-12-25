@@ -72,7 +72,7 @@ function WidgetConfig(props: WidgetConfigProps) {
     
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:1488/api/slugs?search=${encodeURIComponent(query)}&limit=8`);
+      const res = await fetch(`http://localhost:1488/api/v2/devices?search=${encodeURIComponent(query)}&limit=8`);
       if (res.ok) {
         const data = await res.json();
         setSuggestions(data.devices.map((d: any) => ({

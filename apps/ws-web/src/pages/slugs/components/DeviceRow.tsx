@@ -172,8 +172,10 @@ export function DeviceRow(props: DeviceRowProps) {
           <span class="text-sm font-medium text-zinc-800 dark:text-slate-200 truncate" title={props.device.name}>
             {props.device.name}
           </span>
-          <span class="text-[11px] font-mono text-zinc-500 dark:text-slate-500 truncate" title={props.device.slug}>
-            {props.device.slug}
+          <span class="text-[11px] text-zinc-500 dark:text-slate-500 truncate">
+            {props.device.releaseDate 
+              ? new Date(props.device.releaseDate).toLocaleDateString("ru-RU", { year: "numeric", month: "short" })
+              : props.device.slug}
           </span>
         </div>
       </td>

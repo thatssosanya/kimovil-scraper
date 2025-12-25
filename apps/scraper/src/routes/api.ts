@@ -1,7 +1,6 @@
 import { Elysia } from "elysia";
 import { Effect } from "effect";
 import { ScrapeService } from "@repo/scraper-domain";
-import { DeviceService, type KimovilDevice } from "../services/device";
 import { PriceService } from "../services/price";
 import { HtmlCacheService } from "../services/html-cache";
 import { PhoneDataService } from "../services/phone-data";
@@ -14,110 +13,6 @@ import { LiveRuntime } from "../layers/live";
 
 export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
   new Elysia({ prefix: "/api" })
-    .get("/slugs", async ({ query }) => {
-      const program = Effect.gen(function* () {
-        const deviceService = yield* DeviceService;
-        const htmlCache = yield* HtmlCacheService;
-        const phoneData = yield* PhoneDataService;
-        const devices = yield* deviceService.getAllDevices();
-        const corruptedSlugs = yield* htmlCache.getCorruptedSlugs();
-        const validSlugs = yield* htmlCache.getValidSlugs();
-        const scrapedSlugs = yield* htmlCache.getScrapedSlugs();
-        const rawDataSlugs = yield* phoneData.getRawDataSlugs();
-        const aiDataSlugs = yield* phoneData.getAiDataSlugs();
-        const rawDataCount = yield* phoneData.getRawCount();
-        const aiDataCount = yield* phoneData.getCount();
-        return {
-          devices,
-          corruptedSlugs,
-          validSlugs,
-          scrapedSlugs,
-          rawDataSlugs,
-          aiDataSlugs,
-          rawDataCount,
-          aiDataCount,
-        };
-      });
-
-      const {
-        devices,
-        corruptedSlugs,
-        validSlugs,
-        scrapedSlugs,
-        rawDataSlugs,
-        aiDataSlugs,
-        rawDataCount,
-        aiDataCount,
-      } = await LiveRuntime.runPromise(program);
-
-      const corruptedSet = new Set(corruptedSlugs);
-      const validSet = new Set(validSlugs);
-      const scrapedSet = new Set(scrapedSlugs);
-      const rawDataSet = new Set(rawDataSlugs);
-      const aiDataSet = new Set(aiDataSlugs);
-
-      const search = (query.search as string)?.toLowerCase() || "";
-      const filter = query.filter as string | undefined;
-      const limit = Math.min(
-        Math.max(1, parseInt(query.limit as string) || 500),
-        10000,
-      );
-
-      let filtered: KimovilDevice[] = devices;
-
-      if (search) {
-        filtered = filtered.filter(
-          (d) =>
-            d.name.toLowerCase().includes(search) ||
-            d.slug.toLowerCase().includes(search) ||
-            d.brand?.toLowerCase().includes(search),
-        );
-      }
-
-      if (filter === "corrupted") {
-        filtered = filtered.filter((d) => corruptedSet.has(d.slug));
-      } else if (filter === "valid") {
-        filtered = filtered.filter((d) => validSet.has(d.slug));
-      } else if (filter === "scraped") {
-        filtered = filtered.filter((d) => scrapedSet.has(d.slug));
-      } else if (filter === "unscraped") {
-        filtered = filtered.filter((d) => !scrapedSet.has(d.slug));
-      } else if (filter === "has_raw") {
-        filtered = filtered.filter((d) => rawDataSet.has(d.slug));
-      } else if (filter === "has_ai") {
-        filtered = filtered.filter((d) => aiDataSet.has(d.slug));
-      } else if (filter === "needs_raw") {
-        filtered = filtered.filter(
-          (d) => scrapedSet.has(d.slug) && !rawDataSet.has(d.slug),
-        );
-      } else if (filter === "needs_ai") {
-        filtered = filtered.filter(
-          (d) => rawDataSet.has(d.slug) && !aiDataSet.has(d.slug),
-        );
-      }
-
-      return {
-        total: devices.length,
-        filtered: filtered.length,
-        devices: filtered.slice(0, limit),
-        stats: {
-          corrupted: corruptedSlugs.length,
-          valid: validSlugs.length,
-          scraped: scrapedSlugs.length,
-          rawData: rawDataCount,
-          aiData: aiDataCount,
-        },
-      };
-    })
-    .get("/slugs/stats", async () => {
-      const program = Effect.gen(function* () {
-        const deviceService = yield* DeviceService;
-        const deviceCount = yield* deviceService.getDeviceCount();
-        const pendingCount = yield* deviceService.getPendingPrefixCount();
-        return { devices: deviceCount, pendingPrefixes: pendingCount };
-      });
-      return LiveRuntime.runPromise(program);
-    })
     .post("/scrape/queue", async ({ body }) => {
       const { source, externalId, mode } = body as {
         source: string;

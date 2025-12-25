@@ -8,8 +8,97 @@ import { DeviceRegistryService } from "../services/device-registry";
 import { BulkJobManager } from "../services/bulk-job";
 import { LiveRuntime } from "../layers/live";
 
+export interface DeviceWithStats {
+  id: string;
+  slug: string;
+  name: string;
+  brand: string | null;
+  createdAt: number;
+  updatedAt: number;
+  releaseDate: string | null;
+}
+
 export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
   new Elysia({ prefix: "/api/v2" })
+    .get("/devices", async ({ query }) => {
+      const search = (query.search as string)?.toLowerCase() || "";
+      const filter = query.filter as string | undefined;
+      const limit = Math.min(Math.max(1, parseInt(query.limit as string) || 500), 10000);
+      const source = (query.source as string) ?? "kimovil";
+
+      const program = Effect.gen(function* () {
+        const deviceRegistry = yield* DeviceRegistryService;
+        const htmlCache = yield* HtmlCacheService;
+        const entityData = yield* EntityDataService;
+
+        const devices = yield* deviceRegistry.getAllDevices();
+        const scrapedSlugs = yield* htmlCache.getScrapedSlugs(source);
+        const corruptedSlugs = yield* htmlCache.getCorruptedSlugs(source);
+        const validSlugs = yield* htmlCache.getValidSlugs(source);
+
+        const scrapedSet = new Set(scrapedSlugs);
+        const corruptedSet = new Set(corruptedSlugs);
+        const validSet = new Set(validSlugs);
+
+        const rawDeviceIdsList = yield* entityData.getRawDataDeviceIds(source, "specs");
+        const rawDataDeviceIds = new Set(rawDeviceIdsList);
+
+        const aiDeviceIdsList = yield* entityData.getFinalDataDeviceIds("specs");
+        const aiDataDeviceIds = new Set(aiDeviceIdsList);
+
+        let filtered: DeviceWithStats[] = devices;
+
+        if (search) {
+          filtered = filtered.filter(
+            (d) =>
+              d.name.toLowerCase().includes(search) ||
+              d.slug.toLowerCase().includes(search) ||
+              d.brand?.toLowerCase().includes(search),
+          );
+        }
+
+        if (filter === "corrupted") {
+          filtered = filtered.filter((d) => corruptedSet.has(d.slug));
+        } else if (filter === "valid") {
+          filtered = filtered.filter((d) => validSet.has(d.slug));
+        } else if (filter === "scraped") {
+          filtered = filtered.filter((d) => scrapedSet.has(d.slug));
+        } else if (filter === "unscraped") {
+          filtered = filtered.filter((d) => !scrapedSet.has(d.slug));
+        } else if (filter === "has_raw") {
+          filtered = filtered.filter((d) => rawDataDeviceIds.has(d.id));
+        } else if (filter === "has_ai") {
+          filtered = filtered.filter((d) => aiDataDeviceIds.has(d.id));
+        } else if (filter === "needs_raw") {
+          filtered = filtered.filter((d) => scrapedSet.has(d.slug) && !rawDataDeviceIds.has(d.id));
+        } else if (filter === "needs_ai") {
+          filtered = filtered.filter((d) => rawDataDeviceIds.has(d.id) && !aiDataDeviceIds.has(d.id));
+        }
+
+        return {
+          total: devices.length,
+          filtered: filtered.length,
+          devices: filtered.slice(0, limit),
+          stats: {
+            corrupted: corruptedSlugs.length,
+            valid: validSlugs.length,
+            scraped: scrapedSlugs.length,
+            rawData: rawDataDeviceIds.size,
+            aiData: aiDataDeviceIds.size,
+          },
+        };
+      });
+
+      return LiveRuntime.runPromise(program);
+    })
+    .get("/devices/stats", async () => {
+      const program = Effect.gen(function* () {
+        const deviceRegistry = yield* DeviceRegistryService;
+        const deviceCount = yield* deviceRegistry.getDeviceCount();
+        return { devices: deviceCount };
+      });
+      return LiveRuntime.runPromise(program);
+    })
     .get("/devices/:slug/sources/:source/html", async ({ params, set }) => {
       const { slug, source } = params;
 

@@ -19,9 +19,9 @@ export interface Device {
   slug: string;
   name: string;
   brand: string | null;
-  isRumor: boolean;
-  firstSeen: number;
-  lastSeen: number;
+  createdAt: number;
+  updatedAt: number;
+  releaseDate: string | null;
 }
 
 export interface SlugsResponse {
@@ -33,7 +33,6 @@ export interface SlugsResponse {
 
 export interface Stats {
   devices: number;
-  pendingPrefixes: number;
 }
 
 export interface QueueItem {
