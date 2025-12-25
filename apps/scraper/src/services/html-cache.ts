@@ -73,6 +73,7 @@ export interface HtmlCacheService {
 
   readonly getCorruptedSlugs: (source?: string) => Effect.Effect<string[], HtmlCacheError>;
   readonly getValidSlugs: (source?: string) => Effect.Effect<string[], HtmlCacheError>;
+  readonly deleteRawHtml: (slug: string, source?: string) => Effect.Effect<boolean, HtmlCacheError>;
 }
 
 export const HtmlCacheService =
@@ -258,6 +259,16 @@ export const HtmlCacheServiceLive = Layer.effect(
           `.pipe(
             Effect.map((rows) => rows.map((r) => r.slug)),
           ),
+        ),
+
+      deleteRawHtml: (slug: string, source = "kimovil") =>
+        wrapError(
+          Effect.gen(function* () {
+            yield* sql`DELETE FROM raw_html WHERE slug = ${slug} AND source = ${source}`;
+            yield* sql`DELETE FROM scrape_verification WHERE slug = ${slug} AND source = ${source}`;
+            const rows = yield* sql<{ count: number }>`SELECT changes() as count`;
+            return (rows[0]?.count ?? 0) > 0;
+          }),
         ),
     });
   }),

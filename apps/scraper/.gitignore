@@ -47,4 +47,5 @@ package-lock.json
 # Sensitive data
 yandex-cookies.json
 scraper-cache.sqlite
-scraper-cache.sqlite-*
+scraper-cache.sqlite-*dump.db
+dump.sql

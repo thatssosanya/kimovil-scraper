@@ -12,6 +12,7 @@ import { BulkJobManager } from "./services/bulk-job";
 import { runSchedulerLoop } from "./services/scheduler";
 
 import { createApiRoutes } from "./routes/api";
+import { createApiV2Routes } from "./routes/api-v2";
 import { createDebugRoutes } from "./routes/debug";
 import { createWsServer } from "./routes/ws-server";
 
@@ -20,7 +21,8 @@ const bulkJobManager = new BulkJobManager(LiveRuntime);
 // Create Elysia app WITHOUT the node adapter - we'll own the http.Server ourselves
 const app = new Elysia()
   .use(cors({ origin: true, credentials: true }))
-  .use(createApiRoutes(bulkJobManager));
+  .use(createApiRoutes(bulkJobManager))
+  .use(createApiV2Routes(bulkJobManager));
 
 // Mount debug eval endpoint only in development
 if (config.enableDebugEval) {

@@ -43,6 +43,17 @@ export interface EntityDataService {
     dataKind: string,
     limit?: number,
   ) => Effect.Effect<string[], EntityDataError>;
+
+  readonly deleteRawData: (
+    deviceId: string,
+    source: string,
+    dataKind: string,
+  ) => Effect.Effect<boolean, EntityDataError>;
+
+  readonly deleteFinalData: (
+    deviceId: string,
+    dataKind: string,
+  ) => Effect.Effect<boolean, EntityDataError>;
 }
 
 export const EntityDataService =
@@ -144,6 +155,26 @@ export const EntityDataServiceLive = Layer.effect(
           Effect.map((rows) => rows.map((r) => r.device_id)),
           Effect.mapError(wrapSqlError),
         ),
+
+      deleteRawData: (deviceId: string, source: string, dataKind: string) =>
+        Effect.gen(function* () {
+          yield* sql`
+            DELETE FROM entity_data_raw
+            WHERE device_id = ${deviceId} AND source = ${source} AND data_kind = ${dataKind}
+          `;
+          const rows = yield* sql<{ count: number }>`SELECT changes() as count`;
+          return (rows[0]?.count ?? 0) > 0;
+        }).pipe(Effect.mapError(wrapSqlError)),
+
+      deleteFinalData: (deviceId: string, dataKind: string) =>
+        Effect.gen(function* () {
+          yield* sql`
+            DELETE FROM entity_data
+            WHERE device_id = ${deviceId} AND data_kind = ${dataKind}
+          `;
+          const rows = yield* sql<{ count: number }>`SELECT changes() as count`;
+          return (rows[0]?.count ?? 0) > 0;
+        }).pipe(Effect.mapError(wrapSqlError)),
     });
   }),
 );

@@ -315,7 +315,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         slug TEXT NOT NULL,
         job_id TEXT,
-        job_type TEXT NOT NULL DEFAULT 'scrape' CHECK (job_type IN ('scrape', 'process_raw', 'process_ai')),
+        job_type TEXT NOT NULL DEFAULT 'scrape' CHECK (job_type IN ('scrape', 'process_raw', 'process_ai', 'clear_html', 'clear_raw', 'clear_processed')),
         mode TEXT NOT NULL CHECK (mode IN ('fast', 'complex')),
         status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'done', 'error')),
         attempt INTEGER NOT NULL DEFAULT 0,
@@ -333,7 +333,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS jobs (
         id TEXT PRIMARY KEY,
-        job_type TEXT NOT NULL DEFAULT 'scrape' CHECK (job_type IN ('scrape', 'process_raw', 'process_ai')),
+        job_type TEXT NOT NULL DEFAULT 'scrape' CHECK (job_type IN ('scrape', 'process_raw', 'process_ai', 'clear_html', 'clear_raw', 'clear_processed')),
         mode TEXT NOT NULL CHECK (mode IN ('fast', 'complex')),
         ai_mode TEXT CHECK (ai_mode IS NULL OR ai_mode IN ('realtime', 'batch')),
         status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'pausing', 'paused', 'done', 'error')),

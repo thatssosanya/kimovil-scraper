@@ -337,6 +337,13 @@ export class BulkJobManager {
         });
       } else if (jobType === "process_ai") {
         await this.runProcessAi(item.slug, services.phoneData);
+      } else if (jobType === "clear_html") {
+        const source = item.source ?? "kimovil";
+        await Effect.runPromise(services.htmlCache.deleteRawHtml(item.slug, source));
+      } else if (jobType === "clear_raw") {
+        await Effect.runPromise(services.phoneData.deleteRaw(item.slug));
+      } else if (jobType === "clear_processed") {
+        await Effect.runPromise(services.phoneData.delete(item.slug));
       }
 
       const duration = Date.now() - startTime;
