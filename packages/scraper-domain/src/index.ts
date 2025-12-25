@@ -21,7 +21,4 @@ export type {
   DataKind,
   SourceStatus,
   ScrapeStatus,
-  DeviceData,
-  DeviceSourceLinkData,
-  ScrapeData,
 } from "./models";

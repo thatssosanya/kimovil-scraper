@@ -80,39 +80,6 @@ export class CpuCoreCluster extends Schema.Class<CpuCoreCluster>(
   index: Schema.Number,
 }) {}
 
-// JSON transformers for SQLite storage (arrays stored as JSON TEXT)
-
-export const JsonFromString = <A, I>(
-  schema: Schema.Schema<A, I>,
-): Schema.Schema<A, string> =>
-  Schema.transform(Schema.String, schema, {
-    decode: (s) => JSON.parse(s) as I,
-    encode: (a) => JSON.stringify(a),
-  });
-
-// Boolean stored as 0/1 in SQLite
-export const BooleanFromNumber = Schema.transform(
-  Schema.Number,
-  Schema.Boolean,
-  {
-    decode: (n) => n !== 0,
-    encode: (b) => (b ? 1 : 0),
-  },
-);
-
-// Nullable boolean stored as 0/1/null in SQLite
-export const NullableBooleanFromNumber = Schema.NullOr(BooleanFromNumber);
-
-// Date stored as unix timestamp in SQLite
-export const DateFromTimestamp = Schema.transform(
-  Schema.Number,
-  Schema.DateFromSelf,
-  {
-    decode: (n) => new Date(n * 1000),
-    encode: (d) => Math.floor(d.getTime() / 1000),
-  },
-);
-
 // Raw phone data before AI normalization (extracted from HTML)
 export class RawPhone extends Schema.Class<RawPhone>("RawPhone")({
   // Primary key
@@ -240,21 +207,6 @@ export class Phone extends Schema.Class<Phone>("Phone")({
   osSkin: Schema.NullOr(Schema.String),
 }) {}
 
-// DB row types for SQLite storage (data stored as JSON TEXT)
-export class RawPhoneRow extends Schema.Class<RawPhoneRow>("RawPhoneRow")({
-  slug: Schema.String,
-  data: Schema.String, // JSON string of RawPhone (without slug)
-  created_at: Schema.Number, // unix timestamp
-  updated_at: Schema.Number, // unix timestamp
-}) {}
-
-export class PhoneRow extends Schema.Class<PhoneRow>("PhoneRow")({
-  slug: Schema.String,
-  data: Schema.String, // JSON string of Phone (without slug)
-  created_at: Schema.Number, // unix timestamp
-  updated_at: Schema.Number, // unix timestamp
-}) {}
-
 // Plain TypeScript types for frontend (no Schema runtime dependency)
 export type CameraData = typeof Camera.Type;
 export type NormalizedCameraData = typeof NormalizedCamera.Type;
@@ -263,5 +215,3 @@ export type BenchmarkData = typeof Benchmark.Type;
 export type CpuCoreClusterData = typeof CpuCoreCluster.Type;
 export type RawPhoneData = typeof RawPhone.Type;
 export type PhoneData = typeof Phone.Type;
-export type RawPhoneRowData = typeof RawPhoneRow.Type;
-export type PhoneRowData = typeof PhoneRow.Type;
