@@ -1,5 +1,9 @@
 import { Context, Stream } from "effect";
-import { ScrapeResult } from "@repo/scraper-protocol";
+import type { RawPhoneData } from "../models/phone";
+
+export interface ScrapeResult {
+  readonly data: RawPhoneData;
+}
 
 export class ScrapeError extends Error {
   readonly _tag = "ScrapeError";

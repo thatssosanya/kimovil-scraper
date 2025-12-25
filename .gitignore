@@ -42,3 +42,4 @@ session-ses_*.md
 pbcopy
 *.sqlite-shm
 *.sqlite-wal
+*.tsbuildinfo

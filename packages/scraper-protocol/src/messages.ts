@@ -1,4 +1,11 @@
 import { Schema } from "@effect/schema";
+import {
+  CpuCoreCluster,
+  Sku,
+  Benchmark,
+  UsbTypeSchema,
+  FingerprintPositionSchema,
+} from "@repo/scraper-domain";
 
 export class Request extends Schema.Class<Request>("Request")({
   id: Schema.String,
@@ -153,36 +160,6 @@ export class SingleCameraData extends Schema.Class<SingleCameraData>(
   features: Schema.Array(Schema.String),
 }) {}
 
-export class Sku extends Schema.Class<Sku>("Sku")({
-  marketIds: Schema.Array(Schema.String),
-  ram_gb: Schema.Number,
-  storage_gb: Schema.Number,
-}) {}
-
-export class Benchmark extends Schema.Class<Benchmark>("Benchmark")({
-  name: Schema.String,
-  score: Schema.Number,
-}) {}
-
-export const CpuCoreRoleSchema = Schema.Literal(
-  "performance",
-  "efficiency",
-  "balanced",
-  "unknown",
-);
-export type CpuCoreRole = typeof CpuCoreRoleSchema.Type;
-
-export class CpuCoreCluster extends Schema.Class<CpuCoreCluster>(
-  "CpuCoreCluster",
-)({
-  count: Schema.Number,
-  maxFreqMhz: Schema.NullOr(Schema.Number),
-  label: Schema.NullOr(Schema.String),
-  role: CpuCoreRoleSchema,
-  rawGroup: Schema.String,
-  index: Schema.Number,
-}) {}
-
 export class PhoneData extends Schema.Class<PhoneData>("PhoneData")({
   // essentials
   slug: Schema.String,
@@ -217,7 +194,7 @@ export class PhoneData extends Schema.Class<PhoneData>("PhoneData")({
   gpu: Schema.NullOr(Schema.String),
   sdSlot: Schema.NullOr(Schema.Boolean),
   skus: Schema.Array(Sku),
-  fingerprintPosition: Schema.NullOr(Schema.Literal("screen", "side", "back")),
+  fingerprintPosition: Schema.NullOr(FingerprintPositionSchema),
   benchmarks: Schema.Array(Benchmark),
 
   // connectivity
@@ -225,7 +202,7 @@ export class PhoneData extends Schema.Class<PhoneData>("PhoneData")({
   bluetooth: Schema.NullOr(Schema.String),
   sim: Schema.Array(Schema.String),
   simCount: Schema.Number,
-  usb: Schema.NullOr(Schema.Literal("USB-A", "USB-C", "Lightning")),
+  usb: Schema.NullOr(UsbTypeSchema),
   headphoneJack: Schema.NullOr(Schema.Boolean),
 
   // battery

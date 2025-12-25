@@ -1,5 +1,14 @@
 import { Context, Stream, Data } from "effect";
-import { SearchResult } from "@repo/scraper-protocol";
+
+export interface SearchOption {
+  readonly name: string;
+  readonly slug: string;
+  readonly url: string;
+}
+
+export interface SearchResult {
+  readonly options: readonly SearchOption[];
+}
 
 export class KimovilHttpError extends Data.TaggedError("KimovilHttpError")<{
   readonly url: string;

@@ -1,5 +1,32 @@
 import { Schema } from "@effect/schema";
 
+import {
+  CpuCoreRoleSchema,
+  CpuCoreCluster,
+  Sku,
+  Benchmark,
+  UsbTypeSchema,
+  FingerprintPositionSchema,
+} from "./shared";
+
+// Re-export shared types for backwards compatibility
+export {
+  CpuCoreRoleSchema,
+  CpuCoreCluster,
+  Sku,
+  Benchmark,
+  UsbTypeSchema,
+  FingerprintPositionSchema,
+} from "./shared";
+export type {
+  CpuCoreRole,
+  UsbType,
+  FingerprintPosition,
+  CpuCoreClusterData,
+  SkuData,
+  BenchmarkData,
+} from "./shared";
+
 // Camera types for AI normalization
 export const CameraTypeSchema = Schema.Literal(
   "ширик",
@@ -17,18 +44,6 @@ export const CameraFeaturesArraySchema = Schema.Array(
   Schema.Literal("macro", "monochrome"),
 );
 export type CameraFeaturesArray = typeof CameraFeaturesArraySchema.Type;
-
-// USB type enum
-export const UsbTypeSchema = Schema.Literal("USB-A", "USB-C", "Lightning");
-export type UsbType = typeof UsbTypeSchema.Type;
-
-// Fingerprint position enum
-export const FingerprintPositionSchema = Schema.Literal(
-  "screen",
-  "side",
-  "back",
-);
-export type FingerprintPosition = typeof FingerprintPositionSchema.Type;
 
 // Embedded types (not stored as separate tables)
 
@@ -48,36 +63,6 @@ export class NormalizedCamera extends Schema.Class<NormalizedCamera>(
   sensor: Schema.NullOr(Schema.String),
   type: CameraTypeSchema,
   features: Schema.NullOr(CameraFeaturesArraySchema),
-}) {}
-
-export class Sku extends Schema.Class<Sku>("Sku")({
-  marketIds: Schema.Array(Schema.String),
-  ram_gb: Schema.Number,
-  storage_gb: Schema.Number,
-}) {}
-
-export class Benchmark extends Schema.Class<Benchmark>("Benchmark")({
-  name: Schema.String,
-  score: Schema.Number,
-}) {}
-
-export const CpuCoreRoleSchema = Schema.Literal(
-  "performance",
-  "efficiency",
-  "balanced",
-  "unknown",
-);
-export type CpuCoreRole = typeof CpuCoreRoleSchema.Type;
-
-export class CpuCoreCluster extends Schema.Class<CpuCoreCluster>(
-  "CpuCoreCluster",
-)({
-  count: Schema.Number,
-  maxFreqMhz: Schema.NullOr(Schema.Number),
-  label: Schema.NullOr(Schema.String),
-  role: CpuCoreRoleSchema,
-  rawGroup: Schema.String,
-  index: Schema.Number,
 }) {}
 
 // Raw phone data before AI normalization (extracted from HTML)
@@ -210,8 +195,5 @@ export class Phone extends Schema.Class<Phone>("Phone")({
 // Plain TypeScript types for frontend (no Schema runtime dependency)
 export type CameraData = typeof Camera.Type;
 export type NormalizedCameraData = typeof NormalizedCamera.Type;
-export type SkuData = typeof Sku.Type;
-export type BenchmarkData = typeof Benchmark.Type;
-export type CpuCoreClusterData = typeof CpuCoreCluster.Type;
 export type RawPhoneData = typeof RawPhone.Type;
 export type PhoneData = typeof Phone.Type;

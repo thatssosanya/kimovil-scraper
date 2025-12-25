@@ -18,8 +18,7 @@
   },
   "dependencies": {
     "@effect/schema": "^0.75.5",
-    "effect": "^3.18.4",
-    "@repo/scraper-protocol": "workspace:*"
+    "effect": "^3.18.4"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
