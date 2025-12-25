@@ -617,20 +617,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     // Drop legacy tables after successful data migration
     yield* dropLegacyTables(sql);
 
-    yield* sql.unsafe(`
-      CREATE TABLE IF NOT EXISTS kimovil_devices (
-        id TEXT PRIMARY KEY,
-        slug TEXT UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        brand TEXT,
-        is_rumor INTEGER NOT NULL DEFAULT 0,
-        raw TEXT,
-        first_seen INTEGER NOT NULL DEFAULT (unixepoch()),
-        last_seen INTEGER NOT NULL DEFAULT (unixepoch())
-      )
-    `);
 
-    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_kimovil_devices_slug ON kimovil_devices(slug)`);
 
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS kimovil_prefix_state (
@@ -825,6 +812,9 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
 
     yield* sql.withTransaction(migrateKimovilDevices(sql));
     yield* sql.withTransaction(backfillJobQueueDeviceId(sql));
+
+    // Drop legacy kimovil_devices table after migration to devices/device_sources
+    yield* sql.unsafe(`DROP TABLE IF EXISTS kimovil_devices`);
 
     // Migrate legacy phone_data_* tables to entity_data_* tables
     yield* sql.withTransaction(migratePhoneDataToEntityData(sql));

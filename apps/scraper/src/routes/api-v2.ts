@@ -272,6 +272,9 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
           let hasEntityRaw = false;
           let hasEntityFinal = false;
 
+          let priceSourceCount = 0;
+          let hasPrices = false;
+
           if (device) {
             const entityRaw = yield* entityData.getRawData(device.id, source, "specs").pipe(
               Effect.catchAll(() => Effect.succeed(null)),
@@ -281,6 +284,17 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
             );
             hasEntityRaw = entityRaw !== null;
             hasEntityFinal = entityFinal !== null;
+
+            const priceSourceRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM device_sources
+              WHERE device_id = ${device.id} AND source IN ('yandex_market', 'price_ru')
+            `.pipe(Effect.catchAll(() => Effect.succeed([])));
+            priceSourceCount = priceSourceRows[0]?.count ?? 0;
+
+            const priceRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM price_quotes WHERE device_id = ${device.id} LIMIT 1
+            `.pipe(Effect.catchAll(() => Effect.succeed([])));
+            hasPrices = (priceRows[0]?.count ?? 0) > 0;
           }
 
           results[slug] = {
@@ -291,6 +305,8 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
             hasEntityFinal,
             isCorrupted: verification?.isCorrupted ?? null,
             corruptionReason: verification?.reason ?? null,
+            priceSourceCount,
+            hasPrices,
           };
         }
 
