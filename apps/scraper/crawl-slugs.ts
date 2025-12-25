@@ -4,11 +4,15 @@ import {
   SlugCrawlerServiceLive,
 } from "./src/services/slug-crawler";
 import { DeviceServiceLive } from "./src/services/device";
+import { DeviceRegistryServiceLive } from "./src/services/device-registry";
 import { SqlClientLive, SchemaLive } from "./src/sql";
 
 const SqlLayer = SchemaLive.pipe(Layer.provideMerge(SqlClientLive));
 const DeviceLayer = DeviceServiceLive.pipe(Layer.provide(SqlLayer));
-const MainLayer = SlugCrawlerServiceLive.pipe(Layer.provide(DeviceLayer));
+const DeviceRegistryLayer = DeviceRegistryServiceLive.pipe(Layer.provide(SqlLayer));
+const MainLayer = SlugCrawlerServiceLive.pipe(
+  Layer.provide(Layer.mergeAll(DeviceLayer, DeviceRegistryLayer)),
+);
 
 const program = Effect.gen(function* () {
   const crawler = yield* SlugCrawlerService;

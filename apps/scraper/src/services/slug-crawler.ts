@@ -2,6 +2,7 @@ import { Effect, Layer, Context } from "effect";
 import { chromium, Page, Browser, BrowserContext } from "playwright";
 import { generateDeviceId } from "@repo/scraper-domain/server";
 import { DeviceService, DeviceError } from "./device";
+import { DeviceRegistryService, DeviceRegistryError } from "./device-registry";
 import { inferBrand, isValidChildPrefix, isPrefixWorthExpanding } from "./kimovil/slug-logic";
 
 const MAX_RESULTS_THRESHOLD = 8;
@@ -28,11 +29,11 @@ interface AutocompleteResponse {
 export interface SlugCrawlerService {
   readonly runFullCrawl: () => Effect.Effect<
     void,
-    SlugCrawlerError | DeviceError
+    SlugCrawlerError | DeviceError | DeviceRegistryError
   >;
   readonly getCrawlStats: () => Effect.Effect<
     { devices: number; pendingPrefixes: number },
-    DeviceError
+    DeviceError | DeviceRegistryError
   >;
 }
 
@@ -91,14 +92,15 @@ export const SlugCrawlerServiceLive = Layer.effect(
   SlugCrawlerService,
   Effect.gen(function* () {
     const deviceService = yield* DeviceService;
+    const deviceRegistry = yield* DeviceRegistryService;
 
     // In-memory cache of known slugs to detect new devices
     const knownSlugs = new Set<string>();
 
-    const loadKnownSlugs = (): Effect.Effect<void, DeviceError> =>
+    const loadKnownSlugs = (): Effect.Effect<void, DeviceRegistryError> =>
       Effect.gen(function* () {
-        const devices = yield* deviceService.getAllDevices();
-        for (const d of devices) {
+        const kimovilDevices = yield* deviceRegistry.getDevicesBySource("kimovil");
+        for (const d of kimovilDevices) {
           knownSlugs.add(d.slug);
         }
         yield* Effect.logInfo(`Loaded ${knownSlugs.size} known slugs into memory`).pipe(
@@ -150,7 +152,7 @@ export const SlugCrawlerServiceLive = Layer.effect(
       depth: number,
     ): Effect.Effect<
       { total: number; newDevices: number },
-      SlugCrawlerError | DeviceError
+      SlugCrawlerError | DeviceError | DeviceRegistryError
     > =>
       Effect.gen(function* () {
         const results = yield* Effect.tryPromise({
@@ -168,7 +170,6 @@ export const SlugCrawlerServiceLive = Layer.effect(
           const slug = item.url;
           const name = item.full_name;
           const brand = inferBrand(name);
-          const isRumor = item.is_rumor ?? false;
 
           const isNew = !knownSlugs.has(slug);
           if (isNew) {
@@ -178,12 +179,11 @@ export const SlugCrawlerServiceLive = Layer.effect(
             newlyAdded.push({ id, name });
           }
 
-          yield* deviceService.upsertDevice({
-            slug,
-            name,
-            brand,
-            isRumor,
-            raw: JSON.stringify(item),
+          const device = yield* deviceRegistry.createDevice({ slug, name, brand });
+          yield* deviceRegistry.linkDeviceToSource({
+            deviceId: device.id,
+            source: "kimovil",
+            externalId: slug,
           });
         }
 
@@ -331,7 +331,7 @@ export const SlugCrawlerServiceLive = Layer.effect(
 
       getCrawlStats: () =>
         Effect.gen(function* () {
-          const devices = yield* deviceService.getDeviceCount();
+          const devices = yield* deviceRegistry.getDeviceCount();
           const pendingPrefixes = yield* deviceService.getPendingPrefixCount();
           return { devices, pendingPrefixes };
         }),

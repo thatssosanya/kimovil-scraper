@@ -36,7 +36,7 @@ import {
   SearchEvent,
   ScrapeEvent,
 } from "@repo/scraper-domain";
-import { DeviceService } from "../services/device";
+
 import { HtmlCacheService } from "../services/html-cache";
 import { PhoneDataService } from "../services/phone-data";
 import {
@@ -200,7 +200,6 @@ const createHandlers = (
       const params = yield* Schema.decodeUnknown(BulkStartParams)(
         request.params,
       );
-      const deviceService = yield* DeviceService;
       const htmlCache = yield* HtmlCacheService;
       const phoneData = yield* PhoneDataService;
       const jobQueue = yield* JobQueueService;
@@ -212,8 +211,8 @@ const createHandlers = (
       if (Array.isArray(params.slugs) && params.slugs.length > 0) {
         targetSlugs = Array.from(new Set(params.slugs));
       } else if (jobType === "scrape") {
-        const allDevices = yield* deviceService.getAllDevices();
-        const allSlugs = allDevices.map((d: { slug: string }) => d.slug);
+        const kimovilDevices = yield* deviceRegistry.getDevicesBySource("kimovil");
+        const allSlugs = kimovilDevices.map((d) => d.slug);
         if (params.filter === "all") {
           targetSlugs = allSlugs;
         } else {
@@ -231,14 +230,14 @@ const createHandlers = (
         }
       } else if (jobType === "process_ai") {
         if (params.filter === "all") {
-          const allDevices = yield* deviceService.getAllDevices();
+          const kimovilDevices = yield* deviceRegistry.getDevicesBySource("kimovil");
           const rawSlugs = new Set(
             (yield* phoneData.getSlugsNeedingAi()).concat(
               (yield* htmlCache.getScrapedSlugs()).filter(() => true),
             ),
           );
-          targetSlugs = allDevices
-            .map((d: { slug: string }) => d.slug)
+          targetSlugs = kimovilDevices
+            .map((d) => d.slug)
             .filter((s: string) => rawSlugs.has(s));
         } else {
           targetSlugs = yield* phoneData.getSlugsNeedingAi();
@@ -806,37 +805,12 @@ const createHandlers = (
       const externalId = validation.externalId;
 
       const deviceRegistry = yield* DeviceRegistryService;
-      const deviceService = yield* DeviceService;
 
-      // Ensure device exists in new devices table (migrate from kimovil_devices if needed)
-      const existingDevice = yield* deviceRegistry.getDeviceBySlug(params.deviceId);
-      if (!existingDevice) {
-        // Try to get from kimovil_devices and create in devices table
-        const kimovilDevice = yield* deviceService.getDevice(params.deviceId);
-        if (kimovilDevice) {
-          yield* deviceRegistry.createDevice({
-            slug: kimovilDevice.slug,
-            name: kimovilDevice.name,
-            brand: kimovilDevice.brand,
-          });
-        } else {
-          const result = new YandexLinkResult({
-            success: false,
-            error: `Device not found: ${params.deviceId}`,
-          });
-          yield* Effect.sync(() =>
-            ws.send(JSON.stringify(new Response({ id: request.id, result }))),
-          );
-          return;
-        }
-      }
-
-      // Get the device ID (might be different from slug)
       const device = yield* deviceRegistry.getDeviceBySlug(params.deviceId);
       if (!device) {
         const result = new YandexLinkResult({
           success: false,
-          error: `Failed to get device: ${params.deviceId}`,
+          error: `Device not found: ${params.deviceId}`,
         });
         yield* Effect.sync(() =>
           ws.send(JSON.stringify(new Response({ id: request.id, result }))),
