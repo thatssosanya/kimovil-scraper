@@ -138,27 +138,6 @@ export class StreamEvent extends Schema.Class<StreamEvent>("StreamEvent")({
         }),
       ),
     }),
-    // Batch AI processing events
-    Schema.Struct({
-      type: Schema.Literal("batch.submitted"),
-      jobId: Schema.String,
-      batchRequestId: Schema.String,
-      itemCount: Schema.Number,
-    }),
-    Schema.Struct({
-      type: Schema.Literal("batch.progress"),
-      jobId: Schema.String,
-      batchRequestId: Schema.String,
-      status: Schema.String,
-      processedCount: Schema.optional(Schema.Number),
-    }),
-    Schema.Struct({
-      type: Schema.Literal("batch.completed"),
-      jobId: Schema.String,
-      batchRequestId: Schema.String,
-      successCount: Schema.Number,
-      errorCount: Schema.Number,
-    }),
   ),
 }) {}
 
@@ -339,18 +318,6 @@ export class BulkResult extends Schema.Class<BulkResult>("BulkResult")({
   job: BulkJobInfo,
   stats: BulkJobStats,
 }) {}
-
-export class BulkItemCompleted extends Schema.Class<BulkItemCompleted>(
-  "BulkItemCompleted",
-)({
-  slug: Schema.String,
-  success: Schema.Boolean,
-  error: Schema.NullOr(Schema.String),
-}) {}
-
-export class BulkListParams extends Schema.Class<BulkListParams>(
-  "BulkListParams",
-)({}) {}
 
 export class BulkJobWithStats extends Schema.Class<BulkJobWithStats>(
   "BulkJobWithStats",
