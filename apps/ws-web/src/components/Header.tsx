@@ -10,33 +10,26 @@ interface HeaderProps {
 function Logo() {
   return (
     <svg
-      viewBox="0 0 40 40"
+      viewBox="0 0 36 36"
       class="w-9 h-9"
-      fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
         <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stop-color="#6366f1" />
-          <stop offset="50%" stop-color="#8b5cf6" />
-          <stop offset="100%" stop-color="#06b6d4" />
+          <stop offset="0%" stop-color="hsl(354, 100%, 64%)" />
+          <stop offset="100%" stop-color="hsl(355, 80%, 50%)" />
         </linearGradient>
       </defs>
-      <path
-        d="M20 5L33 12.5V27.5L20 35L7 27.5V12.5L20 5Z"
-        stroke="url(#logoGradient)"
-        stroke-width="2.5"
-        stroke-linejoin="round"
-        fill="none"
-      />
-      <path
-        d="M20 12L28 16.5V23.5L20 28L12 23.5V16.5L20 12Z"
-        fill="url(#logoGradient)"
-        fill-opacity="0.2"
-        stroke="url(#logoGradient)"
-        stroke-width="1.5"
-        stroke-linejoin="round"
-      />
+      {/* Phone body - tilted for fun */}
+      <g transform="rotate(-12 18 18)">
+        <rect x="10" y="4" width="16" height="28" rx="3" fill="none" stroke="url(#logoGradient)" stroke-width="2.5" />
+        <rect x="13" y="8" width="10" height="16" rx="1.5" fill="url(#logoGradient)" opacity="0.15" />
+        <circle cx="18" cy="28" r="2" fill="url(#logoGradient)" />
+      </g>
+      {/* Data sparkles */}
+      <circle cx="28" cy="8" r="2" fill="hsl(354, 100%, 64%)" />
+      <circle cx="32" cy="14" r="1.5" fill="hsl(354, 100%, 70%)" opacity="0.7" />
+      <circle cx="6" cy="28" r="1.5" fill="hsl(354, 100%, 64%)" opacity="0.5" />
     </svg>
   );
 }
@@ -82,7 +75,7 @@ export function Header(props: HeaderProps) {
           <div class="flex-shrink-0 flex items-center gap-3">
             <a href="/" class="flex items-center gap-3 group">
               <Logo />
-              <span class="text-lg font-bold tracking-tight text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors">
+              <span class="text-lg font-semibold tracking-[-0.02em] font-['Inter',system-ui,-apple-system,sans-serif] text-zinc-900 dark:text-white group-hover:text-[hsl(354,100%,64%)] transition-colors">
                 P-Scraper
               </span>
             </a>

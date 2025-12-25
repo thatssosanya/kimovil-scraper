@@ -21,4 +21,13 @@ export type {
   DataKind,
   SourceStatus,
   ScrapeStatus,
+  JobType,
+  JobStatus,
+  AiMode,
+  ScrapeMode,
+
+  // Entity types
+  EntityDataRaw,
+  EntityData,
+  PriceQuote,
 } from "./models";
