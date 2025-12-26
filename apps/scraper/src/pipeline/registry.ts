@@ -1,8 +1,14 @@
 import { Effect } from "effect";
 import type { DataKind } from "@repo/scraper-domain";
+import type { JobOutcome } from "../services/job-queue";
 
-export type { DataKind };
+export type { DataKind, JobOutcome };
 export type PipelineStage = "scrape" | "process_raw" | "process_ai";
+
+export interface PipelineResult {
+  outcome: JobOutcome;
+  message?: string;
+}
 
 export interface PipelineContext {
   jobId: string;
@@ -16,7 +22,7 @@ export interface PipelineContext {
 
 export type StageHandler<R = never, E = never> = (
   ctx: PipelineContext,
-) => Effect.Effect<void, E, R>;
+) => Effect.Effect<PipelineResult | void, E, R>;
 
 export interface PipelineDefinition<R = never, E = never> {
   source: string;

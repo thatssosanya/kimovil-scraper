@@ -7,6 +7,6 @@ export { JobTimeoutInfo } from "./JobTimeoutInfo";
 export { JobsHeader } from "./JobsHeader";
 export { JobsRow } from "./JobsRow";
 export { JobsTable } from "./JobsTable";
-export { SelectedJobPanel } from "./SelectedJobPanel";
+export { JobDetailModal } from "./JobDetailModal";
 export { JobsSection } from "./JobsSection";
 export * from "./jobViewHelpers";

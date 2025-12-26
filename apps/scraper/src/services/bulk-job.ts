@@ -19,7 +19,8 @@ import { BrowserService } from "./browser";
 import { RobotService } from "./robot";
 import { extractPhoneData, getHtmlValidationError } from "./kimovil";
 import { ScrapeResult } from "@repo/scraper-protocol";
-import { getStageHandler, type PipelineContext } from "../pipeline/registry";
+import { getStageHandler, type PipelineContext, type PipelineResult } from "../pipeline/registry";
+import type { JobOutcome } from "./job-queue";
 
 export type Ws = { send: (data: string) => void };
 
@@ -56,6 +57,8 @@ type QueueItemResult = {
   success: boolean;
   error: string | null;
   rescheduled: boolean;
+  outcome?: JobOutcome;
+  outcomeMessage?: string;
 };
 
 const isScrapeResult = (
@@ -336,36 +339,81 @@ export class BulkJobManager {
     const jobType = item.jobType ?? "scrape";
     log.info(tag, `Starting ${jobType} job: ${item.externalId}`);
 
-    try {
-      if (jobType === "scrape") {
-        const stream =
-          item.mode === "fast"
-            ? scrapeService.scrapeFast(item.externalId)
-            : scrapeService.scrape(item.externalId);
+    let pipelineResult: PipelineResult | undefined;
 
-        await Effect.runPromise(
-          Stream.runForEach(stream, (event) =>
-            Effect.sync(() => {
-              if (!isScrapeResult(event) && event.type === "retry") {
-                log.warn(
-                  tag,
-                  `Retry ${event.attempt}/${event.maxAttempts}: ${event.reason}`
-                );
-              }
-            })
-          )
-        );
-        await Effect.runPromise(
-          services.htmlCache.recordVerification(item.externalId, false, null)
-        );
-      } else if (jobType === "process_raw") {
-        await this.runProcessRaw(item.externalId, {
-          htmlCache: services.htmlCache,
-          entityData: services.entityData,
-          deviceRegistry: services.deviceRegistry,
-        });
-      } else if (jobType === "process_ai") {
-        await this.runProcessAi(item.externalId, services.entityData, services.deviceRegistry);
+    try {
+      if (jobType === "scrape" || jobType === "process_raw" || jobType === "process_ai") {
+        const source = item.source ?? "kimovil";
+        const dataKind = item.dataKind ?? "specs";
+
+        // Prefer pipeline handlers for non-legacy sources/kinds (and for any source that registers a stage).
+        const stage = jobType as "scrape" | "process_raw" | "process_ai";
+        const stageHandler = getStageHandler(source, dataKind, stage);
+
+        if (stageHandler) {
+          // Look up metadata from device_sources if available (best-effort)
+          let metadata: Record<string, unknown> | undefined;
+          if (item.deviceId) {
+            const sources = await Effect.runPromise(
+              services.deviceRegistry.getSourcesByDeviceAndSource(item.deviceId, source),
+            );
+            const link = sources.find((s) => s.externalId === item.externalId);
+            metadata = link?.metadata ?? undefined;
+          }
+
+          const ctx: PipelineContext = {
+            jobId: item.jobId ?? "",
+            deviceId: item.deviceId,
+            source,
+            dataKind: dataKind as PipelineContext["dataKind"],
+            externalId: item.externalId,
+            scrapeId: item.scrapeId,
+            metadata,
+          };
+
+          const result = await this.runtime.runPromise(
+            stageHandler(ctx) as Effect.Effect<PipelineResult | void, unknown, never>,
+          );
+          if (result) {
+            pipelineResult = result;
+          }
+        } else {
+          // Legacy behavior: kimovil uses ScrapeService + html verification; process_raw/ai use bespoke handlers.
+          if (jobType === "scrape") {
+            const stream =
+              item.mode === "fast"
+                ? scrapeService.scrapeFast(item.externalId)
+                : scrapeService.scrape(item.externalId);
+
+            await Effect.runPromise(
+              Stream.runForEach(stream, (event) =>
+                Effect.sync(() => {
+                  if (!isScrapeResult(event) && event.type === "retry") {
+                    log.warn(
+                      tag,
+                      `Retry ${event.attempt}/${event.maxAttempts}: ${event.reason}`,
+                    );
+                  }
+                }),
+              ),
+            );
+            await Effect.runPromise(
+              services.htmlCache.recordVerification(item.externalId, false, null),
+            );
+          } else if (jobType === "process_raw") {
+            await this.runProcessRaw(item.externalId, {
+              htmlCache: services.htmlCache,
+              entityData: services.entityData,
+              deviceRegistry: services.deviceRegistry,
+            });
+          } else if (jobType === "process_ai") {
+            await this.runProcessAi(
+              item.externalId,
+              services.entityData,
+              services.deviceRegistry,
+            );
+          }
+        }
       } else if (jobType === "clear_html") {
         const source = item.source ?? "kimovil";
         await Effect.runPromise(services.jobQueue.clearScrapeData(source, item.externalId));
@@ -405,7 +453,10 @@ export class BulkJobManager {
             scrapeId: item.scrapeId,
             metadata,
           };
-          await this.runtime.runPromise(stageHandler(ctx) as Effect.Effect<void, unknown, never>);
+          const result = await this.runtime.runPromise(stageHandler(ctx) as Effect.Effect<PipelineResult | void, unknown, never>);
+          if (result) {
+            pipelineResult = result;
+          }
         } else {
           log.warn(tag, `No pipeline handler found for ${source}:${dataKind}:scrape`);
         }
@@ -413,12 +464,21 @@ export class BulkJobManager {
 
       const duration = Date.now() - startTime;
       log.success(tag, `Completed ${item.externalId} in ${formatDuration(duration)}`);
-      await Effect.runPromise(services.jobQueue.completeQueueItem(item.id));
+      await Effect.runPromise(
+        services.jobQueue.completeQueueItem(
+          item.id, 
+          undefined, 
+          pipelineResult?.outcome ?? "success",
+          pipelineResult?.message
+        )
+      );
       return {
         externalId: item.externalId,
         success: true,
         error: null,
         rescheduled: false,
+        outcome: pipelineResult?.outcome ?? "success",
+        outcomeMessage: pipelineResult?.message,
       };
     } catch (error) {
       const duration = Date.now() - startTime;

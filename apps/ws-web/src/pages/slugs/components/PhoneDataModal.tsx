@@ -222,10 +222,10 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
 
       const [quotesData, sources] = await Promise.all([
         props.fetchAllQuotes 
-          ? props.fetchAllQuotes(slug, "yandex_market") 
+          ? props.fetchAllQuotes(slug) 
           : Promise.resolve([]),
         props.fetchDeviceSources
-          ? props.fetchDeviceSources(slug, "yandex_market")
+          ? props.fetchDeviceSources(slug)
           : Promise.resolve([]),
       ]);
 
@@ -238,7 +238,7 @@ export function PhoneDataModal(props: PhoneDataModalProps) {
   
   const refreshQuotes = async () => {
     if (!props.slug || !props.fetchAllQuotes) return;
-    const quotesData = await props.fetchAllQuotes(props.slug, "yandex_market");
+    const quotesData = await props.fetchAllQuotes(props.slug);
     setQuotes(quotesData);
   };
 

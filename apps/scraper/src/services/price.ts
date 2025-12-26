@@ -80,6 +80,7 @@ export interface PriceService {
     url?: string;
     isAvailable: boolean;
     externalId?: string;
+    source: string;
     scrapedAt: number;
   }>, PriceServiceError>;
 }
@@ -435,6 +436,7 @@ export const PriceServiceLive = Layer.effect(
             url: q.url ?? undefined,
             isAvailable: q.is_available === 1,
             externalId: q.external_id ?? undefined,
+            source: q.source,
             scrapedAt: q.scraped_at,
           }));
         }).pipe(

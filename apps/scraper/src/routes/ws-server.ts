@@ -271,9 +271,20 @@ const createHandlers = (
       // Build targets based on source type
       let targets: Array<{ deviceId: string; externalId: string }> = [];
 
-      if (isPriceRuPrices) {
-        // For price.ru prices, targets are already built from device_sources
+      if (isPriceRuPrices && priceRuTargets.length > 0) {
+        // For price.ru prices without explicit slugs, use device_sources
         targets = priceRuTargets;
+      } else if (isPriceRuPrices && targetSlugs.length > 0) {
+        // For price.ru prices with explicit slugs, look up device anchors
+        for (const slug of targetSlugs) {
+          const device = yield* deviceRegistry.getDeviceBySlug(slug);
+          if (!device) continue;
+          const sources = yield* deviceRegistry.getSourcesByDeviceAndSource(device.id, "price_ru");
+          const activeLink = sources.find((s) => s.status === "active");
+          if (activeLink) {
+            targets.push({ deviceId: device.id, externalId: activeLink.externalId });
+          }
+        }
       } else {
         // Build targets from slugs, ensuring device exists
         for (const slug of targetSlugs) {

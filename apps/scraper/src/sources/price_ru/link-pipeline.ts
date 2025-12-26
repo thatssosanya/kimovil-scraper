@@ -1,10 +1,16 @@
 import { Effect } from "effect";
-import { registerPipeline, type PipelineContext } from "../../pipeline/registry";
+import { registerPipeline, type PipelineContext, type PipelineResult } from "../../pipeline/registry";
 import { PriceRuClient } from "./client";
 import { DeviceRegistryService } from "../../services/device-registry";
-import { extractVariantKey } from "./variant-utils";
 
-const MAX_VARIANTS_PER_DEVICE = 10;
+/**
+ * price.ru is primarily a search-driven source: for many new devices `model_id` is 0 (not catalogued),
+ * but the search response already contains shop-level offers (prices) we can use.
+ *
+ * We therefore link a single *per-device* "anchor" that enables scheduling price_ru jobs reliably,
+ * independent of catalog IDs. Actual offer scraping happens in the `price_ru:prices` pipeline.
+ */
+const makeAnchorExternalId = (deviceId: string) => `device:${deviceId}`;
 
 const scrapeHandler = (ctx: PipelineContext) =>
   Effect.gen(function* () {
@@ -13,7 +19,7 @@ const scrapeHandler = (ctx: PipelineContext) =>
 
     if (!ctx.deviceId) {
       yield* Effect.logWarning("No deviceId in context, skipping link");
-      return;
+      return { outcome: "skipped" as const, message: "No device ID provided" };
     }
 
     const device = yield* registry.getDeviceById(ctx.deviceId);
@@ -21,15 +27,28 @@ const scrapeHandler = (ctx: PipelineContext) =>
       yield* Effect.logWarning("Device not found").pipe(
         Effect.annotateLogs({ deviceId: ctx.deviceId }),
       );
-      return;
+      return { outcome: "skipped" as const, message: "Device not found" };
     }
 
+    const anchorExternalId = makeAnchorExternalId(device.id);
+
+    // Ensure a single active anchor per device; deactivate any legacy/mistaken price_ru links (e.g. external_id="0").
+    const existing = yield* registry.getSourcesByDeviceAndSource(device.id, "price_ru").pipe(
+      Effect.catchAll(() => Effect.succeed([])),
+    );
+    for (const link of existing) {
+      if (link.externalId !== anchorExternalId && link.status === "active") {
+        yield* registry.updateSourceStatus("price_ru", link.externalId, "deleted");
+      }
+    }
+
+    // Probe search once to decide between active vs not_found, and store the query for later scrapes.
     const searchQuery = device.name;
-    const result = yield* client.searchOffers(searchQuery, 20).pipe(
+    const result = yield* client.searchOffers(searchQuery, 10).pipe(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
-          yield* Effect.logWarning("price.ru search failed").pipe(
-            Effect.annotateLogs({ deviceId: ctx.deviceId, error: error.message }),
+          yield* Effect.logWarning("price.ru search failed during linking").pipe(
+            Effect.annotateLogs({ deviceId: device.id, error: error.message }),
           );
           return { items: [], total: 0 };
         }),
@@ -38,45 +57,41 @@ const scrapeHandler = (ctx: PipelineContext) =>
 
     if (result.items.length === 0) {
       yield* registry.markSourceNotFound({
-        deviceId: ctx.deviceId,
+        deviceId: device.id,
         source: "price_ru",
         searchedQuery: searchQuery,
       });
       yield* Effect.logInfo("No price.ru matches found").pipe(
-        Effect.annotateLogs({ deviceId: ctx.deviceId, searchQuery }),
+        Effect.annotateLogs({ deviceId: device.id, searchQuery }),
       );
-      return;
+      return { 
+        outcome: "not_found" as const, 
+        message: `Searched "${searchQuery}" — no matches on price.ru` 
+      };
     }
 
-    // Deduplicate by modelId
-    const seenModels = new Set<number>();
-    const uniqueOffers = result.items.filter((o) => {
-      if (seenModels.has(o.modelId)) return false;
-      seenModels.add(o.modelId);
-      return true;
+    // Create/update anchor link (used by scheduler to enqueue price_ru jobs).
+    yield* registry.linkDeviceToSource({
+      deviceId: device.id,
+      source: "price_ru",
+      externalId: anchorExternalId,
+      status: "active",
+      metadata: {
+        query: searchQuery,
+        sample_offer_name: result.items[0]?.name ?? null,
+        sample_shop: result.items[0]?.shopName ?? null,
+        linked_at: Date.now(),
+      },
     });
 
-    // Link each unique model (up to MAX_VARIANTS_PER_DEVICE)
-    let linkedCount = 0;
-    for (const offer of uniqueOffers.slice(0, MAX_VARIANTS_PER_DEVICE)) {
-      const variantKey = extractVariantKey(offer.name);
-      yield* registry.linkDeviceToSource({
-        deviceId: ctx.deviceId,
-        source: "price_ru",
-        externalId: String(offer.modelId),
-        status: "active",
-        metadata: {
-          variant_key: variantKey,
-          name: offer.name,
-          linked_at: Date.now(),
-        },
-      });
-      linkedCount++;
-    }
-
-    yield* Effect.logInfo("Linked to price.ru").pipe(
-      Effect.annotateLogs({ deviceId: ctx.deviceId, count: linkedCount }),
+    yield* Effect.logInfo("Linked price.ru via device anchor").pipe(
+      Effect.annotateLogs({ deviceId: device.id, externalId: anchorExternalId }),
     );
+
+    return { 
+      outcome: "success" as const, 
+      message: `Linked to price.ru (${result.items.length} offers found)` 
+    };
   });
 
 registerPipeline({

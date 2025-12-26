@@ -377,6 +377,8 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           source: resolvedSource,
           dataKind: "specs",
           scrapeId: null,
+          outcome: null,
+          outcomeMessage: null,
         };
         await bulkJobManager.runQueueItem(
           dummyItem,
@@ -443,6 +445,8 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           source: resolvedSource,
           dataKind: "specs",
           scrapeId: null,
+          outcome: null,
+          outcomeMessage: null,
         };
         await bulkJobManager.runQueueItem(
           dummyItem,
@@ -754,4 +758,60 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         ),
       );
       return { jobId };
+    })
+    .get("/jobs/:jobId/summary", async ({ params, query, set }) => {
+      const { jobId } = params;
+      const status = query.status as "pending" | "running" | "done" | "error" | undefined;
+      const limit = Math.min(Number(query.limit) || 100, 500);
+      const offset = Number(query.offset) || 0;
+
+      const program = Effect.gen(function* () {
+        const jobQueue = yield* JobQueueService;
+
+        const job = yield* jobQueue.getJob(jobId);
+        if (!job) {
+          return { error: "Job not found" };
+        }
+
+        const [stats, timeoutStats, outcomeStats, itemsResult] = yield* Effect.all([
+          jobQueue.getJobStats(jobId),
+          jobQueue.getTimeoutStats(jobId),
+          jobQueue.getOutcomeStats(jobId),
+          jobQueue.getJobItemsWithDevice(jobId, { status, limit, offset }),
+        ]);
+
+        return {
+          job,
+          stats: {
+            ...stats,
+            timeout: timeoutStats.count > 0 ? timeoutStats : undefined,
+            outcomes: outcomeStats,
+          },
+          items: itemsResult.items.map((item) => ({
+            id: item.id,
+            externalId: item.externalId,
+            deviceId: item.deviceId,
+            deviceName: item.deviceName,
+            deviceSlug: item.deviceSlug,
+            status: item.status,
+            errorMessage: item.errorMessage,
+            completedAt: item.completedAt,
+            attempt: item.attempt,
+            outcome: item.outcome,
+            outcomeMessage: item.outcomeMessage,
+          })),
+          pagination: {
+            total: itemsResult.total,
+            limit,
+            offset,
+          },
+        };
+      });
+
+      const result = await LiveRuntime.runPromise(program);
+      if ("error" in result) {
+        set.status = 404;
+        return result;
+      }
+      return result;
     });

@@ -68,6 +68,7 @@ export type JobType = "scrape" | "process_raw" | "process_ai" | "link_priceru";
 export type SourceType = "kimovil" | "price_ru";
 export type DataKindType = "specs" | "prices" | "price_links";
 export type AiMode = "realtime" | "batch";
+export type JobOutcome = "success" | "not_found" | "no_offers" | "no_data" | "skipped";
 
 export interface BulkJobInfo {
   id: string;
@@ -89,6 +90,14 @@ export interface BulkJobInfo {
   dataKind?: string;
 }
 
+export interface OutcomeStats {
+  success: number;
+  not_found: number;
+  no_offers: number;
+  no_data: number;
+  skipped: number;
+}
+
 export interface BulkJobStats {
   total: number;
   pending: number;
@@ -100,6 +109,7 @@ export interface BulkJobStats {
     nextRetryAt: number | null;
     nextRetryExternalId: string | null;
   };
+  outcomes?: OutcomeStats;
 }
 
 export interface BulkLastCompleted {
@@ -136,6 +146,7 @@ export interface PriceOffer {
   url?: string;
   isAvailable?: boolean;
   externalId?: string;
+  source?: string;
   scrapedAt: number;
 }
 
@@ -178,6 +189,17 @@ export interface DeviceSource {
   externalId: string;
   url: string | null;
   status: string;
+  metadata: DeviceSourceMetadata | null;
   firstSeen: number;
   lastSeen: number;
+}
+
+// Metadata stored with device source (e.g., search query for not_found sources)
+export interface DeviceSourceMetadata {
+  searched?: string;
+  at?: number;
+  query?: string;
+  sample_offer_name?: string | null;
+  sample_shop?: string | null;
+  linked_at?: number;
 }

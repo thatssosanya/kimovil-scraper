@@ -67,20 +67,63 @@ export function progressBarClass(status: DisplayStatus): string {
   return "bg-indigo-500";
 }
 
-export function jobTypeBadgeClass(jobType: string, source?: string, dataKind?: string): string {
+export interface JobTypeBadgeConfig {
+  bgClass: string;
+  textClass: string;
+  borderClass: string;
+  glowClass: string;
+  icon: "scrape" | "extract" | "ai" | "price" | "link";
+}
+
+export function getJobTypeBadgeConfig(jobType: string, source?: string, dataKind?: string): JobTypeBadgeConfig {
   if (source === "price_ru" && dataKind === "prices") {
-    return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+    return {
+      bgClass: "bg-gradient-to-r from-amber-500/15 to-yellow-500/10",
+      textClass: "text-amber-500 dark:text-amber-400",
+      borderClass: "border-amber-500/30 dark:border-amber-400/20",
+      glowClass: "shadow-amber-500/20",
+      icon: "price",
+    };
   }
   if (jobType === "scrape") {
-    return "bg-indigo-500/10 text-indigo-400 border-indigo-500/20";
+    return {
+      bgClass: "bg-gradient-to-r from-indigo-500/15 to-blue-500/10",
+      textClass: "text-indigo-600 dark:text-indigo-400",
+      borderClass: "border-indigo-500/30 dark:border-indigo-400/20",
+      glowClass: "shadow-indigo-500/20",
+      icon: "scrape",
+    };
   }
   if (jobType === "process_raw") {
-    return "bg-cyan-500/10 text-cyan-400 border-cyan-500/20";
+    return {
+      bgClass: "bg-gradient-to-r from-cyan-500/15 to-teal-500/10",
+      textClass: "text-cyan-600 dark:text-cyan-400",
+      borderClass: "border-cyan-500/30 dark:border-cyan-400/20",
+      glowClass: "shadow-cyan-500/20",
+      icon: "extract",
+    };
   }
   if (jobType === "link_priceru") {
-    return "bg-orange-500/10 text-orange-400 border-orange-500/20";
+    return {
+      bgClass: "bg-gradient-to-r from-orange-500/15 to-red-500/10",
+      textClass: "text-orange-600 dark:text-orange-400",
+      borderClass: "border-orange-500/30 dark:border-orange-400/20",
+      glowClass: "shadow-orange-500/20",
+      icon: "link",
+    };
   }
-  return "bg-violet-500/10 text-violet-400 border-violet-500/20";
+  return {
+    bgClass: "bg-gradient-to-r from-violet-500/15 to-fuchsia-500/10",
+    textClass: "text-violet-600 dark:text-violet-400",
+    borderClass: "border-violet-500/30 dark:border-violet-400/20",
+    glowClass: "shadow-violet-500/20",
+    icon: "ai",
+  };
+}
+
+export function jobTypeBadgeClass(jobType: string, source?: string, dataKind?: string): string {
+  const config = getJobTypeBadgeConfig(jobType, source, dataKind);
+  return `${config.bgClass} ${config.textClass} ${config.borderClass}`;
 }
 
 export function jobTypeLabel(jobType: string, batchStatus?: string, source?: string, dataKind?: string): string {

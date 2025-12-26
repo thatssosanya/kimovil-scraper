@@ -69,6 +69,22 @@ export function PricesLinksList(props: PricesLinksListProps) {
             {(link) => {
               const isSelected = () => props.selectedLink?.externalId === link.externalId;
               const hasQuotes = () => link.quoteCount > 0;
+              const isNotFound = () => link.status === "not_found";
+              
+              const formatDate = (ts: number) => {
+                return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+              };
+              
+              const isOthersGroup = () => link.externalId.startsWith("device:");
+              const isPriceRu = () => link.source === "price_ru";
+              
+              const displayTitle = () => {
+                if (isPriceRu()) {
+                  if (isOthersGroup()) return "Others";
+                  if (link.variantLabel) return link.variantLabel;
+                }
+                return null;
+              };
               
               return (
                 <button
@@ -78,6 +94,7 @@ export function PricesLinksList(props: PricesLinksListProps) {
                     ${isSelected() 
                       ? "bg-slate-800/80" 
                       : "hover:bg-slate-800/40"}
+                    ${isNotFound() ? "opacity-75" : ""}
                   `}
                 >
                   {/* Selection indicator */}
@@ -87,17 +104,32 @@ export function PricesLinksList(props: PricesLinksListProps) {
                   `} />
                   
                   <div class="flex items-center gap-3">
-                    {/* Source icon */}
+                    {/* Source icon with not_found styling */}
                     <div class={`
                       w-7 h-7 rounded flex items-center justify-center flex-shrink-0 transition-colors
-                      ${isSelected() ? "bg-slate-700 text-slate-300" : "bg-slate-800/60 text-slate-500"}
+                      ${isNotFound() 
+                        ? "bg-amber-500/10 text-amber-500/70" 
+                        : isSelected() 
+                          ? "bg-slate-700 text-slate-300" 
+                          : "bg-slate-800/60 text-slate-500"}
                     `}>
-                      <SourceIcon source={link.source} />
+                      <Show when={isNotFound()} fallback={<SourceIcon source={link.source} />}>
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                      </Show>
                     </div>
                     
                     {/* Content */}
                     <div class="flex-1 min-w-0">
-                      {/* Price row */}
+                      {/* Title row for price.ru groups */}
+                      <Show when={displayTitle()}>
+                        <div class="text-xs text-slate-400 truncate mb-0.5" title={displayTitle()!}>
+                          {displayTitle()}
+                        </div>
+                      </Show>
+                      
+                      {/* Price/status row */}
                       <div class="flex items-baseline gap-2">
                         <Show when={hasQuotes()}>
                           <span class="text-sm font-medium text-slate-100">
@@ -109,16 +141,27 @@ export function PricesLinksList(props: PricesLinksListProps) {
                             </span>
                           </Show>
                         </Show>
-                        <Show when={!hasQuotes()}>
+                        <Show when={isNotFound()}>
+                          <span class="text-sm text-amber-500/80 font-medium">Not found</span>
+                        </Show>
+                        <Show when={!hasQuotes() && !isNotFound()}>
                           <span class="text-sm text-slate-500">No prices</span>
                         </Show>
                       </div>
                       
                       {/* Meta row */}
-                      <div class="text-[11px] text-slate-500 mt-0.5 truncate" title={link.url}>
-                        {hasQuotes() ? `${link.quoteCount} offers` : "Not scraped"}
-                        <Show when={link.lastQuoteAt}>
-                          <span class="text-slate-600"> · {formatTimeAgo(link.lastQuoteAt!)}</span>
+                      <div class="text-[11px] text-slate-500 mt-0.5 truncate" title={link.searchedQuery || link.url}>
+                        <Show when={isNotFound()}>
+                          <span class="text-amber-500/60">
+                            Searched {link.searchedQuery ? `"${link.searchedQuery}"` : link.source}
+                            {link.searchedAt ? ` · ${formatDate(link.searchedAt)}` : ""}
+                          </span>
+                        </Show>
+                        <Show when={!isNotFound()}>
+                          {hasQuotes() ? `${link.quoteCount} offers` : "Not scraped"}
+                          <Show when={link.lastQuoteAt}>
+                            <span class="text-slate-600"> · {formatTimeAgo(link.lastQuoteAt!)}</span>
+                          </Show>
                         </Show>
                       </div>
                     </div>
@@ -247,141 +290,163 @@ export function PricesLinksList(props: PricesLinksListProps) {
           
           {/* Quotes list */}
           <div class="flex-1 overflow-y-auto custom-scrollbar px-4 py-3">
-            <Show when={props.quotes.length > 0}>
-              {/* Table header */}
-              <div class="flex items-center gap-3 px-3 py-2 text-[11px] text-slate-500 uppercase tracking-wide border-b border-slate-800/50 mb-1">
-                <div class="w-4" />
-                <div class="flex-1">Seller</div>
-                <div class="w-16 text-right">Price</div>
-                <div class="w-14 text-right">Updated</div>
-                <div class="w-6" />
-              </div>
+            {(() => {
+              const isOthersGroup = () => 
+                props.selectedLink?.source === "price_ru" && 
+                props.selectedLink?.externalId.startsWith("device:");
               
-              <div class="space-y-0.5">
-                <For each={props.quotes}>
-                  {(quote, index) => {
-                    const isLowest = () =>
-                      index() === 0 ||
-                      props.quotes.slice(0, index()).every((q) => q.price >= quote.price);
-                    const isAvailable = () => quote.isAvailable !== false;
+              return (
+                <>
+                  <Show when={props.quotes.length > 0}>
+                    {/* Table header */}
+                    <div class="flex items-center gap-3 px-3 py-2 text-[11px] text-slate-500 uppercase tracking-wide border-b border-slate-800/50 mb-1">
+                      <div class="w-4" />
+                      <div class="flex-1">Seller</div>
+                      <Show when={isOthersGroup()}>
+                        <div class="w-40">Product</div>
+                      </Show>
+                      <div class="w-16 text-right">Price</div>
+                      <div class="w-14 text-right">Updated</div>
+                      <div class="w-6" />
+                    </div>
+                    
+                    <div class="space-y-0.5">
+                      <For each={props.quotes}>
+                        {(quote, index) => {
+                          const isLowest = () =>
+                            index() === 0 ||
+                            props.quotes.slice(0, index()).every((q) => q.price >= quote.price);
+                          const isAvailable = () => quote.isAvailable !== false;
 
-                    return (
-                      <div
-                        class={`
-                          group flex items-center gap-3 px-3 py-2 rounded transition-colors
-                          ${isAvailable() ? "hover:bg-slate-800/40" : "opacity-40"}
-                        `}
-                      >
-                        {/* Stock indicator */}
-                        <div class="w-4 flex justify-center">
-                          <Show when={isAvailable()}>
-                            <svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                          </Show>
-                          <Show when={!isAvailable()}>
-                            <svg class="w-3.5 h-3.5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </Show>
-                        </div>
-
-                        {/* Seller name */}
-                        <div class="flex-1 min-w-0">
-                          <span class={`text-sm truncate ${isAvailable() ? "text-slate-200" : "text-slate-500"}`}>
-                            {quote.seller}
-                          </span>
-                        </div>
-
-                        {/* Price */}
-                        <div class={`w-16 text-right text-sm font-medium ${isLowest() && isAvailable() ? "text-slate-100" : "text-slate-300"}`}>
-                          {formatPrice(quote.price)}
-                        </div>
-                        
-                        {/* Scraped time */}
-                        <div class="w-14 text-right text-[11px] text-slate-600">
-                          {formatTimeAgo(quote.scrapedAt * 1000)}
-                        </div>
-                        
-                        {/* External link */}
-                        <div class="w-6 flex justify-center">
-                          <Show when={quote.url}>
-                            <a
-                              href={quote.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              class="opacity-0 group-hover:opacity-100 p-1 rounded text-slate-500 hover:text-slate-300 transition-opacity"
-                              title="Open seller page"
+                          return (
+                            <div
+                              class={`
+                                group flex items-center gap-3 px-3 py-2 rounded transition-colors
+                                ${isAvailable() ? "hover:bg-slate-800/40" : "opacity-40"}
+                              `}
                             >
-                              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
-                              </svg>
-                            </a>
-                          </Show>
-                        </div>
-                      </div>
-                    );
-                  }}
-                </For>
-              </div>
-              
-              {/* Footer summary */}
-              <div class="mt-3 pt-3 border-t border-slate-800/50 flex items-center justify-between text-[11px] text-slate-500">
-                <span>{props.quotes.filter(q => q.isAvailable !== false).length} of {props.quotes.length} in stock</span>
-                <span>Last update: {formatTimeAgo(Math.max(...props.quotes.map(q => q.scrapedAt)) * 1000)}</span>
-              </div>
-            </Show>
+                              {/* Stock indicator */}
+                              <div class="w-4 flex justify-center">
+                                <Show when={isAvailable()}>
+                                  <svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                </Show>
+                                <Show when={!isAvailable()}>
+                                  <svg class="w-3.5 h-3.5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </Show>
+                              </div>
 
-            {/* Empty state for linked but no quotes */}
-            <Show when={props.quotes.length === 0}>
-              <div class="flex flex-col items-center justify-center h-full text-center">
-                <div class="w-16 h-16 mx-auto rounded-2xl bg-slate-800/50 flex items-center justify-center mb-4">
-                  <svg
-                    class="w-8 h-8 text-slate-600"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"
-                    />
-                  </svg>
-                </div>
-                <div class="text-slate-400 mb-2">No price quotes yet</div>
-                <div class="text-sm text-slate-500 mb-4">
-                  Click the Refresh button above to scrape prices
-                </div>
-                <button
-                  onClick={() => props.onScrape(props.selectedLink?.externalId)}
-                  disabled={props.scraping}
-                  class="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 text-slate-900 font-medium hover:from-amber-300 hover:to-amber-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-lg shadow-amber-500/20"
-                >
-                  <Show when={props.scraping}>
-                    <div class="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
-                    <span>Scraping... {props.scrapeProgress}%</span>
+                              {/* Seller name */}
+                              <div class="flex-1 min-w-0">
+                                <span class={`text-sm truncate ${isAvailable() ? "text-slate-200" : "text-slate-500"}`}>
+                                  {quote.seller}
+                                </span>
+                              </div>
+                              
+                              {/* Product name (for Others group) */}
+                              <Show when={isOthersGroup()}>
+                                <div class="w-40 min-w-0">
+                                  <span class="text-xs text-slate-500 truncate block" title={quote.variantLabel}>
+                                    {quote.variantLabel || "—"}
+                                  </span>
+                                </div>
+                              </Show>
+
+                              {/* Price */}
+                              <div class={`w-16 text-right text-sm font-medium ${isLowest() && isAvailable() ? "text-slate-100" : "text-slate-300"}`}>
+                                {formatPrice(quote.price)}
+                              </div>
+                              
+                              {/* Scraped time */}
+                              <div class="w-14 text-right text-[11px] text-slate-600">
+                                {formatTimeAgo(quote.scrapedAt * 1000)}
+                              </div>
+                              
+                              {/* External link */}
+                              <div class="w-6 flex justify-center">
+                                <Show when={quote.url}>
+                                  <a
+                                    href={quote.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="p-1 rounded text-slate-500 hover:text-amber-400 transition-colors"
+                                    title="Open seller page"
+                                  >
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                      <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
+                                    </svg>
+                                  </a>
+                                </Show>
+                              </div>
+                            </div>
+                          );
+                        }}
+                      </For>
+                    </div>
+                    
+                    {/* Footer summary */}
+                    <div class="mt-3 pt-3 border-t border-slate-800/50 flex items-center justify-between text-[11px] text-slate-500">
+                      <span>{props.quotes.filter(q => q.isAvailable !== false).length} of {props.quotes.length} in stock</span>
+                      <span>Last update: {formatTimeAgo(Math.max(...props.quotes.map(q => q.scrapedAt)) * 1000)}</span>
+                    </div>
                   </Show>
-                  <Show when={!props.scraping}>
-                    <svg
-                      class="w-5 h-5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      stroke-width="2"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                      />
-                    </svg>
-                    <span>Scrape Prices</span>
+
+                  {/* Empty state for linked but no quotes */}
+                  <Show when={props.quotes.length === 0}>
+                    <div class="flex flex-col items-center justify-center h-full text-center">
+                      <div class="w-16 h-16 mx-auto rounded-2xl bg-slate-800/50 flex items-center justify-center mb-4">
+                        <svg
+                          class="w-8 h-8 text-slate-600"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"
+                          />
+                        </svg>
+                      </div>
+                      <div class="text-slate-400 mb-2">No price quotes yet</div>
+                      <div class="text-sm text-slate-500 mb-4">
+                        Click the Refresh button above to scrape prices
+                      </div>
+                      <button
+                        onClick={() => props.onScrape(props.selectedLink?.externalId)}
+                        disabled={props.scraping}
+                        class="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 text-slate-900 font-medium hover:from-amber-300 hover:to-amber-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-lg shadow-amber-500/20"
+                      >
+                        <Show when={props.scraping}>
+                          <div class="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                          <span>Scraping... {props.scrapeProgress}%</span>
+                        </Show>
+                        <Show when={!props.scraping}>
+                          <svg
+                            class="w-5 h-5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            stroke-width="2"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                            />
+                          </svg>
+                          <span>Scrape Prices</span>
+                        </Show>
+                      </button>
+                    </div>
                   </Show>
-                </button>
-              </div>
-            </Show>
+                </>
+              );
+            })()}
           </div>
         </Show>
         

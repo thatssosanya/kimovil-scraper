@@ -532,6 +532,61 @@ const columnExists = (
     ),
   );
 
+const migrateDeviceSourcesAddNotFoundStatus = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    const rows = (yield* sql`
+      SELECT sql FROM sqlite_master
+      WHERE type = 'table' AND name = 'device_sources'
+    `) as Array<{ sql: string | null }>;
+
+    if (rows.length === 0 || !rows[0].sql) {
+      return;
+    }
+
+    const createSql = rows[0].sql;
+
+    // Already migrated if 'not_found' is in the constraint
+    if (createSql.includes("not_found")) {
+      return;
+    }
+
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* sql.unsafe(`ALTER TABLE device_sources RENAME TO device_sources_old`);
+
+        yield* sql.unsafe(`
+          CREATE TABLE device_sources (
+            device_id TEXT NOT NULL REFERENCES devices(id),
+            source TEXT NOT NULL,
+            external_id TEXT NOT NULL,
+            url TEXT,
+            status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','missing','deleted','conflict','not_found')),
+            metadata TEXT,
+            first_seen INTEGER NOT NULL DEFAULT (unixepoch()),
+            last_seen INTEGER NOT NULL DEFAULT (unixepoch()),
+            PRIMARY KEY (source, external_id)
+          )
+        `);
+
+        yield* sql.unsafe(`
+          INSERT INTO device_sources (device_id, source, external_id, url, status, metadata, first_seen, last_seen)
+          SELECT device_id, source, external_id, url, status, metadata, first_seen, last_seen
+          FROM device_sources_old
+        `);
+
+        yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_sources_device ON device_sources(device_id)`);
+
+        yield* sql.unsafe(`DROP TABLE device_sources_old`);
+      }),
+    );
+
+    yield* Effect.logInfo(
+      "Migrated device_sources: added 'not_found' to status CHECK constraint",
+    );
+  });
+
 const migrateJobQueueSlugToExternalId = (
   sql: SqlClient.SqlClient,
 ): Effect.Effect<void, SqlError.SqlError> =>
@@ -618,6 +673,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
 
     yield* migrateJobsStatusConstraint(sql);
     yield* migrateDeviceSourcesRemoveUniqueConstraint(sql);
+    yield* migrateDeviceSourcesAddNotFoundStatus(sql);
     yield* migrateJobQueueSlugToExternalId(sql);
 
     yield* sql.unsafe(`DROP TABLE IF EXISTS raw_html`);
@@ -682,6 +738,8 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* ensureColumn(sql, "job_queue", "next_attempt_at", "INTEGER");
     yield* ensureColumn(sql, "job_queue", "updated_at", "INTEGER NOT NULL DEFAULT 0");
     yield* ensureColumn(sql, "job_queue", "last_error_code", "TEXT");
+    yield* ensureColumn(sql, "job_queue", "outcome", "TEXT");
+    yield* ensureColumn(sql, "job_queue", "outcome_message", "TEXT");
     yield* sql.unsafe(`UPDATE job_queue SET updated_at = created_at WHERE updated_at = 0`);
 
     yield* ensureColumn(sql, "jobs", "job_type", "TEXT NOT NULL DEFAULT 'scrape'");

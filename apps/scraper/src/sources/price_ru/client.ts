@@ -68,6 +68,7 @@ export const PriceRuClientLive = Layer.effect(
               shopName: item.shop_info?.name ?? "Unknown",
               availability: item.availability ?? "unknown",
               redirectTarget: item.redirect_target ?? "to_merchant",
+              clickUrl: item.click_url ? `https://price.ru${item.click_url}` : null,
             })),
             total: data.total ?? 0,
           })),

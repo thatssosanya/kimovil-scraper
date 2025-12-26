@@ -1,7 +1,7 @@
 import { Show, createMemo } from "solid-js";
 import { JobsHeader } from "./JobsHeader";
 import { JobsTable } from "./JobsTable";
-import { SelectedJobPanel } from "./SelectedJobPanel";
+import { JobDetailModal } from "./JobDetailModal";
 import { type JobEntry, getDisplayStatus, isActiveStatus } from "./jobViewHelpers";
 
 interface JobsSectionProps {
@@ -45,20 +45,19 @@ export function JobsSection(props: JobsSectionProps) {
           onShowErrors={props.onShowErrors}
           formatTimeRemaining={props.formatTimeRemaining}
         />
+      </Show>
 
-        <Show when={props.selectedJob}>
-          {(job) => (
-            <SelectedJobPanel
-              job={job()}
-              onClose={props.onDeselectJob}
-              onPause={() => props.onPause(job().job.id)}
-              onResume={() => props.onResume(job().job.id)}
-              onSetWorkers={(count) => props.onSetWorkers(job().job.id, count)}
-              onShowErrors={() => props.onShowErrors(job().job.id)}
-              formatTimeRemaining={props.formatTimeRemaining}
-            />
-          )}
-        </Show>
+      <Show when={props.selectedJob}>
+        {(job) => (
+          <JobDetailModal
+            job={job()}
+            onClose={props.onDeselectJob}
+            onPause={() => props.onPause(job().job.id)}
+            onResume={() => props.onResume(job().job.id)}
+            onSetWorkers={(count) => props.onSetWorkers(job().job.id, count)}
+            formatTimeRemaining={props.formatTimeRemaining}
+          />
+        )}
       </Show>
     </div>
   );

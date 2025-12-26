@@ -6,6 +6,8 @@ import { ScrapeRecordService } from "./scrape-record";
 export type { ScrapeMode, ScrapeStatus, JobType, AiMode };
 export type BulkJobStatus = JobStatus;
 
+export type JobOutcome = "success" | "not_found" | "no_offers" | "no_data" | "skipped";
+
 export interface JobQueueItem {
   id: number;
   externalId: string;
@@ -26,6 +28,8 @@ export interface JobQueueItem {
   source: string;
   dataKind: string;
   scrapeId: number | null;
+  outcome: JobOutcome | null;
+  outcomeMessage: string | null;
 }
 
 export interface Job {
@@ -59,6 +63,14 @@ export interface TimeoutStats {
   count: number;
   nextRetryAt: number | null;
   nextRetryExternalId: string | null;
+}
+
+export interface OutcomeStats {
+  success: number;
+  not_found: number;
+  no_offers: number;
+  no_data: number;
+  skipped: number;
 }
 
 export class JobQueueError extends Error {
@@ -122,6 +134,8 @@ export interface JobQueueService {
   readonly completeQueueItem: (
     id: number,
     error?: string,
+    outcome?: JobOutcome,
+    outcomeMessage?: string,
   ) => Effect.Effect<void, JobQueueError>;
 
   readonly rescheduleQueueItem: (
@@ -151,6 +165,10 @@ export interface JobQueueService {
   readonly getTimeoutStats: (
     jobId: string,
   ) => Effect.Effect<TimeoutStats, JobQueueError>;
+
+  readonly getOutcomeStats: (
+    jobId: string,
+  ) => Effect.Effect<OutcomeStats, JobQueueError>;
 
   readonly updateJobBatchStatus: (
     jobId: string,
@@ -202,6 +220,21 @@ export interface JobQueueService {
     source: string,
     externalId: string,
   ) => Effect.Effect<void, JobQueueError>;
+
+  readonly getJobItemsWithDevice: (
+    jobId: string,
+    options?: {
+      status?: ScrapeStatus;
+      limit?: number;
+      offset?: number;
+    },
+  ) => Effect.Effect<
+    {
+      items: Array<JobQueueItem & { deviceName: string; deviceSlug: string }>;
+      total: number;
+    },
+    JobQueueError
+  >;
 }
 
 export const JobQueueService =
@@ -227,6 +260,8 @@ type QueueRow = {
   source: string;
   data_kind: string;
   scrape_id: number | null;
+  outcome: JobOutcome | null;
+  outcome_message: string | null;
 };
 
 const mapQueueRow = (row: QueueRow): JobQueueItem => ({
@@ -249,6 +284,8 @@ const mapQueueRow = (row: QueueRow): JobQueueItem => ({
   source: row.source ?? "kimovil",
   dataKind: row.data_kind ?? "specs",
   scrapeId: row.scrape_id ?? null,
+  outcome: row.outcome ?? null,
+  outcomeMessage: row.outcome_message ?? null,
 });
 
 type JobRow = {
@@ -520,21 +557,25 @@ export const JobQueueServiceLive = Layer.effect(
           }),
         ).pipe(Effect.mapError(wrapSqlError)),
 
-      completeQueueItem: (id: number, error?: string) =>
+      completeQueueItem: (id: number, error?: string, outcome?: JobOutcome, outcomeMessage?: string) =>
         (error
           ? sql`
               UPDATE job_queue
               SET status = 'error',
                   completed_at = unixepoch(),
                   updated_at = unixepoch(),
-                  error_message = ${error}
+                  error_message = ${error},
+                  outcome = ${outcome ?? null},
+                  outcome_message = ${outcomeMessage ?? null}
               WHERE id = ${id}
             `
           : sql`
               UPDATE job_queue
               SET status = 'done',
                   completed_at = unixepoch(),
-                  updated_at = unixepoch()
+                  updated_at = unixepoch(),
+                  outcome = ${outcome ?? "success"},
+                  outcome_message = ${outcomeMessage ?? null}
               WHERE id = ${id}
             `
         ).pipe(Effect.asVoid, Effect.mapError(wrapSqlError)),
@@ -654,6 +695,31 @@ export const JobQueueServiceLive = Layer.effect(
             nextRetryAt: nextRows[0]?.next_attempt_at ?? null,
             nextRetryExternalId: nextRows[0]?.external_id ?? null,
           };
+        }).pipe(Effect.mapError(wrapSqlError)),
+
+      getOutcomeStats: (jobId: string) =>
+        Effect.gen(function* () {
+          type OutcomeRow = { outcome: string | null; count: number };
+          const rows = yield* sql<OutcomeRow>`
+            SELECT outcome, COUNT(*) as count
+            FROM job_queue
+            WHERE job_id = ${jobId} AND status = 'done'
+            GROUP BY outcome
+          `;
+          const stats: OutcomeStats = {
+            success: 0,
+            not_found: 0,
+            no_offers: 0,
+            no_data: 0,
+            skipped: 0,
+          };
+          for (const row of rows) {
+            const outcome = row.outcome ?? "success";
+            if (outcome in stats) {
+              stats[outcome as keyof OutcomeStats] = row.count;
+            }
+          }
+          return stats;
         }).pipe(Effect.mapError(wrapSqlError)),
 
       updateJobBatchStatus: (
@@ -842,6 +908,75 @@ export const JobQueueServiceLive = Layer.effect(
           Effect.asVoid,
           Effect.mapError(wrapSqlError),
         ),
+
+      getJobItemsWithDevice: (jobId, options = {}) =>
+        Effect.gen(function* () {
+          const limit = options.limit ?? 100;
+          const offset = options.offset ?? 0;
+          const status = options.status;
+
+          type ItemWithDeviceRow = QueueRow & {
+            device_name: string;
+            device_slug: string;
+          };
+
+          const countQuery = status
+            ? sql<{ count: number }>`
+                SELECT COUNT(*) as count FROM job_queue
+                WHERE job_id = ${jobId} AND status = ${status}
+              `
+            : sql<{ count: number }>`
+                SELECT COUNT(*) as count FROM job_queue
+                WHERE job_id = ${jobId}
+              `;
+
+          const countRows = yield* countQuery;
+          const total = countRows[0]?.count ?? 0;
+
+          const itemsQuery = status
+            ? sql<ItemWithDeviceRow>`
+                SELECT jq.*, d.name as device_name, d.slug as device_slug
+                FROM job_queue jq
+                LEFT JOIN devices d ON jq.device_id = d.id
+                WHERE jq.job_id = ${jobId} AND jq.status = ${status}
+                ORDER BY 
+                  CASE jq.status 
+                    WHEN 'error' THEN 0 
+                    WHEN 'running' THEN 1 
+                    WHEN 'pending' THEN 2 
+                    ELSE 3 
+                  END,
+                  jq.completed_at DESC,
+                  jq.id DESC
+                LIMIT ${limit} OFFSET ${offset}
+              `
+            : sql<ItemWithDeviceRow>`
+                SELECT jq.*, d.name as device_name, d.slug as device_slug
+                FROM job_queue jq
+                LEFT JOIN devices d ON jq.device_id = d.id
+                WHERE jq.job_id = ${jobId}
+                ORDER BY 
+                  CASE jq.status 
+                    WHEN 'error' THEN 0 
+                    WHEN 'running' THEN 1 
+                    WHEN 'pending' THEN 2 
+                    ELSE 3 
+                  END,
+                  jq.completed_at DESC,
+                  jq.id DESC
+                LIMIT ${limit} OFFSET ${offset}
+              `;
+
+          const rows = yield* itemsQuery;
+
+          const items = rows.map((row) => ({
+            ...mapQueueRow(row),
+            deviceName: row.device_name ?? row.external_id,
+            deviceSlug: row.device_slug ?? row.external_id,
+          }));
+
+          return { items, total };
+        }).pipe(Effect.mapError(wrapSqlError)),
     });
   }),
 );

@@ -14,7 +14,9 @@ export interface DeviceLink {
   maxPrice: number;
   quoteCount: number;
   lastQuoteAt: number | null;
-  status: "active" | "stale" | "error";
+  status: "active" | "stale" | "not_found" | "error";
+  searchedQuery?: string;
+  searchedAt?: number;
 }
 
 interface PricesTabProps {
@@ -55,13 +57,17 @@ function deriveLinks(
       maxPrice: 0,
       quoteCount: 0,
       lastQuoteAt: null,
-      status: source.status === "active" ? "active" : "stale",
+      status: source.status === "active" ? "active" 
+            : source.status === "not_found" ? "not_found"
+            : "stale",
+      searchedQuery: source.metadata?.searched ?? source.metadata?.query ?? undefined,
+      searchedAt: source.metadata?.at ?? source.metadata?.linked_at ?? undefined,
     });
   }
 
   for (const quote of quotes) {
     const externalId = quote.externalId || quote.url || "default";
-    const quoteSource = (quote as PriceOffer & { source?: string }).source || "yandex_market";
+    const quoteSource = quote.source || "yandex_market";
     const key = `${quoteSource}:${externalId}`;
 
     if (linkMap.has(key)) {
@@ -119,6 +125,13 @@ export function PricesTab(props: PricesTabProps) {
   const quotesForSelectedLink = createMemo(() => {
     const link = selectedLink();
     if (!link) return [];
+    
+    // For price_ru with anchor links, show all quotes for that source
+    // (price.ru search returns offers with various modelIds as externalIds)
+    if (link.source === "price_ru" && link.externalId.startsWith("device:")) {
+      return props.quotes.filter((q) => q.source === "price_ru");
+    }
+    
     return props.quotes.filter(
       (q) => (q.externalId || q.url || "default") === link.externalId,
     );
@@ -191,8 +204,43 @@ export function PricesTab(props: PricesTabProps) {
                 <Show 
                   when={priceStats()}
                   fallback={
-                    <div class="flex items-center gap-2 text-slate-400">
-                      <span>{links().length} link{links().length !== 1 ? "s" : ""} · No prices yet</span>
+                    <div class="flex flex-col gap-0.5">
+                      {(() => {
+                        const activeLinks = links().filter(l => l.status === "active");
+                        const notFoundLinks = links().filter(l => l.status === "not_found");
+                        
+                        if (activeLinks.length > 0 && props.quotes.length === 0) {
+                          return (
+                            <div class="flex items-center gap-2 text-slate-400">
+                              <span>{activeLinks.length} link{activeLinks.length !== 1 ? "s" : ""} · Refresh to get prices</span>
+                            </div>
+                          );
+                        }
+                        
+                        if (notFoundLinks.length > 0 && activeLinks.length === 0) {
+                          const nf = notFoundLinks[0];
+                          const dateStr = nf.searchedAt 
+                            ? new Date(nf.searchedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                            : null;
+                          return (
+                            <div class="flex items-center gap-2 text-amber-500/80">
+                              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                              </svg>
+                              <span>
+                                Searched {nf.searchedQuery ? `"${nf.searchedQuery}"` : nf.source}
+                                {dateStr ? ` on ${dateStr}` : ""} — no results
+                              </span>
+                            </div>
+                          );
+                        }
+                        
+                        return (
+                          <div class="flex items-center gap-2 text-slate-400">
+                            <span>{links().length} link{links().length !== 1 ? "s" : ""} · No prices yet</span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   }
                 >

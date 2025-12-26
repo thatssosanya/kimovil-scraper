@@ -12,6 +12,7 @@ export interface PriceRuOffer {
   shopName: string;
   availability: string;
   redirectTarget: "to_merchant" | "to_price";
+  clickUrl: string | null;
 }
 
 export interface PriceRuModel {
@@ -36,6 +37,7 @@ export interface PriceRuSearchResponse {
     shop_info?: { name?: string };
     availability?: string;
     redirect_target?: "to_merchant" | "to_price";
+    click_url?: string;
   }>;
   total: number;
 }
