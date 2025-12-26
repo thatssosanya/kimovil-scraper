@@ -17,7 +17,6 @@
 
 # next.js
 /.next/
-/.next-prod/
 /out/
 next-env.d.ts
 

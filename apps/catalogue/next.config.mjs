@@ -11,24 +11,20 @@ if (!process.env.SKIP_ENV_VALIDATION) {
 
 /** @type {import("next").NextConfig} */
 const config = {
-  // Use separate build directory to avoid conflicts with dev server
-  distDir: process.env.BUILD_DIR || ".next",
   serverExternalPackages: ["ws"],
   reactStrictMode: true,
-
-  /**
-   * If you have the "experimental: { appDir: true }" setting enabled, then you
-   * must comment the below `i18n` config out.
-   *
-   * @see https://github.com/vercel/next.js/issues/41980
-   */
-  // i18n: {
-  //   locales: ["en"],
-  //   defaultLocale: "en",
-  // },
+  experimental: {
+    // Cache compiled modules on disk for faster restarts
+    turbopackFileSystemCacheForDev: true,
+  },
   images: {
-    domains: ["yastatic.net", 'clik-or-die.fra1.digitaloceanspaces.com', 'click-or-die.fra1.digitaloceanspaces.com', 'click-or-die.fra1.cdn.digitaloceanspaces.com'],
-  }
+    remotePatterns: [
+      { protocol: "https", hostname: "yastatic.net" },
+      { protocol: "https", hostname: "clik-or-die.fra1.digitaloceanspaces.com" },
+      { protocol: "https", hostname: "click-or-die.fra1.digitaloceanspaces.com" },
+      { protocol: "https", hostname: "click-or-die.fra1.cdn.digitaloceanspaces.com" },
+    ],
+  },
 };
 export default config;
 

@@ -6,9 +6,6 @@ import {
   DialogTitle,
 } from "@/src/components/ui/Dialog";
 import { Plus } from "lucide-react";
-import "@uppy/core/dist/style.min.css";
-import "@uppy/dashboard/dist/style.min.css";
-import "@uppy/image-editor/dist/style.min.css";
 import AddDeviceForm from "../AddDeviceForm";
 import { Button } from "@/src/components/ui/Button";
 import { useForm } from "react-hook-form";

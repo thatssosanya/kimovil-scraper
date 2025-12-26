@@ -15,16 +15,24 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"],
-      "react": ["./node_modules/@types/react"]
+      "@/*": [
+        "./*"
+      ],
+      "react": [
+        "./node_modules/@types/react"
+      ]
     },
     "target": "es2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "noEmit": true,
     "module": "esnext",
     "resolveJsonModule": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
     "noUncheckedIndexedAccess": true
   },
@@ -36,5 +44,7 @@
     "**/*.cjs",
     "**/*.mjs"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules"
+  ]
 }

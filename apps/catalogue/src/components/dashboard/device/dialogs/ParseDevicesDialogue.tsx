@@ -6,9 +6,6 @@ import {
   DialogTrigger,
 } from "@/src/components/ui/Dialog";
 import { type FormInstance } from "houseform";
-import "@uppy/core/dist/style.min.css";
-import "@uppy/dashboard/dist/style.min.css";
-import "@uppy/image-editor/dist/style.min.css";
 import Image from "next/image";
 import ym from "@/src/assets/images/ym.png";
 import {

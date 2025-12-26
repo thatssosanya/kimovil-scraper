@@ -7,10 +7,6 @@ import { Dashboard } from "@uppy/react";
 import { ImageLightbox } from "./ImageLightbox";
 import { useUppy } from "@/src/hooks/useUppy";
 
-import "@uppy/core/dist/style.min.css";
-import "@uppy/dashboard/dist/style.min.css";
-import "@uppy/image-editor/dist/style.min.css";
-
 interface EditableImageProps {
   imageUrl: string | null;
   placeholderIcon: LucideIcon;

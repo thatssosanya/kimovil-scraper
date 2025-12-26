@@ -6,9 +6,6 @@ import {
   DialogTitle,
 } from "@/src/components/ui/Dialog";
 import { Edit } from "lucide-react";
-import "@uppy/core/dist/style.min.css";
-import "@uppy/dashboard/dist/style.min.css";
-import "@uppy/image-editor/dist/style.min.css";
 import EditDeviceForm from "../EditDeviceForm";
 import { Button } from "@/src/components/ui/Button";
 import { type DeviceWithConfigs } from "@/src/components/dashboard/device/views/types";
