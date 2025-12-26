@@ -271,22 +271,18 @@ export const DeviceRegistryServiceLive = Layer.effect(
       getAllDevices: () =>
         sql<DeviceRow>`
           SELECT 
-            d.id,
-            d.slug,
-            d.name,
-            d.brand,
-            d.created_at,
-            d.updated_at,
-            json_extract(edr.data, '$.releaseDate') as release_date
-          FROM devices d
-          LEFT JOIN entity_data_raw edr 
-            ON d.id = edr.device_id 
-            AND edr.source = 'kimovil' 
-            AND edr.data_kind = 'specs'
+            id,
+            slug,
+            name,
+            brand,
+            created_at,
+            updated_at,
+            release_date
+          FROM devices
           ORDER BY 
-            CASE WHEN json_extract(edr.data, '$.releaseDate') IS NULL THEN 1 ELSE 0 END,
-            json_extract(edr.data, '$.releaseDate') DESC,
-            d.name
+            CASE WHEN release_date IS NULL THEN 1 ELSE 0 END,
+            release_date DESC,
+            name
         `.pipe(
           Effect.map((rows) => rows.map(mapDeviceRow)),
           Effect.mapError(wrapSqlError),

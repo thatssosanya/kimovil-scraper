@@ -991,6 +991,47 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_schedules_next_run ON job_schedules(next_run_at)`);
     yield* ensureColumn(sql, "job_schedules", "run_once", "INTEGER NOT NULL DEFAULT 0");
 
+    // Add release_date to devices table (materialized from entity_data_raw JSON)
+    yield* ensureColumn(sql, "devices", "release_date", "TEXT");
+
+    // Backfill release_date from entity_data_raw (runs once, skips if already populated)
+    yield* sql.unsafe(`
+      UPDATE devices
+      SET release_date = (
+        SELECT json_extract(edr.data, '$.releaseDate')
+        FROM entity_data_raw edr
+        WHERE edr.device_id = devices.id
+          AND edr.source = 'kimovil'
+          AND edr.data_kind = 'specs'
+      )
+      WHERE release_date IS NULL
+    `);
+
+    // Create triggers to keep release_date in sync with entity_data_raw
+    yield* sql.unsafe(`DROP TRIGGER IF EXISTS entity_data_raw_release_ai`);
+    yield* sql.unsafe(`
+      CREATE TRIGGER entity_data_raw_release_ai
+      AFTER INSERT ON entity_data_raw
+      WHEN NEW.source = 'kimovil' AND NEW.data_kind = 'specs'
+      BEGIN
+        UPDATE devices
+        SET release_date = json_extract(NEW.data, '$.releaseDate')
+        WHERE id = NEW.device_id;
+      END
+    `);
+
+    yield* sql.unsafe(`DROP TRIGGER IF EXISTS entity_data_raw_release_au`);
+    yield* sql.unsafe(`
+      CREATE TRIGGER entity_data_raw_release_au
+      AFTER UPDATE OF data ON entity_data_raw
+      WHEN NEW.source = 'kimovil' AND NEW.data_kind = 'specs'
+      BEGIN
+        UPDATE devices
+        SET release_date = json_extract(NEW.data, '$.releaseDate')
+        WHERE id = NEW.device_id;
+      END
+    `);
+
     yield* Effect.logInfo("Schema initialized");
   });
 

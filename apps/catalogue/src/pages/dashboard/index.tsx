@@ -1,0 +1,28 @@
+import { type NextPage } from "next";
+import Head from "next/head";
+import Layout from "@/src/components/dashboard/layout/Layout";
+import DashboardWidgets from "@/src/components/dashboard/widgets/DashboardWidgets";
+import { useHeaderActions } from "@/src/hooks/useHeaderActions";
+
+const Home: NextPage = () => {
+  useHeaderActions({
+    title: "Обзор",
+  });
+
+  return (
+    <>
+      <Head>
+        <title>Палач | Панель управления</title>
+        <meta name="description" content="Dashboard overview" />
+        <link rel="icon" href="/favicon.ico" />
+      </Head>
+      <main id="main" className="mx-auto h-full bg-zinc-100 dark:bg-zinc-900">
+        <Layout contentScrollable={true}>
+          <DashboardWidgets />
+        </Layout>
+      </main>
+    </>
+  );
+};
+
+export default Home;

@@ -10,8 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@repo/scraper-domain": "workspace:*",
-    "@repo/scraper-protocol": "workspace:*",
+    "@repo/scraper-domain": "*",
+    "@repo/scraper-protocol": "*",
     "@solidjs/router": "^0.15.4",
     "@tailwindcss/vite": "^4.1.16",
     "shiki": "^3.20.0",

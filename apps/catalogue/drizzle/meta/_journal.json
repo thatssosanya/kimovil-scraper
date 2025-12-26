@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1751555168927,
+      "tag": "0000_motionless_steve_rogers",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1759856490603,
+      "tag": "0001_oval_killmonger",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1765932698869,
+      "tag": "0002_striped_annihilus",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1766111948872,
+      "tag": "0003_careful_sunset_bain",
+      "breakpoints": true
+    }
+  ]
+}

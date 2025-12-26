@@ -10,11 +10,11 @@
   },
   "dependencies": {
     "@effect/schema": "^0.75.5",
-    "@repo/scraper-domain": "workspace:*",
+    "@repo/scraper-domain": "*",
     "effect": "^3.18.4"
   },
   "devDependencies": {
-    "@repo/typescript-config": "workspace:*",
+    "@repo/typescript-config": "*",
     "typescript": "^5.9.2"
   },
   "exports": {

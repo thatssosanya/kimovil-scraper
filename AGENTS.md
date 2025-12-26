@@ -419,5 +419,8 @@ registerPipeline({
 4. Import in `src/sources/{source}/index.ts`
 5. The import in `layers/live.ts` triggers registration
 
+## Database File
+- **SQLite file**: `apps/scraper/scraper-cache.sqlite` (not `scraper.db`)
+
 ## Known Limitations (Future Work)
 - **Postgres**: SQLite-specific SQL (PRAGMA, INSERT OR REPLACE, last_insert_rowid) needs conversion

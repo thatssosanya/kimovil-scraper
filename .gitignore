@@ -38,6 +38,7 @@ yarn-error.log*
 *.pem
 *.sqlite
 *.sqlite.backup
+*.sqlite.backup-*
 session-ses_*.md
 pbcopy
 *.sqlite-shm

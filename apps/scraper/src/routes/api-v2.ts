@@ -18,12 +18,25 @@ export interface DeviceWithStats {
   releaseDate: string | null;
 }
 
+interface PaginationParams {
+  readonly limit: number;
+  readonly offset: number;
+}
+
+const parsePagination = (query: Record<string, unknown>): PaginationParams => ({
+  limit: Math.min(Math.max(1, parseInt(query.limit as string) || 500), 10000),
+  offset: Math.max(0, parseInt(query.offset as string) || 0),
+});
+
+const paginate = <T>(items: readonly T[], { limit, offset }: PaginationParams): T[] =>
+  items.slice(offset, offset + limit);
+
 export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
   new Elysia({ prefix: "/api/v2" })
     .get("/devices", async ({ query }) => {
       const search = (query.search as string)?.toLowerCase() || "";
       const filter = query.filter as string | undefined;
-      const limit = Math.min(Math.max(1, parseInt(query.limit as string) || 500), 10000);
+      const pagination = parsePagination(query);
       const source = (query.source as string) ?? "kimovil";
 
       const program = Effect.gen(function* () {
@@ -77,7 +90,7 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
         return {
           total: devices.length,
           filtered: filtered.length,
-          devices: filtered.slice(0, limit),
+          devices: paginate(filtered, pagination),
           stats: {
             corrupted: corruptedSlugs.length,
             valid: validSlugs.length,

@@ -1,0 +1,289 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+/* Dark mode configuration */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Tailwind v4 configuration */
+@theme {
+  /* Container configuration */
+  --default-transition-duration: 150ms;
+  --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Colors - using proper Tailwind v4 syntax */
+  --color-border: hsl(214.3 31.8% 91.4%);
+  --color-input: hsl(214.3 31.8% 91.4%);
+  --color-ring: hsl(222.2 84% 4.9%);
+  --color-background: hsl(0 0% 100%);
+  --color-foreground: hsl(222.2 84% 4.9%);
+  --color-primary: hsl(354 100% 64%);
+  --color-primary-foreground: hsl(210 40% 98%);
+  --color-primary-highlight: hsl(355 53% 38%);
+  --color-primary-highlight-foreground: hsl(210 40% 98%);
+  --color-secondary: hsl(210 40% 96.1%);
+  --color-secondary-foreground: hsl(222.2 47.4% 11.2%);
+  --color-destructive: hsl(0 84.2% 60.2%);
+  --color-destructive-foreground: hsl(210 40% 98%);
+  --color-muted: hsl(210 40% 96.1%);
+  --color-muted-foreground: hsl(215.4 16.3% 46.9%);
+  --color-accent: hsl(210 40% 96.1%);
+  --color-popover: hsl(0 0% 100%);
+  --color-popover-foreground: hsl(222.2 84% 4.9%);
+  --color-card: hsl(0 0% 100%);
+  --color-card-foreground: hsl(222.2 84% 4.9%);
+
+  /* Border radius */
+  --radius: 0.5rem;
+  --radius-lg: 0.5rem;
+  --radius-md: calc(0.5rem - 2px);
+  --radius-sm: calc(0.5rem - 4px);
+
+  /* Container settings - no max-width below 40rem (640px) */
+  --container-center: true;
+  --container-padding: 2rem;
+  --container-sm: none;
+  --container-md: 768px;
+  --container-lg: 1024px;
+  --container-xl: 1280px;
+  --container-2xl: 1400px;
+
+  /* Custom breakpoints */
+  --breakpoint-xs: 24rem;
+
+  /* Max width extensions */
+  --max-width-8xl: 88rem;
+  --max-width-9xl: 96rem;
+  --max-width-10xl: 104rem;
+
+  /* Sidebar width configurations - matching component constants */
+  --width-sidebar: 16rem;
+  --width-sidebar-icon: 3rem;
+  --width-sidebar-mobile: 18rem;
+
+  /* Animations */
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+}
+
+@keyframes accordion-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
+  }
+}
+
+@keyframes accordion-up {
+  from {
+    height: var(--radix-accordion-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+@layer base {
+  :root {
+    --sidebar-width: 16rem;
+    --sidebar-width-icon: 3rem;
+
+    /* Legacy CSS variables for compatibility */
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 354 100% 64%;
+    --primary-highlight: 355 53% 38%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.5rem;
+
+    /* Sidebar specific colors */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222.2 84% 4.9%;
+    --sidebar-primary: 354 100% 64%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-muted: 210 40% 96.1%;
+    --sidebar-muted-foreground: 215.4 16.3% 46.9%;
+    --sidebar-accent: 210 40% 96.1%;
+    --sidebar-accent-foreground: 222.2 47.4% 11.2%;
+    --sidebar-border: 214.3 31.8% 91.4%;
+    --sidebar-ring: 222.2 84% 4.9%;
+  }
+
+  .dark {
+    /* Simplified dark mode palette - 3-4 colors max */
+    --background: 0 0% 7%; /* Near black #121212 */
+    --foreground: 0 0% 85%; /* Light gray #d9d9d9 */
+    --card: 0 0% 9%; /* Slightly lighter than bg #171717 */
+    --card-foreground: 0 0% 85%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 85%;
+    --primary: 354 73% 56%; /* Keep brand color */
+    --primary-highlight: 354 73% 46%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 15%; /* Gray-900 equivalent */
+    --secondary-foreground: 0 0% 85%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 60%; /* Medium gray */
+    --accent: 0 0% 15%;
+    --accent-foreground: 0 0% 95%;
+    --destructive: 0 62.8% 40%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 20%; /* Subtle borders */
+    --input: 0 0% 15%;
+    --ring: 0 0% 60%;
+
+    /* Sidebar specific colors matching main palette */
+    --sidebar-background: 0 0% 7%;
+    --sidebar-foreground: 0 0% 85%;
+    --sidebar-primary: 354 73% 56%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-muted: 0 0% 15%;
+    --sidebar-muted-foreground: 0 0% 60%;
+    --sidebar-accent: 0 0% 15%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 0 0% 20%;
+    --sidebar-ring: 0 0% 60%;
+  }
+
+  * {
+    @apply border-border;
+  }
+  body,
+  html {
+    @apply bg-background text-foreground h-full scroll-pt-20 scroll-smooth antialiased sm:scroll-pt-2;
+  }
+  /* This is a hack to fix the scrollbar layout shift */
+  #__next {
+    @apply h-full;
+    & > *:not([data-sidebar-wrapper]) {
+      @apply bg-white dark:bg-[hsl(0_0%_7%)];
+      /*padding-left: calc(100vw - 100%);*/
+    }
+  }
+}
+
+@layer utilities {
+  /* Override container behavior below 40rem (640px) */
+  .container {
+    @media (width >= 24rem) and (width < 40rem) {
+      max-width: none;
+    }
+  }
+
+  .scrollbar {
+    /* Change default scrollbar to thin and nice one that overlays content */
+    scrollbar-width: thin;
+    scrollbar-color: rgb(156, 163, 175) transparent;
+    scrollbar-gutter: stable overlay;
+
+    /* WebKit scrollbar styling */
+    &::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background-color: rgb(156, 163, 175);
+      border-radius: 4px;
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+
+    &::-webkit-scrollbar-thumb:hover {
+      background-color: rgb(107, 114, 128);
+    }
+
+    /* Dark mode scrollbar */
+    .dark & {
+      scrollbar-color: rgb(51, 51, 51) transparent;
+
+      &::-webkit-scrollbar-thumb {
+        background-color: rgb(51, 51, 51);
+      }
+
+      &::-webkit-scrollbar-thumb:hover {
+        background-color: rgb(71, 71, 71);
+      }
+    }
+  }
+}
+
+@layer components {
+  /* Remove unused sidebar-specific component classes */
+}
+
+:root {
+  --accent-foreground: hsl(222.2 47.4% 11.2%);
+  --sidebar: hsl(0 0% 98%);
+  --sidebar-foreground: hsl(240 5.3% 26.1%);
+  --sidebar-primary: hsl(240 5.9% 10%);
+  --sidebar-primary-foreground: hsl(0 0% 98%);
+  --sidebar-accent: hsl(240 4.8% 95.9%);
+  --sidebar-accent-foreground: hsl(240 5.9% 10%);
+  --sidebar-border: hsl(220 13% 91%);
+  --sidebar-ring: hsl(217.2 91.2% 59.8%);
+
+  :where(.dark) {
+    --accent-foreground: hsl(0 0% 95%);
+  }
+}
+
+.dark {
+  --sidebar: hsl(240 5.9% 10%);
+  --sidebar-foreground: hsl(240 4.8% 95.9%);
+  --sidebar-primary: hsl(224.3 76.3% 48%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(240 3.7% 15.9%);
+  --sidebar-accent-foreground: hsl(0 0% 95%);
+  --sidebar-border: hsl(240 3.7% 15.9%);
+  --sidebar-ring: hsl(217.2 91.2% 59.8%);
+}
+
+@theme inline {
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  /* Hide number input spinners globally */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+}
