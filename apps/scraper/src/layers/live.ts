@@ -23,6 +23,9 @@ import { WidgetMappingServiceLive } from "../services/widget-mapping";
 import { WordPressSyncServiceLive } from "../services/wordpress-sync";
 import { SqlClientLive, SchemaLive } from "../sql";
 import { PriceRuClientLive } from "../sources/price_ru";
+import { CatalogueSqlClientLive } from "../sql/catalogue";
+import { LinkResolverServiceLive } from "../services/link-resolver";
+import { CatalogueLinkServiceLive } from "../services/catalogue-link";
 
 const SearchServiceLayer = SearchServiceKimovil.pipe(
   Layer.provide(BrowserServiceLive),
@@ -70,6 +73,19 @@ const WordPressSyncLayer = WordPressSyncServiceLive.pipe(Layer.provide(SqlLayer)
 // WidgetMappingService depends only on SQL
 const WidgetMappingLayer = WidgetMappingServiceLive.pipe(Layer.provide(SqlLayer));
 
+// LinkResolver has no deps
+const LinkResolverLayer = LinkResolverServiceLive;
+
+// CatalogueSqlClient is independent
+const CatalogueSqlLayer = CatalogueSqlClientLive;
+
+// CatalogueLinkService depends on CatalogueSqlClient, SqlClient, and LinkResolver
+const CatalogueLinkLayer = CatalogueLinkServiceLive.pipe(
+  Layer.provide(CatalogueSqlLayer),
+  Layer.provide(LinkResolverLayer),
+  Layer.provide(SqlLayer),
+);
+
 // DataLayer is just BaseDataLayer now (PhoneDataService removed)
 const DataLayer = BaseDataLayer;
 
@@ -91,6 +107,7 @@ export const LiveLayer = Layer.mergeAll(
   WordPressSyncLayer,
   SqlLayer,
   PriceRuClientLive,
+  CatalogueLinkLayer,
 );
 
 export type LiveLayerType = typeof LiveLayer;
