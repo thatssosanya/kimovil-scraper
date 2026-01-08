@@ -72,6 +72,7 @@ export function useSlugsApi() {
       if (searchQuery) params.set("search", searchQuery);
       if (filterType !== "all") params.set("filter", filterType);
       params.set("limit", String(limit));
+      params.set("includeStats", "true");
       if (params.toString()) url += `?${params.toString()}`;
 
       const res = await fetch(url);

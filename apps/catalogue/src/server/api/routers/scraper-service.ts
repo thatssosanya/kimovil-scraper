@@ -105,6 +105,7 @@ export const scraperServiceRouter = createTRPCRouter({
       params.set("limit", input.limit.toString());
       params.set("offset", input.offset.toString());
       params.set("source", input.source);
+      params.set("includeStats", "true");
 
       const queryString = params.toString();
       const endpoint = `/api/v2/devices${queryString ? `?${queryString}` : ""}`;

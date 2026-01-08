@@ -1,7 +1,14 @@
-import { Effect, Layer, Context } from "effect";
+import { Effect, Layer, Context, Ref } from "effect";
 import { SqlClient, SqlError } from "@effect/sql";
 import { generateDeviceId } from "@repo/scraper-domain/server";
 import type { SourceStatus } from "@repo/scraper-domain";
+
+interface CountCache {
+  count: number;
+  updatedAt: number;
+}
+
+const COUNT_CACHE_TTL_MS = 30_000;
 
 export interface Device {
   id: string;
@@ -79,6 +86,10 @@ export interface DeviceRegistryService {
     source: string,
   ) => Effect.Effect<Array<{ deviceId: string; externalId: string; slug: string }>, DeviceRegistryError>;
   readonly getAllDevices: () => Effect.Effect<Device[], DeviceRegistryError>;
+  readonly getDevicesPaginated: (
+    limit: number,
+    offset: number,
+  ) => Effect.Effect<Device[], DeviceRegistryError>;
   readonly getDeviceCount: () => Effect.Effect<number, DeviceRegistryError>;
 }
 
@@ -143,6 +154,24 @@ export const DeviceRegistryServiceLive = Layer.effect(
   DeviceRegistryService,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const countCacheRef = yield* Ref.make<CountCache | null>(null);
+
+    const invalidateCountCache = Ref.set(countCacheRef, null);
+
+    const fetchAndCacheCount = Effect.gen(function* () {
+      const rows = yield* sql<{ count: number }>`SELECT COUNT(*) as count FROM devices`;
+      const count = rows[0]?.count ?? 0;
+      yield* Ref.set(countCacheRef, { count, updatedAt: Date.now() });
+      return count;
+    }).pipe(Effect.mapError(wrapSqlError));
+
+    const getDeviceCountCached = Effect.gen(function* () {
+      const cached = yield* Ref.get(countCacheRef);
+      if (cached && Date.now() - cached.updatedAt < COUNT_CACHE_TTL_MS) {
+        return cached.count;
+      }
+      return yield* fetchAndCacheCount;
+    });
 
     return DeviceRegistryService.of({
       getDeviceById: (id: string) =>
@@ -180,6 +209,8 @@ export const DeviceRegistryServiceLive = Layer.effect(
               brand = COALESCE(excluded.brand, devices.brand),
               updated_at = unixepoch()
           `;
+
+          yield* invalidateCountCache;
 
           const rows = yield* sql<DeviceRow>`SELECT * FROM devices WHERE id = ${id}`;
           const row = rows[0];
@@ -288,11 +319,28 @@ export const DeviceRegistryServiceLive = Layer.effect(
           Effect.mapError(wrapSqlError),
         ),
 
-      getDeviceCount: () =>
-        sql<{ count: number }>`SELECT COUNT(*) as count FROM devices`.pipe(
-          Effect.map((rows) => rows[0]?.count ?? 0),
+      getDevicesPaginated: (limit: number, offset: number) =>
+        sql<DeviceRow>`
+          SELECT 
+            id,
+            slug,
+            name,
+            brand,
+            created_at,
+            updated_at,
+            release_date
+          FROM devices
+          ORDER BY 
+            CASE WHEN release_date IS NULL THEN 1 ELSE 0 END,
+            release_date DESC,
+            name
+          LIMIT ${limit} OFFSET ${offset}
+        `.pipe(
+          Effect.map((rows) => rows.map(mapDeviceRow)),
           Effect.mapError(wrapSqlError),
         ),
+
+      getDeviceCount: () => getDeviceCountCached,
     });
   }),
 );
