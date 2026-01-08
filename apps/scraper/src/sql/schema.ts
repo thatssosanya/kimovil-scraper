@@ -42,6 +42,73 @@ const migrateTableRename = (
     }
   }).pipe(Effect.asVoid, Effect.mapError((e) => e as SqlError.SqlError));
 
+const migrateWidgetMappingsStatus = (sql: SqlClient.SqlClient) =>
+  Effect.gen(function* () {
+    const result = yield* sql.unsafe(`
+      UPDATE widget_model_mappings
+      SET status = 'suggested', updated_at = unixepoch()
+      WHERE status = 'ambiguous'
+    `);
+    const changes = (result as unknown as { changes?: number }).changes ?? 0;
+    if (changes > 0) {
+      yield* Effect.logInfo(`Migrated ${changes} widget_model_mappings from 'ambiguous' to 'suggested'`);
+    }
+  }).pipe(Effect.asVoid, Effect.mapError((e) => e as SqlError.SqlError));
+
+const migrateWidgetMappingsStatusConstraint = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    const rows = yield* sql.unsafe(`SELECT sql FROM sqlite_master WHERE type='table' AND name='widget_model_mappings'`);
+    const createSql = (rows[0] as { sql: string } | undefined)?.sql ?? "";
+    const needsMigration = createSql.includes("status") && !createSql.includes("suggested");
+
+    if (!needsMigration) return;
+
+    yield* Effect.logInfo("Migrating widget_model_mappings table to update status constraint...");
+
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* sql.unsafe(`
+          CREATE TABLE widget_model_mappings_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL DEFAULT 'wordpress',
+            raw_model TEXT NOT NULL,
+            normalized_model TEXT,
+            device_id TEXT REFERENCES devices(id),
+            confidence REAL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'suggested', 'auto_confirmed', 'confirmed', 'ignored')),
+            override_category_id INTEGER REFERENCES device_categories(id),
+            locked INTEGER NOT NULL DEFAULT 0,
+            usage_count INTEGER NOT NULL DEFAULT 0,
+            first_seen_at INTEGER,
+            last_seen_at INTEGER,
+            created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            UNIQUE(source, raw_model)
+          )
+        `);
+
+        yield* sql.unsafe(`
+          INSERT INTO widget_model_mappings_new
+          SELECT id, source, raw_model, normalized_model, device_id, confidence,
+            CASE WHEN status = 'ambiguous' THEN 'suggested' ELSE status END,
+            override_category_id, locked,
+            COALESCE(usage_count, 0), first_seen_at, last_seen_at,
+            created_at, updated_at
+          FROM widget_model_mappings
+        `);
+
+        yield* sql.unsafe(`DROP TABLE widget_model_mappings`);
+        yield* sql.unsafe(`ALTER TABLE widget_model_mappings_new RENAME TO widget_model_mappings`);
+
+        // Recreate indexes after table rename
+        yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_widget_mappings_device ON widget_model_mappings(device_id)`);
+        yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_widget_mappings_status ON widget_model_mappings(status)`);
+      }),
+    );
+
+    yield* Effect.logInfo("Successfully migrated widget_model_mappings status constraint");
+  });
+
 const getRowCount = (
   sql: SqlClient.SqlClient,
   table: string,
@@ -1065,6 +1132,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     `);
 
     // Widget model mappings for WordPress integration
+    yield* migrateWidgetMappingsStatusConstraint(sql);
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS widget_model_mappings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1073,9 +1141,12 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
         normalized_model TEXT,
         device_id TEXT REFERENCES devices(id),
         confidence REAL,
-        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'ignored', 'ambiguous')),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'suggested', 'auto_confirmed', 'confirmed', 'ignored')),
         override_category_id INTEGER REFERENCES device_categories(id),
         locked INTEGER NOT NULL DEFAULT 0,
+        usage_count INTEGER NOT NULL DEFAULT 0,
+        first_seen_at INTEGER,
+        last_seen_at INTEGER,
         created_at INTEGER NOT NULL DEFAULT (unixepoch()),
         updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
         UNIQUE(source, raw_model)
@@ -1084,6 +1155,12 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     // Note: (source, raw_model) already has implicit index from UNIQUE constraint
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_widget_mappings_device ON widget_model_mappings(device_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_widget_mappings_status ON widget_model_mappings(status)`);
+
+    // Migrations for widget_model_mappings
+    yield* ensureColumn(sql, "widget_model_mappings", "usage_count", "INTEGER NOT NULL DEFAULT 0");
+    yield* ensureColumn(sql, "widget_model_mappings", "first_seen_at", "INTEGER");
+    yield* ensureColumn(sql, "widget_model_mappings", "last_seen_at", "INTEGER");
+    yield* migrateWidgetMappingsStatus(sql);
 
     yield* seedDeviceCategories(sql);
 
