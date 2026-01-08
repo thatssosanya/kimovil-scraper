@@ -47,14 +47,28 @@ function escapeHtml(unsafe: string): string {
     .replace(/'/g, "&#039;");
 }
 
+function sanitizeUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return url;
+    }
+  } catch {
+    // Invalid URL
+  }
+  return "#";
+}
+
 function formatPrice(minorUnits: number): string {
   const rubles = Math.round(minorUnits / 100);
   return rubles.toLocaleString("ru-RU");
 }
 
 function pluralOffers(count: number): string {
-  if (count === 1) return "предложение";
-  if (count >= 2 && count <= 4) return "предложения";
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return "предложение";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "предложения";
   return "предложений";
 }
 
@@ -119,7 +133,7 @@ function renderPriceHighlight(minPrice: number, variant: ArrowVariant): string {
 }
 
 function renderShopRow(group: WidgetModel["prices"][0], rank: number): string {
-  const url = group.topOffers[0]?.url || "#";
+  const url = sanitizeUrl(group.topOffers[0]?.url || "#");
 
   return `
     <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="group flex items-center gap-4 px-6 py-3.5 hover:bg-neutral-50/80 transition-colors">
@@ -368,6 +382,7 @@ export const WIDGET_TAILWIND_CLASSES = [
   // Footer
   "bg-neutral-50/50",
   "border-t",
+  "border-neutral-100",
   // Shop rows
   "group",
   "hover:bg-neutral-50/80",

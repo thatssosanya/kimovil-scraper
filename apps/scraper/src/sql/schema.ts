@@ -991,6 +991,37 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_schedules_next_run ON job_schedules(next_run_at)`);
     yield* ensureColumn(sql, "job_schedules", "run_once", "INTEGER NOT NULL DEFAULT 0");
 
+    // Device categories hierarchy
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS device_categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        slug TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        parent_id INTEGER REFERENCES device_categories(id),
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )
+    `);
+    // Note: slug already has implicit index from UNIQUE constraint
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_categories_parent ON device_categories(parent_id)`);
+
+    // Add primary_category_id to devices table
+    yield* ensureColumn(sql, "devices", "primary_category_id", "INTEGER REFERENCES device_categories(id)");
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_devices_primary_category ON devices(primary_category_id)`);
+
+    // Join table for multi-category support
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS device_category_links (
+        device_id TEXT NOT NULL REFERENCES devices(id),
+        category_id INTEGER NOT NULL REFERENCES device_categories(id),
+        is_primary INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        PRIMARY KEY (device_id, category_id)
+      )
+    `);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_category_links_category ON device_category_links(category_id)`);
+    yield* sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS idx_device_single_primary ON device_category_links(device_id) WHERE is_primary = 1`);
+
     // Add release_date to devices table (materialized from entity_data_raw JSON)
     yield* ensureColumn(sql, "devices", "release_date", "TEXT");
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_devices_release_date ON devices(release_date DESC, name)`);
@@ -1033,7 +1064,67 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
       END
     `);
 
+    // Widget model mappings for WordPress integration
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS widget_model_mappings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL DEFAULT 'wordpress',
+        raw_model TEXT NOT NULL,
+        normalized_model TEXT,
+        device_id TEXT REFERENCES devices(id),
+        confidence REAL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'ignored', 'ambiguous')),
+        override_category_id INTEGER REFERENCES device_categories(id),
+        locked INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        UNIQUE(source, raw_model)
+      )
+    `);
+    // Note: (source, raw_model) already has implicit index from UNIQUE constraint
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_widget_mappings_device ON widget_model_mappings(device_id)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_widget_mappings_status ON widget_model_mappings(status)`);
+
+    yield* seedDeviceCategories(sql);
+
     yield* Effect.logInfo("Schema initialized");
+  });
+
+const seedDeviceCategories = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    // Root category
+    yield* sql`INSERT OR IGNORE INTO device_categories (id, slug, name, parent_id) VALUES (1, 'electronics', 'Electronics', NULL)`;
+
+    // Direct children of electronics (parent_id = 1)
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('smartphone', 'Smartphone', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('tablet', 'Tablet', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('laptop', 'Laptop', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('watch', 'Watch', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('tv', 'TV', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('headphones', 'Headphones', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('console', 'Console', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('hybrid', 'Hybrid', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('accessory', 'Accessory', 1)`;
+
+    // Subcategories (need to look up parent IDs)
+    const laptopRow = yield* sql`SELECT id FROM device_categories WHERE slug = 'laptop'`;
+    const laptopId = (laptopRow[0] as { id: number } | undefined)?.id;
+    if (laptopId) {
+      yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('gaming_laptop', 'Gaming Laptop', ${laptopId})`;
+    }
+
+    const watchRow = yield* sql`SELECT id FROM device_categories WHERE slug = 'watch'`;
+    const watchId = (watchRow[0] as { id: number } | undefined)?.id;
+    if (watchId) {
+      yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('smartwatch', 'Smartwatch', ${watchId})`;
+    }
+
+    const headphonesRow = yield* sql`SELECT id FROM device_categories WHERE slug = 'headphones'`;
+    const headphonesId = (headphonesRow[0] as { id: number } | undefined)?.id;
+    if (headphonesId) {
+      yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('true_wireless', 'True Wireless', ${headphonesId})`;
+      yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('over_ear', 'Over-Ear', ${headphonesId})`;
+    }
   });
 
 export const SchemaLive = Layer.effectDiscard(
