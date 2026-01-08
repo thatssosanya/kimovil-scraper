@@ -1,0 +1,26 @@
+meta {
+  name: Invalidate All Widget Caches
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/widget/v1/invalidate
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+  res.body.message: isString
+}
+
+docs {
+  Invalidate all widget caches globally.
+  
+  Clears the entire in-memory cache for all devices.
+  Next requests will regenerate widgets from fresh data.
+  
+  Use sparingly - prefer per-slug invalidation when possible.
+}

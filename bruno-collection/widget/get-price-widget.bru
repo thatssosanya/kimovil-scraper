@@ -1,0 +1,48 @@
+meta {
+  name: Get Price Widget
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/widget/v1/price/:slug
+  body: none
+  auth: none
+}
+
+params:query {
+  ~arrowVariant: neutral
+  ~theme: light
+}
+
+params:path {
+  slug: samsung-galaxy-a16-4g
+}
+
+headers {
+  Accept: text/html
+}
+
+assert {
+  res.status: eq 200
+  res.headers.content-type: contains text/html
+  res.headers.cache-control: contains max-age
+  res.body: contains widget-price-container
+}
+
+docs {
+  Get pre-rendered HTML price widget for a device.
+  
+  Path params:
+  - slug: Device slug (e.g., samsung-galaxy-a16-4g)
+  
+  Query params:
+  - arrowVariant: neutral|up|down|hot|new (default: neutral)
+  - theme: light|dark (default: light)
+  
+  Response headers include:
+  - Cache-Control: public, max-age=300, stale-while-revalidate=86400
+  - Content-Type: text/html; charset=utf-8
+  
+  Returns styled HTML that can be embedded directly.
+}

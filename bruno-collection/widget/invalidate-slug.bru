@@ -1,0 +1,33 @@
+meta {
+  name: Invalidate Widget Cache (Slug)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/widget/v1/invalidate/:slug
+  body: none
+  auth: none
+}
+
+params:path {
+  slug: samsung-galaxy-a16-4g
+}
+
+assert {
+  res.status: eq 200
+  res.body.success: eq true
+  res.body.slug: isString
+}
+
+docs {
+  Invalidate widget cache for a specific device slug.
+  
+  Clears all cached variants (different arrowVariant/theme combinations)
+  for the specified slug.
+  
+  Use after:
+  - Price data updates
+  - Device info changes
+  - Manual refresh needed
+}
