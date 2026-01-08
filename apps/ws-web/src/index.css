@@ -1,5 +1,29 @@
 @import "tailwindcss";
 
+/* Widget safelist - classes used in server-rendered widget HTML */
+@source inline("widget-price-container");
+@source inline("w-full max-w-[680px]");
+@source inline("font-['Inter',system-ui,-apple-system,sans-serif]");
+@source inline("bg-white rounded-2xl border border-neutral-200/60 overflow-hidden");
+@source inline("p-6 pb-5 p-12 flex items-start items-center items-baseline items-end justify-center justify-between");
+@source inline("gap-5 gap-4 gap-3 gap-2 gap-1");
+@source inline("w-[100px] h-[120px] w-16 h-16 w-14 h-20 w-8 h-8 w-7 h-7 w-5 h-5");
+@source inline("bg-neutral-50 bg-neutral-100 bg-red-50 rounded-xl rounded-lg rounded-full flex-shrink-0");
+@source inline("max-w-full max-h-full object-contain");
+@source inline("flex-1 min-w-0 pt-1 flex-col flex-wrap");
+@source inline("text-[22px] text-[20px] text-[18px] text-[17px] text-[15px] text-[14px] text-[13px] text-[12px] text-[28px] text-lg text-sm");
+@source inline("font-semibold font-bold font-medium font-normal");
+@source inline("text-neutral-900 text-neutral-500 text-neutral-400 text-neutral-300 text-red-500");
+@source inline("text-[hsl(354,100%,64%)] text-[hsl(354,100%,64%)]/70");
+@source inline("text-[hsl(158,64%,42%)] text-[hsl(158,64%,42%)]/70");
+@source inline("text-[hsl(25,95%,53%)] text-[hsl(25,95%,53%)]/70");
+@source inline("text-[hsl(45,93%,47%)] text-[hsl(45,93%,47%)]/70");
+@source inline("leading-tight tracking-[-0.02em] tracking-wide uppercase truncate text-right text-center max-w-[140px]");
+@source inline("mt-4 mt-2 mt-0.5 ml-1 mb-4 mb-2 mx-6 mx-auto px-6 py-4 py-3.5 py-2");
+@source inline("h-px bg-neutral-100 bg-neutral-50/50 border-t border-neutral-100");
+@source inline("group {group-hover:,hover:}bg-neutral-50/80 transition-colors transition-all tabular-nums block");
+@source inline("{group-hover:}text-[hsl(354,100%,64%)] {group-hover:}translate-x-0.5 {group-hover:}-translate-y-0.5");
+
 @font-face {
   font-family: "Instrument Serif";
   src: url("https://fonts.gstatic.com/s/instrumentserif/v4/jizBRFtNs2ka5fXjeivQ4LroWlx-2zIZj1bIkNo.woff2")
