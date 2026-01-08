@@ -1,4 +1,4 @@
-import { createSignal, Show, For, onMount } from "solid-js";
+import { createSignal, Show, For, onMount, createEffect } from "solid-js";
 import { Header } from "../../components/Header";
 
 interface WidgetModel {
@@ -7,6 +7,8 @@ interface WidgetModel {
   brand: string | null;
   count: number;
   postIds: number[];
+  firstSeen: string;
+  lastSeen: string;
   matchedSlug: string | null;
   matchConfidence: number | null;
 }
@@ -22,10 +24,26 @@ interface WidgetStats {
 interface WidgetDataResponse {
   stats: WidgetStats;
   models: WidgetModel[];
+  period: PeriodParam;
 }
 
+interface SyncStatus {
+  lastSyncedAt: string | null;
+  lastModifiedGmt: string | null;
+  postsCount: number;
+  widgetsCount: number;
+}
+
+type PeriodParam = "1m" | "3m" | "6m" | "all";
 type SortField = "count" | "raw" | "brand" | "matchConfidence";
 type FilterMode = "all" | "matched" | "unmatched" | "ambiguous";
+
+const PERIOD_OPTIONS: { id: PeriodParam; label: string }[] = [
+  { id: "1m", label: "1 month" },
+  { id: "3m", label: "3 months" },
+  { id: "6m", label: "6 months" },
+  { id: "all", label: "All time" },
+];
 
 export default function WidgetDebug() {
   const [data, setData] = createSignal<WidgetDataResponse | null>(null);
@@ -36,12 +54,15 @@ export default function WidgetDebug() {
   const [sortDesc, setSortDesc] = createSignal(true);
   const [filterMode, setFilterMode] = createSignal<FilterMode>("all");
   const [selectedModel, setSelectedModel] = createSignal<WidgetModel | null>(null);
+  const [period, setPeriod] = createSignal<PeriodParam>("3m");
+  const [syncStatus, setSyncStatus] = createSignal<SyncStatus | null>(null);
+  const [syncing, setSyncing] = createSignal(false);
 
   const fetchData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("http://localhost:1488/api/widget-debug/models");
+      const res = await fetch(`http://localhost:1488/api/widget-debug/models?period=${period()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setData(json);
@@ -52,7 +73,40 @@ export default function WidgetDebug() {
     }
   };
 
-  onMount(fetchData);
+  const fetchSyncStatus = async () => {
+    try {
+      const res = await fetch("http://localhost:1488/api/widget-debug/sync-status");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      setSyncStatus(json);
+    } catch (e) {
+      console.error("Failed to fetch sync status:", e);
+    }
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch("http://localhost:1488/api/widget-debug/refresh", { method: "POST" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await fetchSyncStatus();
+      await fetchData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  onMount(() => {
+    fetchData();
+    fetchSyncStatus();
+  });
+
+  createEffect(() => {
+    period();
+    fetchData();
+  });
 
   const filteredModels = () => {
     const d = data();
@@ -60,7 +114,6 @@ export default function WidgetDebug() {
     
     let models = [...d.models];
     
-    // Filter by search
     const q = search().toLowerCase();
     if (q) {
       models = models.filter(m => 
@@ -70,7 +123,6 @@ export default function WidgetDebug() {
       );
     }
     
-    // Filter by match status
     const mode = filterMode();
     if (mode === "matched") {
       models = models.filter(m => m.matchedSlug !== null);
@@ -80,7 +132,6 @@ export default function WidgetDebug() {
       models = models.filter(m => m.matchConfidence !== null && m.matchConfidence < 0.9);
     }
     
-    // Sort
     const field = sortField();
     const desc = sortDesc();
     models.sort((a, b) => {
@@ -104,6 +155,12 @@ export default function WidgetDebug() {
     }
   };
 
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return "Never";
+    const d = new Date(dateStr);
+    return d.toLocaleString();
+  };
+
   const SortIcon = (props: { field: SortField }) => (
     <Show when={sortField() === props.field}>
       <span class="ml-1 text-indigo-500">
@@ -123,6 +180,42 @@ export default function WidgetDebug() {
           <p class="text-sm text-zinc-500 dark:text-slate-400 mt-1">
             Analyze WordPress widget models and match them to device slugs
           </p>
+        </div>
+
+        {/* Sync Status Card */}
+        <div class="bg-white dark:bg-slate-900 rounded-xl border border-zinc-200 dark:border-slate-800 p-4 mb-6">
+          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div class="flex flex-wrap gap-6 text-sm">
+              <div>
+                <span class="text-zinc-500 dark:text-slate-400">Last synced:</span>
+                <span class="ml-2 font-medium text-zinc-900 dark:text-white">
+                  {formatDate(syncStatus()?.lastSyncedAt ?? null)}
+                </span>
+              </div>
+              <div>
+                <span class="text-zinc-500 dark:text-slate-400">Posts cached:</span>
+                <span class="ml-2 font-medium text-zinc-900 dark:text-white">
+                  {syncStatus()?.postsCount?.toLocaleString() ?? "—"}
+                </span>
+              </div>
+              <div>
+                <span class="text-zinc-500 dark:text-slate-400">Widgets cached:</span>
+                <span class="ml-2 font-medium text-zinc-900 dark:text-white">
+                  {syncStatus()?.widgetsCount?.toLocaleString() ?? "—"}
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={handleSync}
+              disabled={syncing()}
+              class="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-2"
+            >
+              <Show when={syncing()}>
+                <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              </Show>
+              {syncing() ? "Syncing..." : "Sync from WordPress"}
+            </button>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -158,6 +251,24 @@ export default function WidgetDebug() {
               />
             </div>
             
+            {/* Period selector */}
+            <div class="flex gap-1">
+              <For each={PERIOD_OPTIONS}>
+                {(opt) => (
+                  <button
+                    onClick={() => setPeriod(opt.id)}
+                    class={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                      period() === opt.id
+                        ? "bg-violet-500 text-white"
+                        : "bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-300 hover:bg-zinc-200 dark:hover:bg-slate-700"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                )}
+              </For>
+            </div>
+            
             {/* Filter buttons */}
             <div class="flex gap-2">
               <For each={[
@@ -184,10 +295,10 @@ export default function WidgetDebug() {
             {/* Refresh */}
             <button
               onClick={fetchData}
-              disabled={loading()}
+              disabled={loading() || syncing()}
               class="px-4 py-2 text-sm font-medium bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-50 transition-colors"
             >
-              {loading() ? "Loading..." : "Refresh"}
+              {loading() ? "Loading..." : syncing() ? "Syncing..." : "Refresh"}
             </button>
           </div>
         </div>
@@ -200,14 +311,17 @@ export default function WidgetDebug() {
         </Show>
 
         {/* Loading */}
-        <Show when={loading()}>
-          <div class="flex items-center justify-center py-12">
+        <Show when={loading() || syncing()}>
+          <div class="flex items-center justify-center py-12 gap-3">
             <div class="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            <span class="text-zinc-500 dark:text-slate-400">
+              {syncing() ? "Syncing from WordPress..." : "Loading..."}
+            </span>
           </div>
         </Show>
 
         {/* Table */}
-        <Show when={!loading() && data()}>
+        <Show when={!loading() && !syncing() && data()}>
           <div class="bg-white dark:bg-slate-900 rounded-xl border border-zinc-200 dark:border-slate-800 overflow-hidden">
             <div class="overflow-x-auto">
               <table class="w-full text-sm">
@@ -333,6 +447,8 @@ export default function WidgetDebug() {
                 <DetailRow label="Normalized" value={selectedModel()!.normalized} mono />
                 <DetailRow label="Brand" value={selectedModel()!.brand || "Unknown"} />
                 <DetailRow label="Usage Count" value={String(selectedModel()!.count)} />
+                <DetailRow label="First Seen" value={formatDate(selectedModel()!.firstSeen)} />
+                <DetailRow label="Last Seen" value={formatDate(selectedModel()!.lastSeen)} />
                 <DetailRow 
                   label="Matched Slug" 
                   value={selectedModel()!.matchedSlug || "No match"} 
