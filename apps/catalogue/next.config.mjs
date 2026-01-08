@@ -23,6 +23,8 @@ const config = {
       { protocol: "https", hostname: "clik-or-die.fra1.digitaloceanspaces.com" },
       { protocol: "https", hostname: "click-or-die.fra1.digitaloceanspaces.com" },
       { protocol: "https", hostname: "click-or-die.fra1.cdn.digitaloceanspaces.com" },
+      { protocol: "https", hostname: "cdn.kimovil.com" },
+      { protocol: "https", hostname: "cdn-files.kimovil.com" },
     ],
   },
 };
