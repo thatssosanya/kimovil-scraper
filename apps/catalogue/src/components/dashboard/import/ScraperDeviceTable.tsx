@@ -2,8 +2,13 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/src/components/ui/data-table";
 import { useMemo, useRef, useCallback, useEffect } from "react";
 import { cn } from "@/src/lib/utils";
-import { Smartphone, AlertCircle, Check } from "lucide-react";
+import { Smartphone, AlertCircle, Check, Eye, ExternalLink } from "lucide-react";
 import type { ScraperDevice } from "@/src/server/api/routers/scraper-service";
+import {
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "@/src/components/ui/ContextMenu";
 
 interface ScraperDeviceTableProps {
   devices: ScraperDevice[];
@@ -37,7 +42,27 @@ export function ScraperDeviceTable({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const handleRowClick = useCallback((device: ScraperDevice) => {
-    console.log("Clicked device:", device.slug);
+    window.open(`/preview/devices/${device.slug}`, "_blank");
+  }, []);
+
+  const renderContextMenu = useCallback((device: ScraperDevice) => {
+    return (
+      <ContextMenuContent>
+        <ContextMenuItem
+          onClick={() => window.open(`/preview/devices/${device.slug}`, "_blank")}
+        >
+          <Eye className="mr-2 h-4 w-4" />
+          Предпросмотр
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onClick={() => window.open(`https://www.kimovil.com/ru/where-to-buy-${device.slug}`, "_blank")}
+        >
+          <ExternalLink className="mr-2 h-4 w-4" />
+          Открыть на Kimovil
+        </ContextMenuItem>
+      </ContextMenuContent>
+    );
   }, []);
 
   const columns = useMemo<ColumnDef<ScraperDevice>[]>(
@@ -184,6 +209,7 @@ export function ScraperDeviceTable({
           isLoading={isLoading}
           searchable={false}
           scrollContainerRef={scrollContainerRef}
+          contextMenuRender={renderContextMenu}
         >
           <>
             {hasMore && !isLoading && <div className="h-12" aria-hidden="true" />}

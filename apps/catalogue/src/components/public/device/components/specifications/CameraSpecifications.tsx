@@ -32,11 +32,12 @@ export const CameraSpecifications: React.FC<CameraSpecificationsProps> = ({
               <div className="rounded-full bg-white dark:bg-gray-900 px-4 py-2 text-xs font-semibold text-gray-900 dark:text-white">
                 {camera.resolution_mp}МП
               </div>
-              {camera.aperture_fstop.toLowerCase() !== "неизвестно" && (
-                <div className="rounded-full bg-white dark:bg-gray-900 px-4 py-2 text-xs font-semibold text-gray-900 dark:text-white">
-                  f/{camera.aperture_fstop}
-                </div>
-              )}
+              {camera.aperture_fstop &&
+                !isNaN(parseFloat(camera.aperture_fstop)) && (
+                  <div className="rounded-full bg-white dark:bg-gray-900 px-4 py-2 text-xs font-semibold text-gray-900 dark:text-white">
+                    f/{camera.aperture_fstop}
+                  </div>
+                )}
               {camera.features?.includes("monochrome") && (
                 <div
                   className="rounded-full bg-white px-4 py-2 text-xs font-semibold "

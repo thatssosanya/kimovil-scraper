@@ -11,11 +11,20 @@ type PhysicalSpecificationsProps = {
 const normalizePhysicalSpecifications = (
   deviceData: DeviceData
 ): Characteristic[] => {
+  const dimensions = [
+    deviceData?.width_mm != null && `Ширина: ${deviceData.width_mm} мм`,
+    deviceData?.height_mm != null && `Высота: ${deviceData.height_mm} мм`,
+    deviceData?.thickness_mm != null && `Толщина: ${deviceData.thickness_mm} мм`,
+  ].filter(Boolean);
+
   return [
-    { label: "Вес", value: `${deviceData?.weight_g?.toString()} г` || "—" },
+    {
+      label: "Вес",
+      value: deviceData?.weight_g != null ? `${deviceData.weight_g} г` : "—",
+    },
     {
       label: "Размеры",
-      value: `Ширина: ${deviceData?.width_mm?.toString()} мм, Высота: ${deviceData?.height_mm?.toString()} мм, Толщина: ${deviceData?.thickness_mm?.toString()} мм`,
+      value: dimensions.length > 0 ? dimensions.join(", ") : "—",
     },
   ];
 };
