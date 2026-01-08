@@ -1,0 +1,383 @@
+/**
+ * HTML Renderer for Price Widget
+ *
+ * Produces HTML matching PalachPriceWidget.tsx styling exactly.
+ * Uses Tailwind CSS classes for styling (to be used with safelist in ws-web).
+ * Pure function with no IO dependencies.
+ */
+
+export type ArrowVariant = "neutral" | "up" | "down" | "hot" | "new";
+
+export interface WidgetRenderOptions {
+  arrowVariant?: ArrowVariant;
+  theme?: "light" | "dark";
+}
+
+export interface WidgetModel {
+  device: {
+    name: string;
+    brand: string | null;
+    slug: string;
+  };
+  specs: {
+    screenSize: number | null;
+    cpu: string | null;
+    battery: number | null;
+    image: string | null;
+  };
+  prices: Array<{
+    source: string;
+    sourceName: string;
+    minPrice: number;
+    offerCount: number;
+    topOffers: Array<{
+      seller: string;
+      price: number;
+      url?: string;
+    }>;
+  }>;
+}
+
+function escapeHtml(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function formatPrice(minorUnits: number): string {
+  const rubles = Math.round(minorUnits / 100);
+  return rubles.toLocaleString("ru-RU");
+}
+
+function pluralOffers(count: number): string {
+  if (count === 1) return "предложение";
+  if (count >= 2 && count <= 4) return "предложения";
+  return "предложений";
+}
+
+const ARROW_VARIANT_CLASSES: Record<ArrowVariant, { main: string; currency: string }> = {
+  neutral: { main: "text-neutral-900", currency: "text-neutral-400" },
+  up: { main: "text-[hsl(354,100%,64%)]", currency: "text-[hsl(354,100%,64%)]/70" },
+  down: { main: "text-[hsl(158,64%,42%)]", currency: "text-[hsl(158,64%,42%)]/70" },
+  hot: { main: "text-[hsl(25,95%,53%)]", currency: "text-[hsl(25,95%,53%)]/70" },
+  new: { main: "text-[hsl(45,93%,47%)]", currency: "text-[hsl(45,93%,47%)]/70" },
+};
+
+const INDICATOR_TEXT: Record<ArrowVariant, { symbol: string | null; text: string } | null> = {
+  neutral: null,
+  up: { symbol: "↑", text: "Подорожал на 1 700 ₽" },
+  down: { symbol: "↓", text: "Подешевел на 650 ₽" },
+  hot: { symbol: "🔥", text: "Горячая цена" },
+  new: { symbol: null, text: "Новинка" },
+};
+
+function renderImagePlaceholder(): string {
+  return `<div class="w-14 h-20 bg-neutral-100 rounded-lg"></div>`;
+}
+
+function renderImage(url: string, alt: string): string {
+  return `<img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" class="max-w-full max-h-full object-contain" />`;
+}
+
+function renderSpecs(specs: WidgetModel["specs"]): string {
+  const items: string[] = [];
+
+  if (specs.screenSize) {
+    items.push(`<span>${specs.screenSize}" экран</span>`);
+  }
+  if (specs.cpu) {
+    items.push(`<span class="text-right max-w-[140px] truncate">${escapeHtml(specs.cpu)}</span>`);
+  }
+  if (specs.battery) {
+    items.push(`<span>${specs.battery} мАч</span>`);
+  }
+
+  if (items.length === 0) return "";
+
+  return `
+    <div class="flex flex-col items-end gap-1 text-[13px] text-neutral-500 flex-shrink-0">
+      ${items.join("\n      ")}
+    </div>
+  `;
+}
+
+function renderPriceHighlight(minPrice: number, variant: ArrowVariant): string {
+  const classes = ARROW_VARIANT_CLASSES[variant];
+  const indicator = INDICATOR_TEXT[variant];
+
+  return `
+    <div class="mt-4 flex items-baseline gap-2 flex-wrap">
+      <span class="text-[13px] text-neutral-400 uppercase tracking-wide font-medium">от</span>
+      <span class="text-[28px] font-bold tracking-[-0.02em] ${classes.main}">${formatPrice(minPrice)}</span>
+      <span class="text-[20px] font-medium ${classes.currency}">₽${indicator?.symbol ? `<span class="text-[18px] ml-1">${indicator.symbol}</span>` : ""}</span>
+      ${indicator ? `<span class="text-[14px] font-medium ml-1 ${classes.main}">${escapeHtml(indicator.text)}</span>` : ""}
+    </div>
+  `;
+}
+
+function renderShopRow(group: WidgetModel["prices"][0], rank: number): string {
+  const url = group.topOffers[0]?.url || "#";
+
+  return `
+    <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="group flex items-center gap-4 px-6 py-3.5 hover:bg-neutral-50/80 transition-colors">
+      <!-- Rank -->
+      <div class="w-7 h-7 rounded-full bg-neutral-100 flex items-center justify-center flex-shrink-0">
+        <span class="text-[13px] font-semibold text-neutral-500">${rank}</span>
+      </div>
+
+      <!-- Shop info -->
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <span class="font-medium text-[15px] text-neutral-900 truncate">${escapeHtml(group.sourceName)}</span>
+        </div>
+        <span class="text-[13px] text-neutral-400 mt-0.5 block">
+          ${group.offerCount} ${pluralOffers(group.offerCount)}
+        </span>
+      </div>
+
+      <!-- Price -->
+      <div class="flex items-center gap-3 flex-shrink-0">
+        <div class="text-right">
+          <div class="text-[17px] font-semibold text-neutral-900 tabular-nums">
+            от ${formatPrice(group.minPrice)} <span class="text-neutral-400 font-normal">₽</span>
+          </div>
+        </div>
+        
+        <!-- Arrow -->
+        <svg class="w-5 h-5 text-neutral-300 group-hover:text-[hsl(354,100%,64%)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
+        </svg>
+      </div>
+    </a>
+  `;
+}
+
+export function renderPriceWidget(model: WidgetModel, options?: WidgetRenderOptions): string {
+  const arrowVariant = options?.arrowVariant ?? "neutral";
+  const totalOffers = model.prices.reduce((sum, p) => sum + p.offerCount, 0);
+  const minPrice = model.prices.length > 0 ? Math.min(...model.prices.map((p) => p.minPrice)) : null;
+  const sortedPrices = [...model.prices].sort((a, b) => a.minPrice - b.minPrice);
+  const deviceName = model.device.brand ? `${model.device.brand} ${model.device.name}` : model.device.name;
+
+  return `<div class="widget-price-container w-full max-w-[680px] font-['Inter',system-ui,-apple-system,sans-serif]">
+  <!-- Widget container -->
+  <div class="bg-white rounded-2xl border border-neutral-200/60 overflow-hidden">
+    
+    <!-- Header -->
+    <div class="p-6 pb-5">
+      <div class="flex items-start gap-5">
+        <!-- Product image -->
+        <div class="w-[100px] h-[120px] bg-neutral-50 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
+          ${model.specs.image ? renderImage(model.specs.image, deviceName) : renderImagePlaceholder()}
+        </div>
+
+        <!-- Product info -->
+        <div class="flex-1 min-w-0 pt-1">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex-1">
+              <h2 class="text-[22px] font-semibold text-neutral-900 leading-tight tracking-[-0.02em]">
+                ${escapeHtml(deviceName)}
+              </h2>
+              
+              ${
+                totalOffers > 0
+                  ? `<p class="mt-2 text-[15px] text-neutral-500">
+                ${totalOffers} ${pluralOffers(totalOffers)} от продавцов
+              </p>`
+                  : ""
+              }
+            </div>
+
+            <!-- Specs column -->
+            ${renderSpecs(model.specs)}
+          </div>
+
+          <!-- Price highlight -->
+          ${minPrice !== null ? renderPriceHighlight(minPrice, arrowVariant) : ""}
+        </div>
+      </div>
+    </div>
+
+    <!-- Divider -->
+    <div class="h-px bg-neutral-100 mx-6"></div>
+
+    <!-- Shop rows -->
+    <div class="py-2">
+      ${sortedPrices.map((group, i) => renderShopRow(group, i + 1)).join("\n")}
+    </div>
+
+    <!-- Bottom bar -->
+    <div class="px-6 py-4 bg-neutral-50/50 border-t border-neutral-100 flex items-center justify-between">
+      <span class="text-[12px] text-neutral-400">Цены обновлены сегодня</span>
+      <span class="text-[12px] text-neutral-400">Реклама</span>
+    </div>
+  </div>
+</div>`;
+}
+
+export function renderNotFoundWidget(slug: string): string {
+  return `<div class="widget-price-container w-full max-w-[680px] font-['Inter',system-ui,-apple-system,sans-serif]">
+  <div class="bg-white rounded-2xl border border-neutral-200/60 overflow-hidden">
+    <div class="p-12 text-center">
+      <div class="w-16 h-16 mx-auto mb-4 bg-neutral-50 rounded-full flex items-center justify-center">
+        <svg class="w-8 h-8 text-neutral-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="M21 21l-4.35-4.35"></path>
+        </svg>
+      </div>
+      <h2 class="text-lg font-semibold text-neutral-900 mb-2">Устройство не найдено</h2>
+      <p class="text-sm text-neutral-500">Не удалось найти «${escapeHtml(slug)}»</p>
+    </div>
+  </div>
+</div>`;
+}
+
+export function renderErrorWidget(): string {
+  return `<div class="widget-price-container w-full max-w-[680px] font-['Inter',system-ui,-apple-system,sans-serif]">
+  <div class="bg-white rounded-2xl border border-neutral-200/60 overflow-hidden">
+    <div class="p-12 text-center">
+      <div class="w-16 h-16 mx-auto mb-4 bg-red-50 rounded-full flex items-center justify-center">
+        <svg class="w-8 h-8 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+      </div>
+      <h2 class="text-lg font-semibold text-neutral-900 mb-2">Ошибка загрузки</h2>
+      <p class="text-sm text-neutral-500">Не удалось загрузить данные о ценах</p>
+    </div>
+  </div>
+</div>`;
+}
+
+/**
+ * Get all Tailwind classes used in widget templates.
+ * This is exported for use in Tailwind safelist configuration.
+ */
+export const WIDGET_TAILWIND_CLASSES = [
+  // Container
+  "widget-price-container",
+  "w-full",
+  "max-w-[680px]",
+  "font-['Inter',system-ui,-apple-system,sans-serif]",
+  // Card
+  "bg-white",
+  "rounded-2xl",
+  "border",
+  "border-neutral-200/60",
+  "overflow-hidden",
+  // Header
+  "p-6",
+  "pb-5",
+  "p-12",
+  "flex",
+  "items-start",
+  "items-center",
+  "items-baseline",
+  "items-end",
+  "justify-center",
+  "justify-between",
+  "gap-5",
+  "gap-4",
+  "gap-3",
+  "gap-2",
+  "gap-1",
+  // Image
+  "w-[100px]",
+  "h-[120px]",
+  "w-16",
+  "h-16",
+  "w-14",
+  "h-20",
+  "w-8",
+  "h-8",
+  "w-7",
+  "h-7",
+  "w-5",
+  "h-5",
+  "bg-neutral-50",
+  "bg-neutral-100",
+  "bg-red-50",
+  "rounded-xl",
+  "rounded-lg",
+  "rounded-full",
+  "flex-shrink-0",
+  "max-w-full",
+  "max-h-full",
+  "object-contain",
+  // Text
+  "flex-1",
+  "min-w-0",
+  "pt-1",
+  "text-[22px]",
+  "text-[20px]",
+  "text-[18px]",
+  "text-[17px]",
+  "text-[15px]",
+  "text-[14px]",
+  "text-[13px]",
+  "text-[12px]",
+  "text-[28px]",
+  "text-lg",
+  "text-sm",
+  "font-semibold",
+  "font-bold",
+  "font-medium",
+  "font-normal",
+  "text-neutral-900",
+  "text-neutral-500",
+  "text-neutral-400",
+  "text-neutral-300",
+  "text-red-500",
+  "text-[hsl(354,100%,64%)]",
+  "text-[hsl(354,100%,64%)]/70",
+  "text-[hsl(158,64%,42%)]",
+  "text-[hsl(158,64%,42%)]/70",
+  "text-[hsl(25,95%,53%)]",
+  "text-[hsl(25,95%,53%)]/70",
+  "text-[hsl(45,93%,47%)]",
+  "text-[hsl(45,93%,47%)]/70",
+  "leading-tight",
+  "tracking-[-0.02em]",
+  "tracking-wide",
+  "uppercase",
+  "truncate",
+  "text-right",
+  "text-center",
+  "max-w-[140px]",
+  // Spacing
+  "mt-4",
+  "mt-2",
+  "mt-0.5",
+  "ml-1",
+  "mb-4",
+  "mb-2",
+  "mx-6",
+  "mx-auto",
+  "px-6",
+  "py-4",
+  "py-3.5",
+  "py-2",
+  "flex-wrap",
+  // Divider
+  "h-px",
+  "bg-neutral-100",
+  // Footer
+  "bg-neutral-50/50",
+  "border-t",
+  // Shop rows
+  "group",
+  "hover:bg-neutral-50/80",
+  "transition-colors",
+  "transition-all",
+  "tabular-nums",
+  "block",
+  "flex-col",
+  // Arrow hover
+  "group-hover:text-[hsl(354,100%,64%)]",
+  "group-hover:translate-x-0.5",
+  "group-hover:-translate-y-0.5",
+];
