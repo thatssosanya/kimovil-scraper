@@ -1134,37 +1134,37 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
 const seedDeviceCategories = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlError> =>
   Effect.gen(function* () {
     // Root category
-    yield* sql`INSERT OR IGNORE INTO device_categories (id, slug, name, parent_id) VALUES (1, 'electronics', 'Electronics', NULL)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (id, slug, name, parent_id) VALUES (1, 'electronics', 'Электроника', NULL)`;
 
     // Direct children of electronics (parent_id = 1)
-    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('smartphone', 'Smartphone', 1)`;
-    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('tablet', 'Tablet', 1)`;
-    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('laptop', 'Laptop', 1)`;
-    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('watch', 'Watch', 1)`;
-    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('tv', 'TV', 1)`;
-    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('headphones', 'Headphones', 1)`;
-    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('console', 'Console', 1)`;
-    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('hybrid', 'Hybrid', 1)`;
-    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('accessory', 'Accessory', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('smartphone', 'Смартфон', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('tablet', 'Планшет', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('laptop', 'Ноутбук', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('watch', 'Часы', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('tv', 'Телевизор', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('headphones', 'Наушники', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('console', 'Игровая консоль', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('hybrid', 'Гибрид', 1)`;
+    yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('accessory', 'Аксессуар', 1)`;
 
     // Subcategories (need to look up parent IDs)
     const laptopRow = yield* sql`SELECT id FROM device_categories WHERE slug = 'laptop'`;
     const laptopId = (laptopRow[0] as { id: number } | undefined)?.id;
     if (laptopId) {
-      yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('gaming_laptop', 'Gaming Laptop', ${laptopId})`;
+      yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('gaming_laptop', 'Игровой ноутбук', ${laptopId})`;
     }
 
     const watchRow = yield* sql`SELECT id FROM device_categories WHERE slug = 'watch'`;
     const watchId = (watchRow[0] as { id: number } | undefined)?.id;
     if (watchId) {
-      yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('smartwatch', 'Smartwatch', ${watchId})`;
+      yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('smartwatch', 'Смарт-часы', ${watchId})`;
     }
 
     const headphonesRow = yield* sql`SELECT id FROM device_categories WHERE slug = 'headphones'`;
     const headphonesId = (headphonesRow[0] as { id: number } | undefined)?.id;
     if (headphonesId) {
-      yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('true_wireless', 'True Wireless', ${headphonesId})`;
-      yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('over_ear', 'Over-Ear', ${headphonesId})`;
+      yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('true_wireless', 'TWS-наушники', ${headphonesId})`;
+      yield* sql`INSERT OR IGNORE INTO device_categories (slug, name, parent_id) VALUES ('over_ear', 'Полноразмерные', ${headphonesId})`;
     }
   });
 

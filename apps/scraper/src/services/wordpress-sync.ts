@@ -44,6 +44,7 @@ export const WordPressSyncService = Context.GenericTag<WordPressSyncService>(
 
 const WORDPRESS_API_BASE = "https://click-or-die.ru/wp-json/wp/v2";
 const RATE_LIMIT_MS = 300;
+const VALID_POST_STATUSES = ["publish", "future", "draft", "pending", "private"];
 
 interface WPPostResponse {
   id: number;
@@ -164,16 +165,25 @@ export const WordPressSyncServiceLive = Layer.effect(
         `.pipe(Effect.mapError(wrapSqlError));
 
         const existing = existingRows[0];
+        const contentChanged = !existing || existing.content_hash !== contentHash;
+        const metadataChanged = existing && existing.post_modified_gmt !== post.modified_gmt;
 
-        if (existing && existing.content_hash === contentHash) {
+        // Skip only if content unchanged AND metadata unchanged
+        if (existing && !contentChanged && !metadataChanged) {
           return { inserted: false, updated: false, widgetsCount: 0 };
         }
 
-        yield* sql.withTransaction(
+        // If only metadata changed (not content), update post but skip widget re-extraction
+        const shouldReExtractWidgets = contentChanged;
+
+        const widgetsCount = yield* sql.withTransaction(
           Effect.gen(function* () {
-            yield* sql`
-              DELETE FROM wordpress_widget_cache WHERE post_id = ${post.id}
-            `;
+            // Only delete widgets if content changed (need re-extraction)
+            if (shouldReExtractWidgets) {
+              yield* sql`
+                DELETE FROM wordpress_widget_cache WHERE post_id = ${post.id}
+              `;
+            }
 
             yield* sql`
               INSERT INTO wp_posts_cache 
@@ -192,26 +202,28 @@ export const WordPressSyncServiceLive = Layer.effect(
                 synced_at = excluded.synced_at
             `;
 
-            const widgets = extractWidgets(post.content.rendered);
-            for (const widget of widgets) {
-              yield* sql`
-                INSERT INTO wordpress_widget_cache 
-                  (post_id, search_text, occurrence_index, post_date_gmt, post_modified_gmt, synced_at)
-                VALUES 
-                  (${post.id}, ${widget.searchText}, ${widget.occurrenceIndex}, 
-                   ${post.date_gmt}, ${post.modified_gmt}, ${syncedAt})
-              `;
+            // Only re-extract widgets if content changed
+            if (shouldReExtractWidgets) {
+              const widgets = extractWidgets(post.content.rendered);
+              for (const widget of widgets) {
+                yield* sql`
+                  INSERT INTO wordpress_widget_cache 
+                    (post_id, search_text, occurrence_index, post_date_gmt, post_modified_gmt, synced_at)
+                  VALUES 
+                    (${post.id}, ${widget.searchText}, ${widget.occurrenceIndex}, 
+                     ${post.date_gmt}, ${post.modified_gmt}, ${syncedAt})
+                `;
+              }
+              return widgets.length;
             }
-
-            return widgets.length;
+            return 0;
           }),
         ).pipe(Effect.mapError(wrapSqlError));
 
-        const widgets = extractWidgets(post.content.rendered);
         return {
           inserted: !existing,
           updated: !!existing,
-          widgetsCount: widgets.length,
+          widgetsCount,
         };
       });
 

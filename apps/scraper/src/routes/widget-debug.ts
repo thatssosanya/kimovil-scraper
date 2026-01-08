@@ -308,17 +308,19 @@ export const createWidgetDebugRoutes = () =>
                   .replace("Z", "")
               : null;
 
-          // Query widget cache grouped by search_text
+          // Query widget cache grouped by search_text (only from published posts)
           const widgetRows = yield* sql<WidgetCacheRow>`
             SELECT 
-              search_text as raw,
+              w.search_text as raw,
               COUNT(*) as count,
-              GROUP_CONCAT(DISTINCT post_id) as post_ids,
-              MIN(post_date_gmt) as first_seen,
-              MAX(post_date_gmt) as last_seen
-            FROM wordpress_widget_cache
-            WHERE (${fromDate} IS NULL OR post_date_gmt >= ${fromDate})
-            GROUP BY search_text
+              GROUP_CONCAT(DISTINCT w.post_id) as post_ids,
+              MIN(w.post_date_gmt) as first_seen,
+              MAX(w.post_date_gmt) as last_seen
+            FROM wordpress_widget_cache w
+            JOIN wp_posts_cache p ON w.post_id = p.post_id
+            WHERE (${fromDate} IS NULL OR w.post_date_gmt >= ${fromDate})
+              AND p.status = 'publish'
+            GROUP BY w.search_text
             ORDER BY count DESC
           `;
 
