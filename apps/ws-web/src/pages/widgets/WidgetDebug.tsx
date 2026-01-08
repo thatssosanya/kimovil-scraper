@@ -1,4 +1,4 @@
-import { createSignal, Show, For, onMount, createEffect } from "solid-js";
+import { createSignal, Show, For, onMount, createEffect, onCleanup } from "solid-js";
 import { Header } from "../../components/Header";
 
 type MappingStatus = "pending" | "suggested" | "auto_confirmed" | "confirmed" | "ignored";
@@ -44,8 +44,64 @@ interface DeviceSearchResult {
   brand: string | null;
 }
 
+interface PostInfo {
+  postId: number;
+  title: string;
+  url: string;
+  dateGmt: string;
+}
+
+interface DevicePreview {
+  id: string;
+  slug: string;
+  name: string;
+  brand: string | null;
+}
+
+interface NewDeviceDefaults {
+  brand: string | null;
+  modelName: string;
+  suggestedSlug: string;
+}
+
+interface PriceInfo {
+  deviceId: string;
+  deviceName: string;
+  summary: {
+    minPrice: number;
+    maxPrice: number;
+    currency: string;
+    updatedAt: number;
+  } | null;
+  linkedSources: Array<{
+    source: string;
+    externalId: string;
+    url: string | null;
+  }>;
+}
+
+interface ScrapeResult {
+  success: boolean;
+  error?: string;
+  message?: string;
+  offerCount?: number;
+  savedCount?: number;
+  minPrice?: number;
+  maxPrice?: number;
+}
+
+interface MappingContext {
+  mapping: WidgetMapping | null;
+  suggestions: SuggestedMatch[];
+  posts: PostInfo[];
+  devicePreview: DevicePreview | null;
+  newDeviceDefaults: NewDeviceDefaults;
+}
+
 type SortField = "usageCount" | "rawModel" | "status" | "confidence";
 type StatusTab = "all" | "needs_review" | "auto_confirmed" | "confirmed" | "ignored";
+type PeriodOption = "all" | "7d" | "30d" | "90d" | "custom";
+type PreviewTab = "device" | "widget";
 
 const STATUS_TABS: { id: StatusTab; label: string }[] = [
   { id: "all", label: "All" },
@@ -55,12 +111,28 @@ const STATUS_TABS: { id: StatusTab; label: string }[] = [
   { id: "ignored", label: "Ignored" },
 ];
 
-const fetchMappingWithSuggestions = async (rawModel: string) => {
+const PERIOD_OPTIONS: { id: PeriodOption; label: string; days: number | null }[] = [
+  { id: "all", label: "All time", days: null },
+  { id: "7d", label: "Last 7 days", days: 7 },
+  { id: "30d", label: "Last 30 days", days: 30 },
+  { id: "90d", label: "Last 90 days", days: 90 },
+];
+
+const getPeriodTimestamps = (period: PeriodOption): { seenAfter?: number; seenBefore?: number } => {
+  const option = PERIOD_OPTIONS.find((p) => p.id === period);
+  if (!option || option.days === null) return {};
+  
+  const now = Math.floor(Date.now() / 1000);
+  const seenAfter = now - option.days * 24 * 60 * 60;
+  return { seenAfter, seenBefore: now };
+};
+
+const fetchMappingContext = async (rawModel: string): Promise<MappingContext> => {
   const res = await fetch(
     `http://localhost:1488/api/widget-mappings/${encodeURIComponent(rawModel)}`
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json() as Promise<{ mapping: WidgetMapping | null; suggestions: SuggestedMatch[] }>;
+  return res.json();
 };
 
 const searchDevices = async (query: string) => {
@@ -99,16 +171,52 @@ export default function WidgetDebug() {
   const [selectedMapping, setSelectedMapping] = createSignal<WidgetMapping | null>(null);
   const [syncStatus, setSyncStatus] = createSignal<SyncStatus | null>(null);
   const [syncing, setSyncing] = createSignal(false);
+  const [period, setPeriod] = createSignal<PeriodOption>("all");
 
   // Modal state
   const [modalLoading, setModalLoading] = createSignal(false);
   const [suggestions, setSuggestions] = createSignal<SuggestedMatch[]>([]);
+  const [posts, setPosts] = createSignal<PostInfo[]>([]);
+  const [devicePreview, setDevicePreview] = createSignal<DevicePreview | null>(null);
+  const [newDeviceDefaults, setNewDeviceDefaults] = createSignal<NewDeviceDefaults | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = createSignal<string | null>(null);
-  const [selectedDeviceName, setSelectedDeviceName] = createSignal<string | null>(null);
+  const [_selectedDeviceName, setSelectedDeviceName] = createSignal<string | null>(null);
   const [deviceSearch, setDeviceSearch] = createSignal("");
   const [searchResults, setSearchResults] = createSignal<DeviceSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = createSignal(false);
   const [actionLoading, setActionLoading] = createSignal(false);
+
+  // Create device form state
+  const [newDeviceBrand, setNewDeviceBrand] = createSignal("");
+  const [newDeviceName, setNewDeviceName] = createSignal("");
+  const [newDeviceSlug, setNewDeviceSlug] = createSignal("");
+  const [createError, setCreateError] = createSignal<string | null>(null);
+
+  // Preview tab state
+  const [previewTab, setPreviewTab] = createSignal<PreviewTab>("device");
+  const [widgetHtml, setWidgetHtml] = createSignal<string | null>(null);
+  const [widgetLoading, setWidgetLoading] = createSignal(false);
+
+  // Price scraping state
+  const [priceInfo, setPriceInfo] = createSignal<PriceInfo | null>(null);
+  const [priceLoading, setPriceLoading] = createSignal(false);
+  const [priceRuScraping, setPriceRuScraping] = createSignal(false);
+  const [yandexScraping, setYandexScraping] = createSignal(false);
+  const [yandexUrl, setYandexUrl] = createSignal("");
+  const [scrapeError, setScrapeError] = createSignal<string | null>(null);
+  const [scrapeSuccess, setScrapeSuccess] = createSignal<string | null>(null);
+
+  // Catalogue links state
+  interface CatalogueLink {
+    originalUrl: string;
+    resolvedUrl: string | null;
+    isYandexMarket: boolean;
+    externalId: string | null;
+    error?: string;
+    fromCache?: boolean;
+  }
+  const [catalogueLinks, setCatalogueLinks] = createSignal<CatalogueLink[] | null>(null);
+  const [_catalogueLoading, setCatalogueLoading] = createSignal(false);
 
   const fetchMappings = async () => {
     setLoading(true);
@@ -116,7 +224,12 @@ export default function WidgetDebug() {
     try {
       const tab = statusTab();
       const statusParam = tab === "all" ? "" : `&status=${tab}`;
-      const res = await fetch(`http://localhost:1488/api/widget-mappings?limit=1000${statusParam}`);
+      const periodTs = getPeriodTimestamps(period());
+      const periodParams = [
+        periodTs.seenAfter ? `&seenAfter=${periodTs.seenAfter}` : "",
+        periodTs.seenBefore ? `&seenBefore=${periodTs.seenBefore}` : "",
+      ].join("");
+      const res = await fetch(`http://localhost:1488/api/widget-mappings?limit=1000${statusParam}${periodParams}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: MappingsResponse = await res.json();
       setMappings(json.mappings);
@@ -157,14 +270,32 @@ export default function WidgetDebug() {
     setSelectedMapping(mapping);
     setModalLoading(true);
     setSuggestions([]);
+    setPosts([]);
+    setDevicePreview(null);
+    setNewDeviceDefaults(null);
     setSelectedDeviceId(mapping.deviceId);
     setSelectedDeviceName(null);
     setDeviceSearch("");
     setSearchResults([]);
+    setCreateError(null);
+    setPreviewTab("device");
+    setWidgetHtml(null);
+    // Reset price state
+    setPriceInfo(null);
+    setYandexUrl("");
+    setScrapeError(null);
+    setScrapeSuccess(null);
 
     try {
-      const data = await fetchMappingWithSuggestions(mapping.rawModel);
+      const data = await fetchMappingContext(mapping.rawModel);
       setSuggestions(data.suggestions);
+      setPosts(data.posts);
+      setDevicePreview(data.devicePreview);
+      setNewDeviceDefaults(data.newDeviceDefaults);
+      // Initialize create form with defaults
+      setNewDeviceBrand(data.newDeviceDefaults.brand ?? "");
+      setNewDeviceName(data.newDeviceDefaults.modelName);
+      setNewDeviceSlug(data.newDeviceDefaults.suggestedSlug);
       if (mapping.deviceId) {
         const match = data.suggestions.find((s) => s.deviceId === mapping.deviceId);
         if (match) {
@@ -181,10 +312,14 @@ export default function WidgetDebug() {
   const closeModal = () => {
     setSelectedMapping(null);
     setSuggestions([]);
+    setPosts([]);
+    setDevicePreview(null);
+    setNewDeviceDefaults(null);
     setSelectedDeviceId(null);
     setSelectedDeviceName(null);
     setDeviceSearch("");
     setSearchResults([]);
+    setCatalogueLinks(null);
   };
 
   const advanceToNext = (justReviewedRawModel?: string) => {
@@ -254,19 +389,250 @@ export default function WidgetDebug() {
   const selectSuggestion = (suggestion: SuggestedMatch) => {
     setSelectedDeviceId(suggestion.deviceId);
     setSelectedDeviceName(suggestion.name);
+    setDevicePreview({
+      id: suggestion.deviceId,
+      slug: suggestion.slug,
+      name: suggestion.name,
+      brand: null,
+    });
+    setWidgetHtml(null); // Clear cached widget on selection change
   };
 
   const selectSearchResult = (result: DeviceSearchResult) => {
     setSelectedDeviceId(result.id);
     setSelectedDeviceName(result.name);
+    setDevicePreview({
+      id: result.id,
+      slug: result.slug,
+      name: result.name,
+      brand: result.brand,
+    });
     setSearchResults([]);
     setDeviceSearch("");
+    setWidgetHtml(null); // Clear cached widget on selection change
   };
 
   const clearSelection = () => {
     setSelectedDeviceId(null);
     setSelectedDeviceName(null);
+    setDevicePreview(null);
+    setWidgetHtml(null);
+    setPreviewTab("device");
   };
+
+  const fetchWidgetPreview = async (slug: string, bustCache = false) => {
+    setWidgetLoading(true);
+    try {
+      const cacheBuster = bustCache ? `&_t=${Date.now()}` : "";
+      const res = await fetch(
+        `http://localhost:1488/widget/v1/price/${encodeURIComponent(slug)}?theme=dark${cacheBuster}`,
+        bustCache ? { cache: "no-store" } : undefined
+      );
+      if (res.ok) {
+        const html = await res.text();
+        setWidgetHtml(html);
+      } else {
+        setWidgetHtml(null);
+      }
+    } catch {
+      setWidgetHtml(null);
+    } finally {
+      setWidgetLoading(false);
+    }
+  };
+
+  // Fetch widget when tab changes to widget and we have a device
+  createEffect(() => {
+    const tab = previewTab();
+    const device = devicePreview();
+    if (tab === "widget" && device && !widgetHtml() && !widgetLoading()) {
+      fetchWidgetPreview(device.slug);
+    }
+  });
+
+  const handleCreateDevice = async () => {
+    const slug = newDeviceSlug().trim();
+    const name = newDeviceName().trim();
+    const brand = newDeviceBrand().trim() || null;
+
+    if (!slug || !name) {
+      setCreateError("Slug and name are required");
+      return;
+    }
+
+    setActionLoading(true);
+    setCreateError(null);
+
+    try {
+      const res = await fetch("http://localhost:1488/api/widget-mappings/devices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, name, brand }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+
+      const device = await res.json();
+
+      // Select the newly created device
+      setSelectedDeviceId(device.id);
+      setSelectedDeviceName(device.name);
+      setDevicePreview({
+        id: device.id,
+        slug: device.slug,
+        name: device.name,
+        brand: device.brand,
+      });
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : "Failed to create device");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Price scraping handlers
+  const fetchPriceInfo = async (deviceId: string) => {
+    setPriceLoading(true);
+    try {
+      const res = await fetch(`http://localhost:1488/api/widget-mappings/prices/${deviceId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setPriceInfo(data);
+        // Pre-fill yandex URL if there's a linked source
+        const yandexLink = data.linkedSources?.find((s: { source: string; url: string | null }) => s.source === "yandex_market");
+        if (yandexLink?.url) {
+          setYandexUrl(yandexLink.url);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch price info:", e);
+    } finally {
+      setPriceLoading(false);
+    }
+  };
+
+  const handleScrapePriceRu = async () => {
+    const device = devicePreview();
+    if (!device) return;
+
+    setPriceRuScraping(true);
+    setScrapeError(null);
+    setScrapeSuccess(null);
+
+    try {
+      const res = await fetch(`http://localhost:1488/api/widget-mappings/scrape/price-ru/${device.id}`, {
+        method: "POST",
+      });
+      const data: ScrapeResult = await res.json();
+
+      if (!data.success) {
+        setScrapeError(data.error || "Failed to scrape");
+      } else if (data.offerCount === 0) {
+        setScrapeSuccess(data.message || "No offers found");
+      } else {
+        setScrapeSuccess(
+          `Found ${data.offerCount} offers (${formatPrice(data.minPrice)} - ${formatPrice(data.maxPrice)})`
+        );
+        // Refresh price info and widget with cache bust
+        await fetchPriceInfo(device.id);
+        setWidgetHtml(null);
+        if (previewTab() === "widget") {
+          fetchWidgetPreview(device.slug, true);
+        }
+      }
+    } catch (e) {
+      setScrapeError(e instanceof Error ? e.message : "Network error");
+    } finally {
+      setPriceRuScraping(false);
+    }
+  };
+
+  const handleScrapeYandex = async () => {
+    const device = devicePreview();
+    const url = yandexUrl().trim();
+    if (!device || !url) return;
+
+    setYandexScraping(true);
+    setScrapeError(null);
+    setScrapeSuccess(null);
+
+    try {
+      const res = await fetch(`http://localhost:1488/api/widget-mappings/scrape/yandex/${device.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data: ScrapeResult = await res.json();
+
+      if (!data.success) {
+        setScrapeError(data.error || "Failed to scrape");
+      } else if (data.offerCount === 0) {
+        setScrapeSuccess(data.message || "No offers found");
+      } else {
+        setScrapeSuccess(
+          `Found ${data.offerCount} offers (${formatPrice(data.minPrice)} - ${formatPrice(data.maxPrice)})`
+        );
+        // Refresh price info and widget with cache bust
+        await fetchPriceInfo(device.id);
+        setWidgetHtml(null);
+        if (previewTab() === "widget") {
+          fetchWidgetPreview(device.slug, true);
+        }
+      }
+    } catch (e) {
+      setScrapeError(e instanceof Error ? e.message : "Network error");
+    } finally {
+      setYandexScraping(false);
+    }
+  };
+
+  const formatPrice = (price?: number) => {
+    if (price == null) return "—";
+    return new Intl.NumberFormat("ru-RU", {
+      style: "currency",
+      currency: "RUB",
+      minimumFractionDigits: 0,
+    }).format(price);
+  };
+
+  // Fetch price info when widget tab is opened
+  createEffect(() => {
+    const tab = previewTab();
+    const device = devicePreview();
+    if (tab === "widget" && device && !priceInfo() && !priceLoading()) {
+      fetchPriceInfo(device.id);
+    }
+  });
+
+  // Fetch catalogue links when device is selected
+  const fetchCatalogueLinks = async (slug: string) => {
+    setCatalogueLoading(true);
+    try {
+      const res = await fetch(`http://localhost:1488/api/widget-mappings/catalogue-links/${encodeURIComponent(slug)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCatalogueLinks(data.links);
+      } else {
+        setCatalogueLinks([]);
+      }
+    } catch {
+      setCatalogueLinks([]);
+    } finally {
+      setCatalogueLoading(false);
+    }
+  };
+
+  createEffect(() => {
+    const device = devicePreview();
+    if (device) {
+      fetchCatalogueLinks(device.slug);
+    } else {
+      setCatalogueLinks(null);
+    }
+  });
 
   let searchTimeout: ReturnType<typeof setTimeout>;
   const handleDeviceSearch = (query: string) => {
@@ -296,8 +662,70 @@ export default function WidgetDebug() {
     fetchSyncStatus();
   });
 
+  // Keyboard shortcuts for modal
+  createEffect(() => {
+    const mapping = selectedMapping();
+    if (!mapping) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (actionLoading() || modalLoading()) return;
+      
+      // Don't trigger if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      switch (e.key) {
+        case "Escape":
+          e.preventDefault();
+          closeModal();
+          break;
+        case "Enter":
+          if (selectedDeviceId()) {
+            e.preventDefault();
+            handleConfirm();
+          }
+          break;
+        case "i":
+        case "I":
+          e.preventDefault();
+          handleIgnore();
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          navigateSuggestions(-1);
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          navigateSuggestions(1);
+          break;
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => document.removeEventListener("keydown", handleKeyDown));
+  });
+
+  const navigateSuggestions = (direction: number) => {
+    const sug = suggestions();
+    if (sug.length === 0) return;
+    
+    const currentId = selectedDeviceId();
+    const currentIdx = sug.findIndex((s) => s.deviceId === currentId);
+    
+    let newIdx: number;
+    if (currentIdx === -1) {
+      newIdx = direction > 0 ? 0 : sug.length - 1;
+    } else {
+      newIdx = currentIdx + direction;
+      if (newIdx < 0) newIdx = sug.length - 1;
+      if (newIdx >= sug.length) newIdx = 0;
+    }
+    
+    selectSuggestion(sug[newIdx]);
+  };
+
   createEffect(() => {
     statusTab();
+    period();
     fetchMappings();
   });
 
@@ -468,6 +896,31 @@ export default function WidgetDebug() {
               </For>
             </div>
 
+            {/* Period Selector */}
+            <div class="flex items-center gap-2">
+              <div class="flex items-center gap-1.5 text-zinc-500 dark:text-slate-400">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div class="flex gap-0.5 bg-zinc-100 dark:bg-slate-800 rounded-lg p-0.5">
+                <For each={PERIOD_OPTIONS}>
+                  {(opt) => (
+                    <button
+                      onClick={() => setPeriod(opt.id)}
+                      class={`px-2.5 py-1 text-xs font-medium rounded-md transition-all duration-150 ${
+                        period() === opt.id
+                          ? "bg-gradient-to-b from-indigo-500 to-indigo-600 text-white shadow-sm shadow-indigo-500/25"
+                          : "text-zinc-500 dark:text-slate-400 hover:text-zinc-700 dark:hover:text-slate-300"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  )}
+                </For>
+              </div>
+            </div>
+
             {/* Refresh */}
             <button
               onClick={fetchMappings}
@@ -605,239 +1058,628 @@ export default function WidgetDebug() {
           </div>
         </Show>
 
-        {/* Mapping Editor Modal */}
+        {/* Mapping Review Modal */}
         <Show when={selectedMapping()}>
-          <div
-            class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            onClick={closeModal}
-          >
-            <div
-              class="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div class="p-6 border-b border-zinc-200 dark:border-slate-800 flex-shrink-0">
-                <div class="flex items-start justify-between gap-4">
-                  <div class="min-w-0 flex-1">
-                    <h2 class="text-lg font-semibold text-zinc-900 dark:text-white truncate">
+          <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 md:p-8">
+          <div class="w-full h-full max-w-[95vw] max-h-[90vh] flex flex-col bg-zinc-100 dark:bg-slate-950 rounded-2xl shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div class="flex-shrink-0 bg-white dark:bg-slate-900 border-b border-zinc-200 dark:border-slate-800 px-6 py-4">
+              <div class="flex items-center justify-between max-w-screen-2xl mx-auto">
+                <div class="flex items-center gap-4 min-w-0 flex-1">
+                  <div class="min-w-0">
+                    <h2 class="text-lg font-semibold text-zinc-900 dark:text-white truncate font-mono">
                       {selectedMapping()!.rawModel}
                     </h2>
-                    <Show when={selectedMapping()!.normalizedModel}>
-                      <p class="text-sm text-zinc-500 dark:text-slate-400 mt-0.5 truncate">
-                        {selectedMapping()!.normalizedModel}
-                      </p>
-                    </Show>
-                    <div class="flex items-center gap-3 mt-2">
+                    <div class="flex items-center gap-3 mt-1">
                       <StatusBadge status={selectedMapping()!.status} />
                       <span class="text-xs text-zinc-500 dark:text-slate-400">
-                        Used {selectedMapping()!.usageCount} times
+                        {selectedMapping()!.usageCount} uses
                       </span>
                       <span class="text-xs text-zinc-500 dark:text-slate-400">
-                        First seen: {formatDate(selectedMapping()!.firstSeenAt)}
+                        {formatDate(selectedMapping()!.firstSeenAt)} — {formatDate(selectedMapping()!.lastSeenAt)}
                       </span>
                     </div>
                   </div>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                  <span class="text-xs text-zinc-400 dark:text-slate-500 hidden sm:inline">
+                    Esc to close · Enter to confirm · I to ignore
+                  </span>
                   <button
                     onClick={closeModal}
-                    class="p-2 hover:bg-zinc-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-zinc-500 flex-shrink-0"
+                    class="p-2 hover:bg-zinc-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-zinc-500"
                   >
                     <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M6 18L18 6M6 6l12 12"
-                      />
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </div>
               </div>
+            </div>
 
-              {/* Content */}
-              <div class="flex-1 overflow-y-auto p-6 space-y-6">
-                {/* Loading state */}
-                <Show when={modalLoading()}>
-                  <div class="flex items-center justify-center py-8 gap-3">
-                    <div class="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                    <span class="text-zinc-500 dark:text-slate-400">Loading suggestions...</span>
-                  </div>
-                </Show>
+            {/* Modal Body - Two Columns */}
+            <div class="flex-1 overflow-hidden">
+              <Show when={modalLoading()}>
+                <div class="flex items-center justify-center h-full gap-3">
+                  <div class="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                  <span class="text-zinc-500 dark:text-slate-400">Loading...</span>
+                </div>
+              </Show>
 
-                <Show when={!modalLoading()}>
-                  {/* Selected Device */}
-                  <Show when={selectedDeviceId()}>
-                    <div class="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl p-4">
-                      <div class="flex items-center justify-between">
-                        <div>
-                          <div class="text-xs font-medium text-indigo-600 dark:text-indigo-400 uppercase tracking-wide mb-1">
-                            Selected Device
+              <Show when={!modalLoading()}>
+                <div class="h-full grid grid-cols-1 lg:grid-cols-2 gap-0 max-w-screen-2xl mx-auto">
+                  {/* LEFT COLUMN - Info & Matching */}
+                  <div class="flex flex-col h-full overflow-hidden border-r border-zinc-200 dark:border-slate-800">
+                    <div class="flex-1 overflow-y-auto p-6 space-y-6">
+                      {/* Posts Section */}
+                      <div>
+                        <div class="flex items-center justify-between mb-3">
+                          <div class="text-xs font-semibold text-zinc-500 dark:text-slate-400 uppercase tracking-wider">
+                            Posts with this widget
                           </div>
-                          <div class="font-medium text-zinc-900 dark:text-white">
-                            {selectedDeviceName() ?? selectedDeviceId()}
-                          </div>
-                          <div class="text-xs text-zinc-500 dark:text-slate-400 font-mono mt-0.5">
-                            {selectedDeviceId()}
-                          </div>
+                          <span class="text-xs text-zinc-400 dark:text-slate-500">
+                            {posts().length} posts
+                          </span>
                         </div>
-                        <button
-                          onClick={clearSelection}
-                          class="px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white border border-zinc-300 dark:border-slate-700 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors"
-                        >
-                          Clear
-                        </button>
+                        <Show when={posts().length > 0} fallback={
+                          <div class="text-sm text-zinc-400 dark:text-slate-500 italic py-2">
+                            No posts found with this widget
+                          </div>
+                        }>
+                          <div class="space-y-1 max-h-48 overflow-y-auto">
+                            <For each={posts()}>
+                              {(post) => (
+                                <a
+                                  href={post.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  class="flex items-center justify-between px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors group"
+                                >
+                                  <span class="text-sm text-zinc-700 dark:text-slate-300 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                                    {post.title}
+                                  </span>
+                                  <div class="flex items-center gap-2 flex-shrink-0 ml-2">
+                                    <span class="text-xs text-zinc-400 dark:text-slate-500">
+                                      {new Date(post.dateGmt).toLocaleDateString()}
+                                    </span>
+                                    <svg class="w-3.5 h-3.5 text-zinc-400 group-hover:text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                    </svg>
+                                  </div>
+                                </a>
+                              )}
+                            </For>
+                          </div>
+                        </Show>
                       </div>
-                    </div>
-                  </Show>
 
-                  {/* Suggested Matches */}
-                  <Show when={suggestions().length > 0}>
-                    <div>
-                      <div class="text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wide mb-3">
-                        Suggested Matches
-                      </div>
-                      <div class="space-y-2">
-                        <For each={suggestions().slice(0, 5)}>
-                          {(suggestion, idx) => (
-                            <button
-                              onClick={() => selectSuggestion(suggestion)}
-                              class={`w-full text-left p-3 rounded-xl border transition-colors ${
-                                selectedDeviceId() === suggestion.deviceId
-                                  ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20"
-                                  : "border-zinc-200 dark:border-slate-800 hover:border-zinc-300 dark:hover:border-slate-700 hover:bg-zinc-50 dark:hover:bg-slate-800/50"
-                              }`}
-                            >
-                              <div class="flex items-center justify-between">
-                                <div class="flex items-center gap-3 min-w-0">
-                                  <div
-                                    class={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                                      selectedDeviceId() === suggestion.deviceId
-                                        ? "border-indigo-500 bg-indigo-500"
-                                        : "border-zinc-300 dark:border-slate-600"
-                                    }`}
-                                  >
-                                    <Show when={selectedDeviceId() === suggestion.deviceId}>
-                                      <div class="w-1.5 h-1.5 bg-white rounded-full" />
-                                    </Show>
-                                  </div>
-                                  <div class="min-w-0">
-                                    <div class="flex items-center gap-2">
-                                      <span class="font-medium text-zinc-900 dark:text-white truncate">
-                                        {suggestion.name}
-                                      </span>
-                                      <Show when={idx() === 0 && suggestion.confidence >= 0.97}>
-                                        <span class="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded text-xs font-medium">
-                                          Recommended
-                                        </span>
-                                      </Show>
-                                    </div>
-                                    <div class="text-xs text-zinc-500 dark:text-slate-400 font-mono truncate">
-                                      {suggestion.slug}
-                                    </div>
-                                  </div>
-                                </div>
-                                <span
-                                  class={`px-2 py-0.5 rounded text-xs font-medium ${
-                                    suggestion.confidence >= 0.9
-                                      ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
-                                      : "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                      {/* Suggested Matches */}
+                      <div>
+                        <div class="text-xs font-semibold text-zinc-500 dark:text-slate-400 uppercase tracking-wider mb-3">
+                          Suggested Matches
+                        </div>
+                        <Show when={suggestions().length > 0} fallback={
+                          <div class="text-sm text-zinc-400 dark:text-slate-500 italic py-2">
+                            No matching devices found
+                          </div>
+                        }>
+                          <div class="space-y-1.5">
+                            <For each={suggestions()}>
+                              {(suggestion, idx) => (
+                                <button
+                                  onClick={() => selectSuggestion(suggestion)}
+                                  class={`w-full text-left px-3 py-2.5 rounded-lg border transition-all duration-150 ${
+                                    selectedDeviceId() === suggestion.deviceId
+                                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 ring-1 ring-indigo-500/20"
+                                      : "border-zinc-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-zinc-300 dark:hover:border-slate-700"
                                   }`}
                                 >
-                                  {Math.round(suggestion.confidence * 100)}%
-                                </span>
-                              </div>
-                            </button>
-                          )}
-                        </For>
+                                  <div class="flex items-center justify-between gap-2">
+                                    <div class="flex items-center gap-2.5 min-w-0">
+                                      <div
+                                        class={`w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 ${
+                                          selectedDeviceId() === suggestion.deviceId
+                                            ? "border-indigo-500 bg-indigo-500"
+                                            : "border-zinc-300 dark:border-slate-600"
+                                        }`}
+                                      />
+                                      <div class="min-w-0">
+                                        <div class="flex items-center gap-2">
+                                          <span class="font-medium text-sm text-zinc-900 dark:text-white truncate">
+                                            {suggestion.name}
+                                          </span>
+                                          <Show when={idx() === 0 && suggestion.confidence >= 0.97}>
+                                            <span class="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded text-[10px] font-semibold uppercase">
+                                              Best
+                                            </span>
+                                          </Show>
+                                        </div>
+                                        <div class="text-xs text-zinc-400 dark:text-slate-500 font-mono truncate">
+                                          {suggestion.slug}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <span
+                                      class={`px-2 py-0.5 rounded text-xs font-semibold flex-shrink-0 ${
+                                        suggestion.confidence >= 0.9
+                                          ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300"
+                                          : suggestion.confidence >= 0.7
+                                          ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
+                                          : "bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-400"
+                                      }`}
+                                    >
+                                      {Math.round(suggestion.confidence * 100)}%
+                                    </span>
+                                  </div>
+                                </button>
+                              )}
+                            </For>
+                          </div>
+                        </Show>
+                      </div>
+
+                      {/* Device Search */}
+                      <div>
+                        <div class="text-xs font-semibold text-zinc-500 dark:text-slate-400 uppercase tracking-wider mb-3">
+                          Search All Devices
+                        </div>
+                        <div class="relative">
+                          <input
+                            type="text"
+                            placeholder="Search by name or slug..."
+                            value={deviceSearch()}
+                            onInput={(e) => handleDeviceSearch(e.currentTarget.value)}
+                            class="w-full px-3 py-2 text-sm bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-slate-500"
+                          />
+                          <Show when={searchLoading()}>
+                            <div class="absolute right-3 top-1/2 -translate-y-1/2">
+                              <div class="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                            </div>
+                          </Show>
+                        </div>
+                        <Show when={searchResults().length > 0}>
+                          <div class="mt-2 border border-zinc-200 dark:border-slate-800 rounded-lg overflow-hidden bg-white dark:bg-slate-900">
+                            <For each={searchResults()}>
+                              {(result) => (
+                                <button
+                                  onClick={() => selectSearchResult(result)}
+                                  class="w-full text-left px-3 py-2 hover:bg-zinc-50 dark:hover:bg-slate-800 transition-colors border-b last:border-b-0 border-zinc-100 dark:border-slate-800"
+                                >
+                                  <div class="flex items-center justify-between">
+                                    <div class="min-w-0">
+                                      <div class="font-medium text-zinc-900 dark:text-white text-sm truncate">
+                                        {result.name}
+                                      </div>
+                                      <div class="text-xs text-zinc-400 dark:text-slate-500 font-mono truncate">
+                                        {result.slug}
+                                      </div>
+                                    </div>
+                                    <Show when={result.brand}>
+                                      <span class="text-xs text-zinc-500 dark:text-slate-400 flex-shrink-0 ml-2 bg-zinc-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                                        {result.brand}
+                                      </span>
+                                    </Show>
+                                  </div>
+                                </button>
+                              )}
+                            </For>
+                          </div>
+                        </Show>
                       </div>
                     </div>
-                  </Show>
 
-                  {/* Device Search */}
-                  <div>
-                    <div class="text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wide mb-3">
-                      Search Devices
+                    {/* Actions Footer */}
+                    <div class="flex-shrink-0 p-4 bg-white dark:bg-slate-900 border-t border-zinc-200 dark:border-slate-800">
+                      <div class="flex items-center justify-between gap-3">
+                        <button
+                          onClick={closeModal}
+                          disabled={actionLoading()}
+                          class="px-4 py-2 text-sm font-medium text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white transition-colors disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <div class="flex items-center gap-2">
+                          <button
+                            onClick={handleIgnore}
+                            disabled={actionLoading()}
+                            class="px-4 py-2 text-sm font-medium border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors disabled:opacity-50 flex items-center gap-2"
+                          >
+                            <Show when={actionLoading()}>
+                              <div class="w-3.5 h-3.5 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                            </Show>
+                            Ignore
+                          </button>
+                          <button
+                            onClick={handleConfirm}
+                            disabled={actionLoading() || !selectedDeviceId()}
+                            class="px-5 py-2 text-sm font-semibold bg-gradient-to-b from-indigo-500 to-indigo-600 text-white rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm shadow-indigo-500/25 flex items-center gap-2"
+                          >
+                            <Show when={actionLoading()}>
+                              <div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            </Show>
+                            Confirm Match
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    <div class="relative">
-                      <input
-                        type="text"
-                        placeholder="Search by name, slug, or brand..."
-                        value={deviceSearch()}
-                        onInput={(e) => handleDeviceSearch(e.currentTarget.value)}
-                        class="w-full px-3 py-2 text-sm bg-zinc-100 dark:bg-slate-800 border border-zinc-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-zinc-900 dark:text-white placeholder-zinc-500 dark:placeholder-slate-400"
-                      />
-                      <Show when={searchLoading()}>
-                        <div class="absolute right-3 top-1/2 -translate-y-1/2">
-                          <div class="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+
+                  {/* RIGHT COLUMN - Device Preview */}
+                  <div class="flex flex-col h-full overflow-hidden bg-zinc-50 dark:bg-slate-900/50">
+                    <div class="flex-1 overflow-y-auto p-6">
+                      <Show when={devicePreview()} fallback={
+                        <Show when={suggestions().length === 0 && newDeviceDefaults()} fallback={
+                          <div class="h-full flex flex-col items-center justify-center text-center p-8">
+                            <div class="w-16 h-16 rounded-2xl bg-zinc-200 dark:bg-slate-800 flex items-center justify-center mb-4">
+                              <svg class="w-8 h-8 text-zinc-400 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                              </svg>
+                            </div>
+                            <h3 class="text-lg font-semibold text-zinc-700 dark:text-slate-300 mb-2">
+                              Select a device
+                            </h3>
+                            <p class="text-sm text-zinc-500 dark:text-slate-500 max-w-xs">
+                              Choose a device from the suggestions or search to see its preview here
+                            </p>
+                          </div>
+                        }>
+                          {/* Create New Device Form */}
+                          <div class="h-full flex flex-col">
+                            <div class="flex items-center gap-3 mb-6">
+                              <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-500/25">
+                                <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                </svg>
+                              </div>
+                              <div>
+                                <h3 class="text-lg font-semibold text-zinc-900 dark:text-white">
+                                  Create New Device
+                                </h3>
+                                <p class="text-sm text-zinc-500 dark:text-slate-400">
+                                  No matches found. Add this device to the database.
+                                </p>
+                              </div>
+                            </div>
+
+                            <div class="space-y-4 flex-1">
+                              <div>
+                                <label class="block text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                                  Brand (optional)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={newDeviceBrand()}
+                                  onInput={(e) => setNewDeviceBrand(e.currentTarget.value)}
+                                  placeholder="e.g. Samsung, Apple, Xiaomi"
+                                  class="w-full px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-zinc-200 dark:border-slate-700 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                              </div>
+                              <div>
+                                <label class="block text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                                  Device Name *
+                                </label>
+                                <input
+                                  type="text"
+                                  value={newDeviceName()}
+                                  onInput={(e) => setNewDeviceName(e.currentTarget.value)}
+                                  placeholder="e.g. Galaxy S25 Ultra"
+                                  class="w-full px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-zinc-200 dark:border-slate-700 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                              </div>
+                              <div>
+                                <label class="block text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                                  Slug *
+                                </label>
+                                <input
+                                  type="text"
+                                  value={newDeviceSlug()}
+                                  onInput={(e) => setNewDeviceSlug(e.currentTarget.value)}
+                                  placeholder="e.g. galaxy-s25-ultra"
+                                  class="w-full px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-zinc-200 dark:border-slate-700 rounded-lg text-zinc-900 dark:text-white font-mono placeholder-zinc-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                              </div>
+
+                              <Show when={createError()}>
+                                <div class="p-3 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded-lg text-sm text-rose-600 dark:text-rose-400">
+                                  {createError()}
+                                </div>
+                              </Show>
+
+                              <div class="pt-2">
+                                <button
+                                  onClick={handleCreateDevice}
+                                  disabled={actionLoading() || !newDeviceName().trim() || !newDeviceSlug().trim()}
+                                  class="w-full px-4 py-2.5 text-sm font-medium bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-emerald-500/25"
+                                >
+                                  {actionLoading() ? "Creating..." : "Create & Select Device"}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </Show>
+                      }>
+                        {/* Device Preview with Tabs */}
+                        <div class="h-full flex flex-col">
+                          {/* Header with device info and clear button */}
+                          <div class="flex items-center justify-between gap-3 mb-5">
+                            <div class="flex items-center gap-3 min-w-0">
+                              <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                </svg>
+                              </div>
+                              <div class="min-w-0">
+                                <h3 class="text-base font-semibold text-zinc-900 dark:text-white truncate leading-tight">
+                                  {devicePreview()!.name}
+                                </h3>
+                                <p class="text-xs text-zinc-400 dark:text-slate-500 font-mono truncate">
+                                  {devicePreview()!.slug}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={clearSelection}
+                              class="p-1.5 text-zinc-400 dark:text-slate-500 hover:text-zinc-600 dark:hover:text-slate-300 hover:bg-zinc-100 dark:hover:bg-slate-800 rounded-md transition-colors flex-shrink-0"
+                              title="Clear selection"
+                            >
+                              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+
+                          {/* Subtle tab bar */}
+                          <div class="flex items-center gap-1 mb-4 border-b border-zinc-200 dark:border-slate-800">
+                            <button
+                              onClick={() => setPreviewTab("device")}
+                              class={`relative px-3 py-2 text-sm font-medium transition-colors ${
+                                previewTab() === "device"
+                                  ? "text-zinc-900 dark:text-white"
+                                  : "text-zinc-400 dark:text-slate-500 hover:text-zinc-600 dark:hover:text-slate-300"
+                              }`}
+                            >
+                              Details
+                              <Show when={previewTab() === "device"}>
+                                <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
+                              </Show>
+                            </button>
+                            <button
+                              onClick={() => setPreviewTab("widget")}
+                              class={`relative px-3 py-2 text-sm font-medium transition-colors ${
+                                previewTab() === "widget"
+                                  ? "text-zinc-900 dark:text-white"
+                                  : "text-zinc-400 dark:text-slate-500 hover:text-zinc-600 dark:hover:text-slate-300"
+                              }`}
+                            >
+                              Widget
+                              <Show when={previewTab() === "widget"}>
+                                <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
+                              </Show>
+                            </button>
+                          </div>
+
+                          {/* Tab content */}
+                          <div class="flex-1 overflow-y-auto">
+                            <Show when={previewTab() === "device"}>
+                              {/* Device details */}
+                              <div class="space-y-4">
+                                <div class="bg-white dark:bg-slate-900 rounded-lg border border-zinc-200 dark:border-slate-800 divide-y divide-zinc-100 dark:divide-slate-800">
+                                  <div class="flex items-center justify-between px-3.5 py-2.5">
+                                    <span class="text-xs font-medium text-zinc-400 dark:text-slate-500 uppercase tracking-wide">ID</span>
+                                    <span class="text-sm font-mono text-zinc-700 dark:text-slate-300">{devicePreview()!.id}</span>
+                                  </div>
+                                  <div class="flex items-center justify-between px-3.5 py-2.5">
+                                    <span class="text-xs font-medium text-zinc-400 dark:text-slate-500 uppercase tracking-wide">Slug</span>
+                                    <span class="text-sm font-mono text-zinc-700 dark:text-slate-300">{devicePreview()!.slug}</span>
+                                  </div>
+                                  <Show when={devicePreview()!.brand}>
+                                    <div class="flex items-center justify-between px-3.5 py-2.5">
+                                      <span class="text-xs font-medium text-zinc-400 dark:text-slate-500 uppercase tracking-wide">Brand</span>
+                                      <span class="text-sm text-zinc-700 dark:text-slate-300">{devicePreview()!.brand}</span>
+                                    </div>
+                                  </Show>
+                                </div>
+
+                                <div class="flex items-start gap-2.5 p-3 bg-indigo-50/50 dark:bg-indigo-950/30 rounded-lg border border-indigo-100 dark:border-indigo-900/50">
+                                  <svg class="w-4 h-4 text-indigo-500 dark:text-indigo-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  <p class="text-xs text-indigo-700 dark:text-indigo-300 leading-relaxed">
+                                    Press <kbd class="px-1 py-0.5 bg-indigo-100 dark:bg-indigo-900/50 rounded text-[10px] font-mono font-semibold">Enter</kbd> or click Confirm to link this widget
+                                  </p>
+                                </div>
+                              </div>
+                            </Show>
+
+                            <Show when={previewTab() === "widget"}>
+                              {/* Widget preview & Price scraping */}
+                              <div class="space-y-3">
+                                {/* Compact toolbar */}
+                                <div class="flex items-center justify-between">
+                                  <div class="flex items-center gap-1.5">
+                                    {/* Price.ru button */}
+                                    <button
+                                      onClick={handleScrapePriceRu}
+                                      disabled={priceRuScraping()}
+                                      title="Scrape from Price.ru (API)"
+                                      class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border border-zinc-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-zinc-600 dark:text-slate-300 hover:bg-zinc-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                      <Show when={priceRuScraping()} fallback={
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                      }>
+                                        <div class="w-3.5 h-3.5 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                                      </Show>
+                                      Price.ru
+                                    </button>
+
+                                    {/* Yandex dropdown or input */}
+                                    <div class="relative group">
+                                      <button
+                                        disabled={yandexScraping()}
+                                        title="Scrape from Yandex Market (requires URL)"
+                                        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border border-zinc-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-zinc-600 dark:text-slate-300 hover:bg-zinc-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                      >
+                                        <Show when={yandexScraping()} fallback={
+                                          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                                          </svg>
+                                        }>
+                                          <div class="w-3.5 h-3.5 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                                        </Show>
+                                        Yandex
+                                        <svg class="w-3 h-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                      </button>
+                                      {/* Dropdown panel */}
+                                      <div class="absolute left-0 top-full mt-1 w-72 p-2 bg-white dark:bg-slate-800 rounded-lg border border-zinc-200 dark:border-slate-700 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+                                        {/* Catalogue link option */}
+                                        <Show when={catalogueLinks()?.some(l => l.isYandexMarket && l.resolvedUrl)}>
+                                          <div class="mb-2">
+                                            <For each={catalogueLinks()!.filter(l => l.isYandexMarket && l.resolvedUrl)}>
+                                              {(link) => (
+                                                <button
+                                                  onClick={() => {
+                                                    setYandexUrl(link.resolvedUrl!);
+                                                    handleScrapeYandex();
+                                                  }}
+                                                  disabled={yandexScraping()}
+                                                  class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-left rounded-md hover:bg-zinc-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+                                                >
+                                                  <svg class="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                                  </svg>
+                                                  <span class="truncate flex-1 text-zinc-700 dark:text-slate-300">
+                                                    Use saved link
+                                                  </span>
+                                                  <span class="text-zinc-400 dark:text-slate-500 text-[10px] flex-shrink-0">
+                                                    from catalogue
+                                                  </span>
+                                                </button>
+                                              )}
+                                            </For>
+                                          </div>
+                                          <div class="border-t border-zinc-100 dark:border-slate-700 my-2" />
+                                        </Show>
+                                        {/* Manual input label when catalogue links exist */}
+                                        <Show when={catalogueLinks()?.some(l => l.isYandexMarket && l.resolvedUrl)}>
+                                          <div class="text-[10px] text-zinc-400 dark:text-slate-500 mb-1">
+                                            or enter URL manually:
+                                          </div>
+                                        </Show>
+                                        <input
+                                          type="text"
+                                          placeholder="market.yandex.ru/product/..."
+                                          value={yandexUrl()}
+                                          onInput={(e) => setYandexUrl(e.currentTarget.value)}
+                                          onClick={(e) => e.stopPropagation()}
+                                          class="w-full px-2.5 py-1.5 text-xs bg-zinc-50 dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 rounded-md text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                        />
+                                        <button
+                                          onClick={handleScrapeYandex}
+                                          disabled={yandexScraping() || !yandexUrl().trim()}
+                                          class="w-full mt-1.5 px-2.5 py-1.5 text-xs font-medium bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-md hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                          {yandexScraping() ? "Scraping..." : "Scrape"}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Right side: price summary + refresh */}
+                                  <div class="flex items-center gap-2">
+                                    <Show when={priceInfo()?.summary}>
+                                      <span class="text-xs font-medium text-zinc-600 dark:text-slate-300">
+                                        {formatPrice(priceInfo()!.summary!.minPrice / 100)}
+                                      </span>
+                                    </Show>
+                                    <button
+                                      onClick={() => {
+                                        const device = devicePreview();
+                                        if (device) {
+                                          setWidgetHtml(null);
+                                          fetchWidgetPreview(device.slug, true);
+                                          fetchPriceInfo(device.id);
+                                        }
+                                      }}
+                                      disabled={widgetLoading() || priceLoading()}
+                                      title="Refresh widget"
+                                      class="p-1.5 text-zinc-400 dark:text-slate-500 hover:text-zinc-600 dark:hover:text-slate-300 hover:bg-zinc-100 dark:hover:bg-slate-800 rounded-md disabled:opacity-50 transition-colors"
+                                    >
+                                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Status messages - inline compact */}
+                                <Show when={scrapeError() || scrapeSuccess()}>
+                                  <div class={`flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs ${
+                                    scrapeError() 
+                                      ? "bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400" 
+                                      : "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400"
+                                  }`}>
+                                    <Show when={scrapeError()} fallback={
+                                      <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    }>
+                                      <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                      </svg>
+                                    </Show>
+                                    <span class="truncate">{scrapeError() || scrapeSuccess()}</span>
+                                    <button 
+                                      onClick={() => { setScrapeError(null); setScrapeSuccess(null); }}
+                                      class="ml-auto p-0.5 hover:bg-black/5 dark:hover:bg-white/5 rounded"
+                                    >
+                                      <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                </Show>
+
+                                {/* Widget Preview */}
+                                <Show when={widgetLoading()}>
+                                  <div class="flex items-center justify-center py-12 bg-white dark:bg-slate-900 rounded-lg border border-zinc-200 dark:border-slate-800">
+                                    <div class="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                                  </div>
+                                </Show>
+
+                                <Show when={!widgetLoading() && widgetHtml()}>
+                                  <div class="bg-slate-900 rounded-lg p-3 border border-slate-800">
+                                    <div 
+                                      class="widget-preview"
+                                      innerHTML={widgetHtml()!}
+                                    />
+                                  </div>
+                                </Show>
+
+                                <Show when={!widgetLoading() && !widgetHtml()}>
+                                  <div class="flex flex-col items-center justify-center py-12 bg-zinc-50 dark:bg-slate-900 rounded-lg border border-zinc-200 dark:border-slate-800">
+                                    <svg class="w-8 h-8 text-zinc-300 dark:text-slate-700 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    <p class="text-xs text-zinc-400 dark:text-slate-500">
+                                      No price data available
+                                    </p>
+                                  </div>
+                                </Show>
+                              </div>
+                            </Show>
+                          </div>
                         </div>
                       </Show>
                     </div>
-
-                    {/* Search Results */}
-                    <Show when={searchResults().length > 0}>
-                      <div class="mt-2 border border-zinc-200 dark:border-slate-800 rounded-lg overflow-hidden">
-                        <For each={searchResults()}>
-                          {(result) => (
-                            <button
-                              onClick={() => selectSearchResult(result)}
-                              class="w-full text-left px-3 py-2 hover:bg-zinc-50 dark:hover:bg-slate-800/50 transition-colors border-b last:border-b-0 border-zinc-100 dark:border-slate-800"
-                            >
-                              <div class="flex items-center justify-between">
-                                <div class="min-w-0">
-                                  <div class="font-medium text-zinc-900 dark:text-white text-sm truncate">
-                                    {result.name}
-                                  </div>
-                                  <div class="text-xs text-zinc-500 dark:text-slate-400 font-mono truncate">
-                                    {result.slug}
-                                  </div>
-                                </div>
-                                <Show when={result.brand}>
-                                  <span class="text-xs text-zinc-500 dark:text-slate-400 flex-shrink-0 ml-2">
-                                    {result.brand}
-                                  </span>
-                                </Show>
-                              </div>
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
                   </div>
-                </Show>
-              </div>
-
-              {/* Footer Actions */}
-              <div class="p-6 border-t border-zinc-200 dark:border-slate-800 flex-shrink-0">
-                <div class="flex items-center justify-end gap-3">
-                  <button
-                    onClick={closeModal}
-                    disabled={actionLoading()}
-                    class="px-4 py-2 text-sm font-medium text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white border border-zinc-300 dark:border-slate-700 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleIgnore}
-                    disabled={actionLoading()}
-                    class="px-4 py-2 text-sm font-medium bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-                  >
-                    <Show when={actionLoading()}>
-                      <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    </Show>
-                    Ignore
-                  </button>
-                  <button
-                    onClick={handleConfirm}
-                    disabled={actionLoading() || !selectedDeviceId()}
-                    class="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-                  >
-                    <Show when={actionLoading()}>
-                      <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    </Show>
-                    Confirm & Lock
-                  </button>
                 </div>
-              </div>
+              </Show>
             </div>
+          </div>
           </div>
         </Show>
       </div>
