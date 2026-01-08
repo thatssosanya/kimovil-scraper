@@ -1,5 +1,6 @@
 import { Show, createSignal } from "solid-js";
 import { theme, toggleTheme } from "../stores/theme";
+import { UserMenu } from "./UserMenu";
 
 interface HeaderProps {
   currentPage: "scraper" | "database" | "widgets";
@@ -141,6 +142,9 @@ export function Header(props: HeaderProps) {
 
             {/* Theme Toggle */}
             <ThemeToggle />
+
+            {/* User Menu */}
+            <UserMenu />
 
             {/* Mobile menu button */}
             <button 

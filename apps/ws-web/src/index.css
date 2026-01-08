@@ -1,9 +1,46 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("https://fonts.gstatic.com/s/instrumentserif/v4/jizBRFtNs2ka5fXjeivQ4LroWlx-2zIZj1bIkNo.woff2")
+    format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Satoshi";
+  src: url("https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@import url("https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap");
+
 @custom-variant dark {
   &:where(.dark, .dark *) {
     @slot;
   }
+}
+
+:root {
+  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --font-sans: "Satoshi", system-ui, -apple-system, sans-serif;
+  --color-amber-warm: #f5a623;
+  --color-amber-glow: #ffb84d;
+  --color-surface: #0a0a0a;
+  --color-surface-elevated: #141414;
+  --color-surface-input: #1a1a1a;
+  --color-border: #2a2a2a;
+  --color-border-focus: #f5a623;
+  --color-text-primary: #fafafa;
+  --color-text-secondary: #a3a3a3;
+  --color-text-muted: #737373;
+  --color-error: #ef4444;
+  --color-error-bg: rgba(239, 68, 68, 0.08);
+  --focus-ring: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-amber-warm);
 }
 
 @layer utilities {
@@ -21,10 +58,177 @@
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     @apply bg-zinc-400 dark:bg-slate-500;
   }
+
+  .font-serif {
+    font-family: var(--font-serif);
+  }
+
+  .font-sans {
+    font-family: var(--font-sans);
+  }
+}
+
+@layer components {
+  .auth-input {
+    width: 100%;
+    padding: 0.875rem 1rem;
+    background: var(--color-surface-input);
+    border: 1.5px solid var(--color-border);
+    border-radius: 0.5rem;
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.5;
+    transition:
+      border-color 0.2s ease,
+      box-shadow 0.2s ease,
+      background-color 0.2s ease;
+  }
+
+  .auth-input::placeholder {
+    color: var(--color-text-muted);
+  }
+
+  .auth-input:hover:not(:focus):not(:disabled) {
+    border-color: #3a3a3a;
+    background: #1e1e1e;
+  }
+
+  .auth-input:focus {
+    outline: none;
+    border-color: var(--color-border-focus);
+    box-shadow: var(--focus-ring);
+    background: var(--color-surface-input);
+  }
+
+  .auth-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .auth-input[aria-invalid="true"] {
+    border-color: var(--color-error);
+  }
+
+  .auth-input[aria-invalid="true"]:focus {
+    box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-error);
+  }
+
+  .auth-label {
+    display: block;
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.01em;
+  }
+
+  .auth-button {
+    width: 100%;
+    padding: 0.875rem 1.5rem;
+    background: var(--color-amber-warm);
+    border: none;
+    border-radius: 0.5rem;
+    color: #0a0a0a;
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition:
+      background-color 0.2s ease,
+      transform 0.1s ease,
+      box-shadow 0.2s ease;
+  }
+
+  .auth-button:hover:not(:disabled) {
+    background: var(--color-amber-glow);
+  }
+
+  .auth-button:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+
+  .auth-button:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  .auth-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .auth-link {
+    color: var(--color-amber-warm);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s ease;
+    border-radius: 0.125rem;
+  }
+
+  .auth-link:hover {
+    color: var(--color-amber-glow);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .auth-link:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+
+  .auth-error {
+    padding: 0.875rem 1rem;
+    background: var(--color-error-bg);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: 0.5rem;
+    color: #fca5a5;
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  .auth-error[role="alert"] {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
 }
 
 @keyframes shimmer {
   100% {
     transform: translateX(100%);
   }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s ease-out forwards;
 }

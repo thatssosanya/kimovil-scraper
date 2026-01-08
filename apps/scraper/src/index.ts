@@ -14,13 +14,18 @@ import { runSchedulerLoop } from "./services/scheduler";
 import { createApiRoutes } from "./routes/api";
 import { createApiV2Routes } from "./routes/api-v2";
 import { createDebugRoutes } from "./routes/debug";
+import { createAuthRoutes } from "./routes/auth";
 import { createWsServer } from "./routes/ws-server";
 
 const bulkJobManager = new BulkJobManager(LiveRuntime);
 
 // Create Elysia app WITHOUT the node adapter - we'll own the http.Server ourselves
 const app = new Elysia()
-  .use(cors({ origin: true, credentials: true }))
+  .use(cors({ 
+    origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+    credentials: true,
+  }))
+  .use(createAuthRoutes())
   .use(createApiRoutes(bulkJobManager))
   .use(createApiV2Routes(bulkJobManager));
 
