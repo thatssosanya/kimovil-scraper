@@ -17,6 +17,8 @@ import { EntityDataServiceLive } from "../services/entity-data";
 import { ScrapeRecordServiceLive } from "../services/scrape-record";
 import { PriceServiceLive } from "../services/price";
 import { SchedulerServiceLive } from "../services/scheduler";
+import { WidgetDataServiceLive } from "../services/widget-data";
+import { WidgetServiceLive } from "../services/widget";
 import { SqlClientLive, SchemaLive } from "../sql";
 import { PriceRuClientLive } from "../sources/price_ru";
 
@@ -54,6 +56,12 @@ const SchedulerLayer = SchedulerServiceLive.pipe(
   Layer.provide(SqlLayer),
 );
 
+// WidgetDataService depends only on SQL
+const WidgetDataLayer = WidgetDataServiceLive.pipe(Layer.provide(SqlLayer));
+
+// WidgetService depends on WidgetDataService
+const WidgetLayer = WidgetServiceLive.pipe(Layer.provide(WidgetDataLayer));
+
 // DataLayer is just BaseDataLayer now (PhoneDataService removed)
 const DataLayer = BaseDataLayer;
 
@@ -70,6 +78,7 @@ export const LiveLayer = Layer.mergeAll(
   RobotServiceLive,
   DataLayer,
   SchedulerLayer,
+  WidgetLayer,
   SqlLayer,
   PriceRuClientLive,
 );
