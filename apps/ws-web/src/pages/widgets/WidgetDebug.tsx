@@ -1,30 +1,26 @@
 import { createSignal, Show, For, onMount, createEffect } from "solid-js";
 import { Header } from "../../components/Header";
 
-interface WidgetModel {
-  raw: string;
-  normalized: string;
-  brand: string | null;
-  count: number;
-  postIds: number[];
-  firstSeen: string;
-  lastSeen: string;
-  matchedSlug: string | null;
-  matchConfidence: number | null;
+type MappingStatus = "pending" | "suggested" | "auto_confirmed" | "confirmed" | "ignored";
+
+interface WidgetMapping {
+  id: number;
+  source: string;
+  rawModel: string;
+  normalizedModel: string | null;
+  deviceId: string | null;
+  confidence: number | null;
+  status: MappingStatus;
+  usageCount: number;
+  firstSeenAt: number | null;
+  lastSeenAt: number | null;
+  createdAt: number;
+  updatedAt: number;
 }
 
-interface WidgetStats {
-  totalModels: number;
-  uniqueModels: number;
-  postsWithWidgets: number;
-  matchedCount: number;
-  unmatchedCount: number;
-}
-
-interface WidgetDataResponse {
-  stats: WidgetStats;
-  models: WidgetModel[];
-  period: PeriodParam;
+interface MappingsResponse {
+  mappings: WidgetMapping[];
+  total: number;
 }
 
 interface SyncStatus {
@@ -35,8 +31,8 @@ interface SyncStatus {
 }
 
 type PeriodParam = "1m" | "3m" | "6m" | "all";
-type SortField = "count" | "raw" | "brand" | "matchConfidence";
-type FilterMode = "all" | "matched" | "unmatched" | "ambiguous";
+type SortField = "usageCount" | "rawModel" | "status" | "confidence";
+type StatusTab = "all" | "needs_review" | "auto_confirmed" | "confirmed" | "ignored";
 
 const PERIOD_OPTIONS: { id: PeriodParam; label: string }[] = [
   { id: "1m", label: "1 month" },
@@ -45,27 +41,39 @@ const PERIOD_OPTIONS: { id: PeriodParam; label: string }[] = [
   { id: "all", label: "All time" },
 ];
 
+const STATUS_TABS: { id: StatusTab; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "needs_review", label: "Needs Review" },
+  { id: "auto_confirmed", label: "Auto-confirmed" },
+  { id: "confirmed", label: "Confirmed" },
+  { id: "ignored", label: "Ignored" },
+];
+
 export default function WidgetDebug() {
-  const [data, setData] = createSignal<WidgetDataResponse | null>(null);
+  const [mappings, setMappings] = createSignal<WidgetMapping[]>([]);
+  const [total, setTotal] = createSignal(0);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   const [search, setSearch] = createSignal("");
-  const [sortField, setSortField] = createSignal<SortField>("count");
+  const [sortField, setSortField] = createSignal<SortField>("usageCount");
   const [sortDesc, setSortDesc] = createSignal(true);
-  const [filterMode, setFilterMode] = createSignal<FilterMode>("all");
-  const [selectedModel, setSelectedModel] = createSignal<WidgetModel | null>(null);
+  const [statusTab, setStatusTab] = createSignal<StatusTab>("all");
+  const [selectedMapping, setSelectedMapping] = createSignal<WidgetMapping | null>(null);
   const [period, setPeriod] = createSignal<PeriodParam>("3m");
   const [syncStatus, setSyncStatus] = createSignal<SyncStatus | null>(null);
   const [syncing, setSyncing] = createSignal(false);
 
-  const fetchData = async () => {
+  const fetchMappings = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`http://localhost:1488/api/widget-debug/models?period=${period()}`);
+      const tab = statusTab();
+      const statusParam = tab === "all" ? "" : `&status=${tab}`;
+      const res = await fetch(`http://localhost:1488/api/widget-mappings?limit=1000${statusParam}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      setData(json);
+      const json: MappingsResponse = await res.json();
+      setMappings(json.mappings);
+      setTotal(json.total);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to fetch");
     } finally {
@@ -90,7 +98,7 @@ export default function WidgetDebug() {
       const res = await fetch("http://localhost:1488/api/widget-debug/refresh", { method: "POST" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await fetchSyncStatus();
-      await fetchData();
+      await fetchMappings();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sync failed");
     } finally {
@@ -99,51 +107,40 @@ export default function WidgetDebug() {
   };
 
   onMount(() => {
-    fetchData();
+    fetchMappings();
     fetchSyncStatus();
   });
 
   createEffect(() => {
-    period();
-    fetchData();
+    statusTab();
+    fetchMappings();
   });
 
-  const filteredModels = () => {
-    const d = data();
-    if (!d) return [];
-    
-    let models = [...d.models];
-    
+  const filteredMappings = () => {
+    let items = [...mappings()];
+
     const q = search().toLowerCase();
     if (q) {
-      models = models.filter(m => 
-        m.raw.toLowerCase().includes(q) || 
-        m.normalized.toLowerCase().includes(q) ||
-        m.brand?.toLowerCase().includes(q)
+      items = items.filter(
+        (m) =>
+          m.rawModel.toLowerCase().includes(q) ||
+          m.normalizedModel?.toLowerCase().includes(q) ||
+          m.deviceId?.toLowerCase().includes(q)
       );
     }
-    
-    const mode = filterMode();
-    if (mode === "matched") {
-      models = models.filter(m => m.matchedSlug !== null);
-    } else if (mode === "unmatched") {
-      models = models.filter(m => m.matchedSlug === null);
-    } else if (mode === "ambiguous") {
-      models = models.filter(m => m.matchConfidence !== null && m.matchConfidence < 0.9);
-    }
-    
+
     const field = sortField();
     const desc = sortDesc();
-    models.sort((a, b) => {
+    items.sort((a, b) => {
       let cmp = 0;
-      if (field === "count") cmp = a.count - b.count;
-      else if (field === "raw") cmp = a.raw.localeCompare(b.raw);
-      else if (field === "brand") cmp = (a.brand || "").localeCompare(b.brand || "");
-      else if (field === "matchConfidence") cmp = (a.matchConfidence ?? -1) - (b.matchConfidence ?? -1);
+      if (field === "usageCount") cmp = a.usageCount - b.usageCount;
+      else if (field === "rawModel") cmp = a.rawModel.localeCompare(b.rawModel);
+      else if (field === "status") cmp = a.status.localeCompare(b.status);
+      else if (field === "confidence") cmp = (a.confidence ?? -1) - (b.confidence ?? -1);
       return desc ? -cmp : cmp;
     });
-    
-    return models;
+
+    return items;
   };
 
   const toggleSort = (field: SortField) => {
@@ -155,7 +152,13 @@ export default function WidgetDebug() {
     }
   };
 
-  const formatDate = (dateStr: string | null) => {
+  const formatDate = (ts: number | null) => {
+    if (ts == null) return "Never";
+    const d = new Date(ts * 1000); // Unix seconds to milliseconds
+    return d.toLocaleString();
+  };
+
+  const formatDateStr = (dateStr: string | null) => {
     if (!dateStr) return "Never";
     const d = new Date(dateStr);
     return d.toLocaleString();
@@ -163,16 +166,41 @@ export default function WidgetDebug() {
 
   const SortIcon = (props: { field: SortField }) => (
     <Show when={sortField() === props.field}>
-      <span class="ml-1 text-indigo-500">
-        {sortDesc() ? "↓" : "↑"}
-      </span>
+      <span class="ml-1 text-indigo-500">{sortDesc() ? "↓" : "↑"}</span>
     </Show>
   );
+
+  const StatusBadge = (props: { status: MappingStatus }) => {
+    const styles: Record<MappingStatus, string> = {
+      pending: "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400",
+      suggested: "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300",
+      auto_confirmed: "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300",
+      confirmed: "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300",
+      ignored: "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-500 line-through",
+    };
+    const labels: Record<MappingStatus, string> = {
+      pending: "Pending",
+      suggested: "Suggested",
+      auto_confirmed: "Auto",
+      confirmed: "Confirmed",
+      ignored: "Ignored",
+    };
+    return (
+      <span class={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${styles[props.status]}`}>
+        {labels[props.status]}
+      </span>
+    );
+  };
+
+  const needsReviewCount = () =>
+    mappings().filter((m) => m.status === "pending" || m.status === "suggested").length;
+  const confirmedCount = () =>
+    mappings().filter((m) => m.status === "confirmed" || m.status === "auto_confirmed").length;
 
   return (
     <div class="min-h-screen bg-zinc-100 dark:bg-slate-950">
       <Header currentPage="widgets" />
-      
+
       <div class="max-w-7xl mx-auto px-4 py-8">
         {/* Header */}
         <div class="mb-6">
@@ -189,7 +217,7 @@ export default function WidgetDebug() {
               <div>
                 <span class="text-zinc-500 dark:text-slate-400">Last synced:</span>
                 <span class="ml-2 font-medium text-zinc-900 dark:text-white">
-                  {formatDate(syncStatus()?.lastSyncedAt ?? null)}
+                  {formatDateStr(syncStatus()?.lastSyncedAt ?? null)}
                 </span>
               </div>
               <div>
@@ -219,23 +247,31 @@ export default function WidgetDebug() {
         </div>
 
         {/* Stats Cards */}
-        <Show when={data()}>
-          <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-            <StatCard label="Total Uses" value={data()!.stats.totalModels} />
-            <StatCard label="Unique Models" value={data()!.stats.uniqueModels} />
-            <StatCard label="Posts" value={data()!.stats.postsWithWidgets} />
-            <StatCard 
-              label="Matched" 
-              value={data()!.stats.matchedCount} 
-              color="emerald"
-            />
-            <StatCard 
-              label="Unmatched" 
-              value={data()!.stats.unmatchedCount} 
-              color="rose"
-            />
+        <div class="grid grid-cols-3 gap-4 mb-6">
+          <StatCard label="Total Mappings" value={total()} />
+          <StatCard label="Needs Review" value={needsReviewCount()} color="amber" />
+          <StatCard label="Confirmed" value={confirmedCount()} color="emerald" />
+        </div>
+
+        {/* Status Tab Bar */}
+        <div class="bg-white dark:bg-slate-900 rounded-xl border border-zinc-200 dark:border-slate-800 p-2 mb-4">
+          <div class="flex gap-1 overflow-x-auto">
+            <For each={STATUS_TABS}>
+              {(tab) => (
+                <button
+                  onClick={() => setStatusTab(tab.id)}
+                  class={`px-4 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
+                    statusTab() === tab.id
+                      ? "bg-indigo-500 text-white"
+                      : "bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-300 hover:bg-zinc-200 dark:hover:bg-slate-700"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              )}
+            </For>
           </div>
-        </Show>
+        </div>
 
         {/* Controls */}
         <div class="bg-white dark:bg-slate-900 rounded-xl border border-zinc-200 dark:border-slate-800 p-4 mb-4">
@@ -250,16 +286,16 @@ export default function WidgetDebug() {
                 class="w-full px-3 py-2 text-sm bg-zinc-50 dark:bg-slate-800 border border-zinc-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-zinc-900 dark:text-white"
               />
             </div>
-            
+
             {/* Period selector */}
-            <div class="flex gap-1">
+            <div class="flex gap-2">
               <For each={PERIOD_OPTIONS}>
                 {(opt) => (
                   <button
                     onClick={() => setPeriod(opt.id)}
                     class={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
                       period() === opt.id
-                        ? "bg-violet-500 text-white"
+                        ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-900"
                         : "bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-300 hover:bg-zinc-200 dark:hover:bg-slate-700"
                     }`}
                   >
@@ -268,33 +304,10 @@ export default function WidgetDebug() {
                 )}
               </For>
             </div>
-            
-            {/* Filter buttons */}
-            <div class="flex gap-2">
-              <For each={[
-                { id: "all", label: "All" },
-                { id: "matched", label: "Matched" },
-                { id: "unmatched", label: "Unmatched" },
-                { id: "ambiguous", label: "Ambiguous" },
-              ] as const}>
-                {(item) => (
-                  <button
-                    onClick={() => setFilterMode(item.id)}
-                    class={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                      filterMode() === item.id
-                        ? "bg-indigo-500 text-white"
-                        : "bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-300 hover:bg-zinc-200 dark:hover:bg-slate-700"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                )}
-              </For>
-            </div>
 
             {/* Refresh */}
             <button
-              onClick={fetchData}
+              onClick={fetchMappings}
               disabled={loading() || syncing()}
               class="px-4 py-2 text-sm font-medium bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-50 transition-colors"
             >
@@ -321,88 +334,96 @@ export default function WidgetDebug() {
         </Show>
 
         {/* Table */}
-        <Show when={!loading() && !syncing() && data()}>
+        <Show when={!loading() && !syncing()}>
           <div class="bg-white dark:bg-slate-900 rounded-xl border border-zinc-200 dark:border-slate-800 overflow-hidden">
             <div class="overflow-x-auto">
               <table class="w-full text-sm">
                 <thead>
                   <tr class="bg-zinc-50 dark:bg-slate-800/50 border-b border-zinc-200 dark:border-slate-800">
-                    <th 
+                    <th
                       class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400 cursor-pointer hover:text-zinc-900 dark:hover:text-white"
-                      onClick={() => toggleSort("count")}
+                      onClick={() => toggleSort("usageCount")}
                     >
-                      Count <SortIcon field="count" />
+                      Count <SortIcon field="usageCount" />
                     </th>
-                    <th 
+                    <th
                       class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400 cursor-pointer hover:text-zinc-900 dark:hover:text-white"
-                      onClick={() => toggleSort("brand")}
+                      onClick={() => toggleSort("status")}
                     >
-                      Brand <SortIcon field="brand" />
+                      Status <SortIcon field="status" />
                     </th>
-                    <th 
+                    <th
                       class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400 cursor-pointer hover:text-zinc-900 dark:hover:text-white"
-                      onClick={() => toggleSort("raw")}
+                      onClick={() => toggleSort("rawModel")}
                     >
-                      Raw Model <SortIcon field="raw" />
+                      Raw Model <SortIcon field="rawModel" />
                     </th>
                     <th class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400">
                       Normalized
                     </th>
-                    <th 
+                    <th
                       class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400 cursor-pointer hover:text-zinc-900 dark:hover:text-white"
-                      onClick={() => toggleSort("matchConfidence")}
+                      onClick={() => toggleSort("confidence")}
                     >
-                      Match <SortIcon field="matchConfidence" />
+                      Match <SortIcon field="confidence" />
                     </th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-zinc-100 dark:divide-slate-800">
-                  <For each={filteredModels()}>
-                    {(model) => (
-                      <tr 
+                  <For each={filteredMappings()}>
+                    {(mapping) => (
+                      <tr
                         class="hover:bg-zinc-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
-                        onClick={() => setSelectedModel(model)}
+                        onClick={() => setSelectedMapping(mapping)}
                       >
                         <td class="px-4 py-3">
                           <span class="inline-flex items-center justify-center w-8 h-6 bg-zinc-100 dark:bg-slate-800 rounded text-xs font-medium text-zinc-600 dark:text-slate-300">
-                            {model.count}
+                            {mapping.usageCount}
                           </span>
                         </td>
                         <td class="px-4 py-3">
-                          <Show when={model.brand} fallback={
-                            <span class="text-zinc-400 dark:text-slate-600">—</span>
-                          }>
-                            <span class="inline-flex px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded text-xs font-medium">
-                              {model.brand}
-                            </span>
-                          </Show>
+                          <StatusBadge status={mapping.status} />
                         </td>
                         <td class="px-4 py-3 max-w-xs">
-                          <div class="truncate text-zinc-900 dark:text-white font-mono text-xs" title={model.raw}>
-                            {model.raw}
+                          <div
+                            class="truncate text-zinc-900 dark:text-white font-mono text-xs"
+                            title={mapping.rawModel}
+                          >
+                            {mapping.rawModel}
                           </div>
                         </td>
                         <td class="px-4 py-3 max-w-xs">
-                          <div class="truncate text-zinc-500 dark:text-slate-400 font-mono text-xs" title={model.normalized}>
-                            {model.normalized}
+                          <div
+                            class="truncate text-zinc-500 dark:text-slate-400 font-mono text-xs"
+                            title={mapping.normalizedModel ?? ""}
+                          >
+                            {mapping.normalizedModel ?? "—"}
                           </div>
                         </td>
                         <td class="px-4 py-3">
-                          <Show when={model.matchedSlug} fallback={
-                            <span class="inline-flex px-2 py-0.5 bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 rounded text-xs">
-                              No match
-                            </span>
-                          }>
-                            <div class="flex items-center gap-2">
-                              <span class={`inline-flex px-2 py-0.5 rounded text-xs ${
-                                (model.matchConfidence ?? 0) >= 0.9
-                                  ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
-                                  : "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
-                              }`}>
-                                {Math.round((model.matchConfidence ?? 0) * 100)}%
+                          <Show
+                            when={mapping.deviceId}
+                            fallback={
+                              <span class="inline-flex px-2 py-0.5 bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 rounded text-xs">
+                                No match
                               </span>
-                              <span class="text-xs text-zinc-500 dark:text-slate-400 truncate max-w-[120px]" title={model.matchedSlug!}>
-                                {model.matchedSlug}
+                            }
+                          >
+                            <div class="flex items-center gap-2">
+                              <span
+                                class={`inline-flex px-2 py-0.5 rounded text-xs ${
+                                  (mapping.confidence ?? 0) >= 0.9
+                                    ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+                                    : "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                                }`}
+                              >
+                                {Math.round((mapping.confidence ?? 0) * 100)}%
+                              </span>
+                              <span
+                                class="text-xs text-zinc-500 dark:text-slate-400 truncate max-w-[120px]"
+                                title={mapping.deviceId!}
+                              >
+                                {mapping.deviceId}
                               </span>
                             </div>
                           </Show>
@@ -413,75 +434,67 @@ export default function WidgetDebug() {
                 </tbody>
               </table>
             </div>
-            
+
             {/* Table footer */}
             <div class="px-4 py-3 bg-zinc-50 dark:bg-slate-800/50 border-t border-zinc-200 dark:border-slate-800 text-sm text-zinc-500 dark:text-slate-400">
-              Showing {filteredModels().length} of {data()?.models.length ?? 0} models
+              Showing {filteredMappings().length} of {total()} mappings
             </div>
           </div>
         </Show>
 
         {/* Detail Modal */}
-        <Show when={selectedModel()}>
-          <div 
+        <Show when={selectedMapping()}>
+          <div
             class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            onClick={() => setSelectedModel(null)}
+            onClick={() => setSelectedMapping(null)}
           >
-            <div 
+            <div
               class="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
               <div class="p-6 border-b border-zinc-200 dark:border-slate-800 flex items-center justify-between">
-                <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Model Details</h2>
-                <button 
-                  onClick={() => setSelectedModel(null)}
+                <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Mapping Details</h2>
+                <button
+                  onClick={() => setSelectedMapping(null)}
                   class="p-2 hover:bg-zinc-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-zinc-500"
                 >
                   <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
               <div class="p-6 overflow-y-auto max-h-[60vh] space-y-4">
-                <DetailRow label="Raw Model" value={selectedModel()!.raw} mono />
-                <DetailRow label="Normalized" value={selectedModel()!.normalized} mono />
-                <DetailRow label="Brand" value={selectedModel()!.brand || "Unknown"} />
-                <DetailRow label="Usage Count" value={String(selectedModel()!.count)} />
-                <DetailRow label="First Seen" value={formatDate(selectedModel()!.firstSeen)} />
-                <DetailRow label="Last Seen" value={formatDate(selectedModel()!.lastSeen)} />
-                <DetailRow 
-                  label="Matched Slug" 
-                  value={selectedModel()!.matchedSlug || "No match"} 
-                  mono 
-                  highlight={!selectedModel()!.matchedSlug ? "rose" : "emerald"}
-                />
-                <DetailRow 
-                  label="Confidence" 
-                  value={selectedModel()!.matchConfidence !== null ? `${Math.round(selectedModel()!.matchConfidence! * 100)}%` : "N/A"} 
-                />
+                <DetailRow label="Raw Model" value={selectedMapping()!.rawModel} mono />
+                <DetailRow label="Normalized" value={selectedMapping()!.normalizedModel || "—"} mono />
+                <DetailRow label="Source" value={selectedMapping()!.source} />
                 <div>
-                  <div class="text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wide mb-2">
-                    Used in Posts
+                  <div class="text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wide mb-1">
+                    Status
                   </div>
-                  <div class="flex flex-wrap gap-2">
-                    <For each={selectedModel()!.postIds.slice(0, 10)}>
-                      {(id) => (
-                        <a 
-                          href={`https://click-or-die.ru/?p=${id}`}
-                          target="_blank"
-                          class="px-2 py-1 bg-zinc-100 dark:bg-slate-800 rounded text-xs font-mono text-indigo-600 dark:text-indigo-400 hover:bg-zinc-200 dark:hover:bg-slate-700 transition-colors"
-                        >
-                          #{id}
-                        </a>
-                      )}
-                    </For>
-                    <Show when={selectedModel()!.postIds.length > 10}>
-                      <span class="px-2 py-1 text-xs text-zinc-500">
-                        +{selectedModel()!.postIds.length - 10} more
-                      </span>
-                    </Show>
-                  </div>
+                  <StatusBadge status={selectedMapping()!.status} />
                 </div>
+                <DetailRow label="Usage Count" value={String(selectedMapping()!.usageCount)} />
+                <DetailRow label="First Seen" value={formatDate(selectedMapping()!.firstSeenAt)} />
+                <DetailRow label="Last Seen" value={formatDate(selectedMapping()!.lastSeenAt)} />
+                <DetailRow
+                  label="Matched Device"
+                  value={selectedMapping()!.deviceId || "No match"}
+                  mono
+                  highlight={!selectedMapping()!.deviceId ? "rose" : "emerald"}
+                />
+                <DetailRow
+                  label="Confidence"
+                  value={
+                    selectedMapping()!.confidence !== null
+                      ? `${Math.round(selectedMapping()!.confidence! * 100)}%`
+                      : "N/A"
+                  }
+                />
               </div>
             </div>
           </div>
@@ -491,34 +504,47 @@ export default function WidgetDebug() {
   );
 }
 
-function StatCard(props: { label: string; value: number; color?: "emerald" | "rose" }) {
+function StatCard(props: { label: string; value: number; color?: "emerald" | "amber" | "rose" }) {
   const colorClasses = {
     emerald: "text-emerald-600 dark:text-emerald-400",
+    amber: "text-amber-600 dark:text-amber-400",
     rose: "text-rose-600 dark:text-rose-400",
   };
-  
+
   return (
     <div class="bg-white dark:bg-slate-900 rounded-xl border border-zinc-200 dark:border-slate-800 p-4">
       <div class="text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wide">
         {props.label}
       </div>
-      <div class={`text-2xl font-bold mt-1 ${props.color ? colorClasses[props.color] : "text-zinc-900 dark:text-white"}`}>
+      <div
+        class={`text-2xl font-bold mt-1 ${props.color ? colorClasses[props.color] : "text-zinc-900 dark:text-white"}`}
+      >
         {props.value.toLocaleString()}
       </div>
     </div>
   );
 }
 
-function DetailRow(props: { label: string; value: string; mono?: boolean; highlight?: "emerald" | "rose" }) {
+function DetailRow(props: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  highlight?: "emerald" | "rose";
+}) {
   return (
     <div>
       <div class="text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wide mb-1">
         {props.label}
       </div>
-      <div class={`text-sm text-zinc-900 dark:text-white break-all ${props.mono ? "font-mono" : ""} ${
-        props.highlight === "emerald" ? "text-emerald-600 dark:text-emerald-400" :
-        props.highlight === "rose" ? "text-rose-600 dark:text-rose-400" : ""
-      }`}>
+      <div
+        class={`text-sm text-zinc-900 dark:text-white break-all ${props.mono ? "font-mono" : ""} ${
+          props.highlight === "emerald"
+            ? "text-emerald-600 dark:text-emerald-400"
+            : props.highlight === "rose"
+              ? "text-rose-600 dark:text-rose-400"
+              : ""
+        }`}
+      >
         {props.value}
       </div>
     </div>
