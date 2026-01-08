@@ -19,6 +19,7 @@ import { PriceServiceLive } from "../services/price";
 import { SchedulerServiceLive } from "../services/scheduler";
 import { WidgetDataServiceLive } from "../services/widget-data";
 import { WidgetServiceLive } from "../services/widget";
+import { WordPressSyncServiceLive } from "../services/wordpress-sync";
 import { SqlClientLive, SchemaLive } from "../sql";
 import { PriceRuClientLive } from "../sources/price_ru";
 
@@ -62,6 +63,9 @@ const WidgetDataLayer = WidgetDataServiceLive.pipe(Layer.provide(SqlLayer));
 // WidgetService depends on WidgetDataService
 const WidgetLayer = WidgetServiceLive.pipe(Layer.provide(WidgetDataLayer));
 
+// WordPressSyncService depends only on SQL
+const WordPressSyncLayer = WordPressSyncServiceLive.pipe(Layer.provide(SqlLayer));
+
 // DataLayer is just BaseDataLayer now (PhoneDataService removed)
 const DataLayer = BaseDataLayer;
 
@@ -79,6 +83,7 @@ export const LiveLayer = Layer.mergeAll(
   DataLayer,
   SchedulerLayer,
   WidgetLayer,
+  WordPressSyncLayer,
   SqlLayer,
   PriceRuClientLive,
 );

@@ -1,7 +1,8 @@
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 import { Effect } from "effect";
 import { LiveRuntime } from "../layers/live";
 import { SqlClient } from "@effect/sql";
+import { WordPressSyncService } from "../services/wordpress-sync";
 
 interface WidgetModel {
   raw: string;
@@ -9,9 +10,20 @@ interface WidgetModel {
   brand: string | null;
   count: number;
   postIds: number[];
+  firstSeen: string;
+  lastSeen: string;
   matchedSlug: string | null;
   matchConfidence: number | null;
 }
+
+type PeriodParam = "1m" | "3m" | "6m" | "all";
+
+const PERIOD_DAYS: Record<PeriodParam, number | null> = {
+  "1m": 30,
+  "3m": 90,
+  "6m": 180,
+  "all": null,
+};
 
 interface WidgetStats {
   totalModels: number;
@@ -269,105 +281,134 @@ function findBestMatch(normalized: string, devices: ReadonlyArray<{ slug: string
   return bestMatch;
 }
 
-// Hardcoded widget data extracted from WordPress
-// In production, this would come from a database or be fetched from WordPress API
-const WIDGET_DATA = [
-  { raw: "Honor 400 Pro", postIds: [444168, 442883, 443857, 444861, 443639, 443008, 442866] },
-  { raw: "Samsung Galaxy S25 Ultra", postIds: [444861, 443463, 443147, 442174, 443717, 442866] },
-  { raw: "iPhone 17", postIds: [442775, 442866, 442383, 442167, 444861] },
-  { raw: "OnePlus 15", postIds: [444861, 444128, 442174, 442650] },
-  { raw: "OnePlus Buds 4", postIds: [444510, 443269, 442260, 442650] },
-  { raw: "Samsung Galaxy A17", postIds: [444811, 443521, 443047, 442866] },
-  { raw: "Xiaomi Pad 7", postIds: [444842, 443322, 443048, 442866] },
-  { raw: "Huawei Watch GT 6", postIds: [444987, 443304, 442347, 442347] },
-  { raw: "Realme Watch 5", postIds: [444512, 442596, 442961] },
-  { raw: "Xiaomi 15T", postIds: [443857, 443076, 442261] },
-  { raw: "Google Pixel 9a", postIds: [443857, 443270, 442544] },
-  { raw: "Huawei FreeBuds Pro 4", postIds: [444828, 443326, 442908] },
-  { raw: "OnePlus 13S", postIds: [444440, 443657, 442650] },
-  { raw: "Honor MagicPad 2", postIds: [444674, 443958, 442469] },
-  { raw: "Realme GT 7 Pro", postIds: [442775, 442866, 443857] },
-  { raw: "Xiaomi Poco F7", postIds: [444987, 443959, 442866] },
-  { raw: "Tecno Camon 40 Pro 5G", postIds: [444608, 443289, 443957] },
-  { raw: "Samsung Galaxy S25", postIds: [444440, 443463, 442740] },
-  { raw: "AirPods Pro 3", postIds: [443729, 443326, 443013] },
-  { raw: "Amazfit Balance 2", postIds: [444706, 444355, 442360] },
-  { raw: "iQOO 15", postIds: [443147, 442389, 442580] },
-  { raw: "Huawei Pura 80 Ultra", postIds: [444697, 443049, 443717] },
-  { raw: "CMF Watch 3 Pro", postIds: [444355, 443046] },
-  { raw: "Xiaomi 15 Ultra", postIds: [444861, 443076, 442595] },
-  { raw: "Samsung Galaxy Buds3 Pro", postIds: [443326, 442739] },
-  { raw: "Tuvio 4K Ultra HD OLED Frameless 48'", postIds: [443767, 442439] },
-  { raw: "Honor X9d", postIds: [444168, 443491, 442259] },
-  { raw: "Xiaomi Poco M7 4G", postIds: [444539, 444126, 442881] },
-  { raw: "Realme P3 Ultra", postIds: [444511, 443257, 443743] },
-  { raw: "Смартфон Apple iPhone 17 Pro Max 256GB, Orange, Dual eSIM(без RuStore)", postIds: [443717] },
-  { raw: "Смартфон Samsung Galaxy S25 Ultra 12/256 ГБ, Dual: nano SIM + eSIM, Titanium Silver blue", postIds: [443717] },
-  { raw: "Смартфон Google Pixel 10 Pro XL 16/256GB, Dual: nano SIM + eSIM, Obsidian", postIds: [443151] },
-  { raw: "Смартфон iQOO 15 12/256 ГБ, Qualcomm Snapdragon 8 Elite Gen 5, Альфа-черный — купить в интернет-магазине Яндекс Маркет", postIds: [442389, 442580, 443603] },
-  { raw: "Беспроводные наушники Apple Airpods Max 2024 USB-C Starlight (Сияющая звезда)", postIds: [443710] },
-  { raw: "Фитнес-браслет Garmin Vivosmart 5 Чёрный, OLED (010-02645-00). S-M / L", postIds: [443390] },
-  { raw: "Tecno Spark 40 Pro+", postIds: [444608, 443655] },
-  { raw: "Infinix Note 50 Pro", postIds: [444675, 442961, 442288] },
-  { raw: "Nintendo Switch OLED", postIds: [444409, 444409] },
-  { raw: "Steam Deck OLED", postIds: [442807, 442807] },
-  { raw: "Huawei Watch Fit 4 Pro", postIds: [444383, 444383, 443304] },
-  { raw: "PlayStation 5 Slim Digital Edition", postIds: [443863, 443863] },
-  { raw: "OnePlus Watch 3", postIds: [444355, 442290] },
-  { raw: "Samsung Galaxy Watch7", postIds: [443490, 442290] },
-  { raw: "Hisense 55E7Q Pro", postIds: [444986, 442882] },
-  { raw: "MacBook Air 13 M4 (2025)", postIds: [444768] },
-  { raw: "Realme GT8 Pro", postIds: [443743] },
-  { raw: "Honor Magic7 Pro", postIds: [443639] },
-  { raw: "Xiaomi Redmi Pad 2", postIds: [443790] },
-  { raw: "iQOO Z10 Lite", postIds: [444539, 443521, 442866] },
-];
+type WidgetCacheRow = {
+  raw: string;
+  count: number;
+  post_ids: string;
+  first_seen: string;
+  last_seen: string;
+};
 
 export const createWidgetDebugRoutes = () =>
   new Elysia({ prefix: "/api/widget-debug" })
-    .get("/models", async () => {
-      const program = Effect.gen(function* () {
-        const sql = yield* SqlClient.SqlClient;
-        
-        // Get all device slugs for matching
-        const devices = yield* sql<{ slug: string; name: string; brand: string | null }>`
-          SELECT slug, name, brand FROM devices
-        `;
-        
-        // Process widget data using token-based matching
-        const models: WidgetModel[] = WIDGET_DATA.map(item => {
-          const normalized = normalizeModel(item.raw);
-          const brand = detectBrand(item.raw);
-          
-          // Use token-based matching with brand for slug prefix
-          const match = findBestMatch(normalized, devices, brand);
-          
-          return {
-            raw: item.raw,
-            normalized,
-            brand,
-            count: item.postIds.length,
-            postIds: item.postIds,
-            matchedSlug: match?.slug ?? null,
-            matchConfidence: match?.confidence ?? null,
+    .get(
+      "/models",
+      async ({ query }) => {
+        const period = (query.period as PeriodParam) || "3m";
+        const days = PERIOD_DAYS[period];
+
+        const program = Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+
+          // Calculate from_date based on period
+          const fromDate =
+            days !== null
+              ? new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+                  .toISOString()
+                  .replace("Z", "")
+              : null;
+
+          // Query widget cache grouped by search_text
+          const widgetRows = yield* sql<WidgetCacheRow>`
+            SELECT 
+              search_text as raw,
+              COUNT(*) as count,
+              GROUP_CONCAT(DISTINCT post_id) as post_ids,
+              MIN(post_date_gmt) as first_seen,
+              MAX(post_date_gmt) as last_seen
+            FROM wordpress_widget_cache
+            WHERE (${fromDate} IS NULL OR post_date_gmt >= ${fromDate})
+            GROUP BY search_text
+            ORDER BY count DESC
+          `;
+
+          // Get all device slugs for matching
+          const devices = yield* sql<{
+            slug: string;
+            name: string;
+            brand: string | null;
+          }>`
+            SELECT slug, name, brand FROM devices
+          `;
+
+          // Process widget data using token-based matching
+          const models: WidgetModel[] = widgetRows.map((row) => {
+            const normalized = normalizeModel(row.raw);
+            const brand = detectBrand(row.raw);
+            const postIds = row.post_ids
+              .split(",")
+              .map((id) => parseInt(id, 10));
+
+            // Use token-based matching with brand for slug prefix
+            const match = findBestMatch(normalized, devices, brand);
+
+            return {
+              raw: row.raw,
+              normalized,
+              brand,
+              count: Number(row.count),
+              postIds,
+              firstSeen: row.first_seen,
+              lastSeen: row.last_seen,
+              matchedSlug: match?.slug ?? null,
+              matchConfidence: match?.confidence ?? null,
+            };
+          });
+
+          // Calculate stats
+          const stats: WidgetStats = {
+            totalModels: models.reduce((sum, m) => sum + m.count, 0),
+            uniqueModels: models.length,
+            postsWithWidgets: new Set(models.flatMap((m) => m.postIds)).size,
+            matchedCount: models.filter((m) => m.matchedSlug !== null).length,
+            unmatchedCount: models.filter((m) => m.matchedSlug === null).length,
           };
+
+          return { stats, models, period };
         });
-        
-        // Calculate stats
-        const stats: WidgetStats = {
-          totalModels: WIDGET_DATA.reduce((sum, item) => sum + item.postIds.length, 0),
-          uniqueModels: WIDGET_DATA.length,
-          postsWithWidgets: new Set(WIDGET_DATA.flatMap(item => item.postIds)).size,
-          matchedCount: models.filter(m => m.matchedSlug !== null).length,
-          unmatchedCount: models.filter(m => m.matchedSlug === null).length,
+
+        return await LiveRuntime.runPromise(program);
+      },
+      {
+        query: t.Object({
+          period: t.Optional(
+            t.Union([
+              t.Literal("1m"),
+              t.Literal("3m"),
+              t.Literal("6m"),
+              t.Literal("all"),
+            ]),
+          ),
+        }),
+      },
+    )
+    .get("/sync-status", async () => {
+      const program = Effect.gen(function* () {
+        const syncService = yield* WordPressSyncService;
+        const status = yield* syncService.getSyncStatus();
+        return {
+          lastSyncedAt: status.lastRunAt,
+          lastModifiedGmt: status.lastSyncedModifiedGmt,
+          postsCount: status.totalPosts,
+          widgetsCount: status.totalWidgets,
         };
-        
-        return { stats, models };
       });
-      
+
       return await LiveRuntime.runPromise(program);
     })
-    .get("/refresh", async () => {
-      // In the future, this could trigger a fresh scrape from WordPress
-      return { message: "Not implemented - use manual extraction for now" };
+    .post("/refresh", async () => {
+      const program = Effect.gen(function* () {
+        const syncService = yield* WordPressSyncService;
+        const result = yield* syncService.syncPosts();
+        return {
+          success: true,
+          postsProcessed: result.postsProcessed,
+          postsInserted: result.postsInserted,
+          postsUpdated: result.postsUpdated,
+          postsSkipped: result.postsSkipped,
+          widgetsInserted: result.widgetsInserted,
+        };
+      });
+
+      return await LiveRuntime.runPromise(program);
     });

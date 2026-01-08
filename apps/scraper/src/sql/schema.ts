@@ -1087,6 +1087,47 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
 
     yield* seedDeviceCategories(sql);
 
+    // WordPress widget caching tables
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS sync_state (
+        source TEXT PRIMARY KEY,
+        last_synced_modified_gmt TEXT NOT NULL,
+        last_run_at TEXT NOT NULL
+      )
+    `);
+
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS wp_posts_cache (
+        post_id INTEGER PRIMARY KEY,
+        title TEXT,
+        slug TEXT,
+        status TEXT,
+        post_date_gmt TEXT NOT NULL,
+        post_modified_gmt TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        content_rendered TEXT,
+        synced_at TEXT NOT NULL
+      )
+    `);
+
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS wordpress_widget_cache (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id INTEGER NOT NULL,
+        search_text TEXT NOT NULL,
+        occurrence_index INTEGER NOT NULL,
+        post_date_gmt TEXT NOT NULL,
+        post_modified_gmt TEXT NOT NULL,
+        synced_at TEXT NOT NULL,
+        FOREIGN KEY (post_id) REFERENCES wp_posts_cache(post_id)
+      )
+    `);
+
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_widget_period ON wordpress_widget_cache(post_date_gmt, search_text)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_widget_post ON wordpress_widget_cache(post_id)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_posts_modified ON wp_posts_cache(post_modified_gmt)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_posts_date ON wp_posts_cache(post_date_gmt)`);
+
     yield* Effect.logInfo("Schema initialized");
   });
 
