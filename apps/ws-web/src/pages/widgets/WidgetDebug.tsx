@@ -30,16 +30,22 @@ interface SyncStatus {
   widgetsCount: number;
 }
 
-type PeriodParam = "1m" | "3m" | "6m" | "all";
+interface SuggestedMatch {
+  deviceId: string;
+  slug: string;
+  name: string;
+  confidence: number;
+}
+
+interface DeviceSearchResult {
+  id: string;
+  slug: string;
+  name: string;
+  brand: string | null;
+}
+
 type SortField = "usageCount" | "rawModel" | "status" | "confidence";
 type StatusTab = "all" | "needs_review" | "auto_confirmed" | "confirmed" | "ignored";
-
-const PERIOD_OPTIONS: { id: PeriodParam; label: string }[] = [
-  { id: "1m", label: "1 month" },
-  { id: "3m", label: "3 months" },
-  { id: "6m", label: "6 months" },
-  { id: "all", label: "All time" },
-];
 
 const STATUS_TABS: { id: StatusTab; label: string }[] = [
   { id: "all", label: "All" },
@@ -48,6 +54,38 @@ const STATUS_TABS: { id: StatusTab; label: string }[] = [
   { id: "confirmed", label: "Confirmed" },
   { id: "ignored", label: "Ignored" },
 ];
+
+const fetchMappingWithSuggestions = async (rawModel: string) => {
+  const res = await fetch(
+    `http://localhost:1488/api/widget-mappings/${encodeURIComponent(rawModel)}`
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json() as Promise<{ mapping: WidgetMapping | null; suggestions: SuggestedMatch[] }>;
+};
+
+const searchDevices = async (query: string) => {
+  const res = await fetch(
+    `http://localhost:1488/api/widget-mappings/devices/search?q=${encodeURIComponent(query)}&limit=10`
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json() as Promise<DeviceSearchResult[]>;
+};
+
+const updateMapping = async (
+  rawModel: string,
+  update: { deviceId?: string | null; status?: MappingStatus }
+) => {
+  const res = await fetch(
+    `http://localhost:1488/api/widget-mappings/${encodeURIComponent(rawModel)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(update),
+    }
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+};
 
 export default function WidgetDebug() {
   const [mappings, setMappings] = createSignal<WidgetMapping[]>([]);
@@ -59,9 +97,18 @@ export default function WidgetDebug() {
   const [sortDesc, setSortDesc] = createSignal(true);
   const [statusTab, setStatusTab] = createSignal<StatusTab>("all");
   const [selectedMapping, setSelectedMapping] = createSignal<WidgetMapping | null>(null);
-  const [period, setPeriod] = createSignal<PeriodParam>("3m");
   const [syncStatus, setSyncStatus] = createSignal<SyncStatus | null>(null);
   const [syncing, setSyncing] = createSignal(false);
+
+  // Modal state
+  const [modalLoading, setModalLoading] = createSignal(false);
+  const [suggestions, setSuggestions] = createSignal<SuggestedMatch[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = createSignal<string | null>(null);
+  const [selectedDeviceName, setSelectedDeviceName] = createSignal<string | null>(null);
+  const [deviceSearch, setDeviceSearch] = createSignal("");
+  const [searchResults, setSearchResults] = createSignal<DeviceSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = createSignal(false);
+  const [actionLoading, setActionLoading] = createSignal(false);
 
   const fetchMappings = async () => {
     setLoading(true);
@@ -104,6 +151,144 @@ export default function WidgetDebug() {
     } finally {
       setSyncing(false);
     }
+  };
+
+  const openMappingEditor = async (mapping: WidgetMapping, _listIndex?: number) => {
+    setSelectedMapping(mapping);
+    setModalLoading(true);
+    setSuggestions([]);
+    setSelectedDeviceId(mapping.deviceId);
+    setSelectedDeviceName(null);
+    setDeviceSearch("");
+    setSearchResults([]);
+
+    try {
+      const data = await fetchMappingWithSuggestions(mapping.rawModel);
+      setSuggestions(data.suggestions);
+      if (mapping.deviceId) {
+        const match = data.suggestions.find((s) => s.deviceId === mapping.deviceId);
+        if (match) {
+          setSelectedDeviceName(match.name);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch suggestions:", e);
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const closeModal = () => {
+    setSelectedMapping(null);
+    setSuggestions([]);
+    setSelectedDeviceId(null);
+    setSelectedDeviceName(null);
+    setDeviceSearch("");
+    setSearchResults([]);
+  };
+
+  const advanceToNext = (justReviewedRawModel?: string) => {
+    const needsReview = filteredMappings().filter(
+      (m) => m.status === "pending" || m.status === "suggested"
+    );
+
+    if (needsReview.length === 0) {
+      closeModal();
+      return;
+    }
+
+    // Find the index of the just-reviewed item in the new needs_review list
+    // It should not be there anymore (status changed), but if it is, skip past it
+    let nextIdx = 0;
+    if (justReviewedRawModel) {
+      const oldIdx = needsReview.findIndex((m) => m.rawModel === justReviewedRawModel);
+      // If not found (expected), start at index 0; if found, go to next
+      nextIdx = oldIdx === -1 ? 0 : Math.min(oldIdx, needsReview.length - 1);
+    }
+
+    const next = needsReview[nextIdx];
+    if (next) {
+      openMappingEditor(next, nextIdx);
+    } else {
+      closeModal();
+    }
+  };
+
+  const handleConfirm = async () => {
+    const mapping = selectedMapping();
+    if (!mapping || !selectedDeviceId()) return;
+
+    const rawModel = mapping.rawModel;
+    setActionLoading(true);
+    try {
+      await updateMapping(rawModel, {
+        deviceId: selectedDeviceId(),
+        status: "confirmed",
+      });
+      await fetchMappings();
+      advanceToNext(rawModel);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleIgnore = async () => {
+    const mapping = selectedMapping();
+    if (!mapping) return;
+
+    const rawModel = mapping.rawModel;
+    setActionLoading(true);
+    try {
+      await updateMapping(rawModel, { status: "ignored" });
+      await fetchMappings();
+      advanceToNext(rawModel);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const selectSuggestion = (suggestion: SuggestedMatch) => {
+    setSelectedDeviceId(suggestion.deviceId);
+    setSelectedDeviceName(suggestion.name);
+  };
+
+  const selectSearchResult = (result: DeviceSearchResult) => {
+    setSelectedDeviceId(result.id);
+    setSelectedDeviceName(result.name);
+    setSearchResults([]);
+    setDeviceSearch("");
+  };
+
+  const clearSelection = () => {
+    setSelectedDeviceId(null);
+    setSelectedDeviceName(null);
+  };
+
+  let searchTimeout: ReturnType<typeof setTimeout>;
+  const handleDeviceSearch = (query: string) => {
+    setDeviceSearch(query);
+    clearTimeout(searchTimeout);
+
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    setSearchLoading(true);
+    searchTimeout = setTimeout(async () => {
+      try {
+        const results = await searchDevices(query);
+        setSearchResults(results);
+      } catch (e) {
+        console.error("Search failed:", e);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
   };
 
   onMount(() => {
@@ -154,7 +339,7 @@ export default function WidgetDebug() {
 
   const formatDate = (ts: number | null) => {
     if (ts == null) return "Never";
-    const d = new Date(ts * 1000); // Unix seconds to milliseconds
+    const d = new Date(ts * 1000);
     return d.toLocaleString();
   };
 
@@ -253,53 +438,31 @@ export default function WidgetDebug() {
           <StatCard label="Confirmed" value={confirmedCount()} color="emerald" />
         </div>
 
-        {/* Status Tab Bar */}
-        <div class="bg-white dark:bg-slate-900 rounded-xl border border-zinc-200 dark:border-slate-800 p-2 mb-4">
-          <div class="flex gap-1 overflow-x-auto">
-            <For each={STATUS_TABS}>
-              {(tab) => (
-                <button
-                  onClick={() => setStatusTab(tab.id)}
-                  class={`px-4 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
-                    statusTab() === tab.id
-                      ? "bg-indigo-500 text-white"
-                      : "bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-300 hover:bg-zinc-200 dark:hover:bg-slate-700"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              )}
-            </For>
-          </div>
-        </div>
-
-        {/* Controls */}
-        <div class="bg-white dark:bg-slate-900 rounded-xl border border-zinc-200 dark:border-slate-800 p-4 mb-4">
-          <div class="flex flex-col md:flex-row gap-4">
+        {/* Filters */}
+        <div class="bg-white dark:bg-slate-900 rounded-xl border border-zinc-200 dark:border-slate-800 p-4 mb-6">
+          <div class="flex flex-col md:flex-row gap-4 items-start md:items-center">
             {/* Search */}
-            <div class="flex-1">
-              <input
-                type="text"
-                value={search()}
-                onInput={(e) => setSearch(e.currentTarget.value)}
-                placeholder="Search models..."
-                class="w-full px-3 py-2 text-sm bg-zinc-50 dark:bg-slate-800 border border-zinc-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-zinc-900 dark:text-white"
-              />
-            </div>
+            <input
+              type="text"
+              placeholder="Search models..."
+              value={search()}
+              onInput={(e) => setSearch(e.currentTarget.value)}
+              class="flex-1 px-3 py-2 text-sm bg-zinc-100 dark:bg-slate-800 border border-zinc-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-zinc-900 dark:text-white placeholder-zinc-500 dark:placeholder-slate-400"
+            />
 
-            {/* Period selector */}
-            <div class="flex gap-2">
-              <For each={PERIOD_OPTIONS}>
-                {(opt) => (
+            {/* Status Tabs */}
+            <div class="flex gap-1 bg-zinc-100 dark:bg-slate-800 rounded-lg p-1">
+              <For each={STATUS_TABS}>
+                {(tab) => (
                   <button
-                    onClick={() => setPeriod(opt.id)}
-                    class={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                      period() === opt.id
-                        ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-900"
-                        : "bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-300 hover:bg-zinc-200 dark:hover:bg-slate-700"
+                    onClick={() => setStatusTab(tab.id)}
+                    class={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      statusTab() === tab.id
+                        ? "bg-white dark:bg-slate-700 text-zinc-900 dark:text-white shadow-sm"
+                        : "text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white"
                     }`}
                   >
-                    {opt.label}
+                    {tab.label}
                   </button>
                 )}
               </For>
@@ -371,10 +534,10 @@ export default function WidgetDebug() {
                 </thead>
                 <tbody class="divide-y divide-zinc-100 dark:divide-slate-800">
                   <For each={filteredMappings()}>
-                    {(mapping) => (
+                    {(mapping, idx) => (
                       <tr
                         class="hover:bg-zinc-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
-                        onClick={() => setSelectedMapping(mapping)}
+                        onClick={() => openMappingEditor(mapping, idx())}
                       >
                         <td class="px-4 py-3">
                           <span class="inline-flex items-center justify-center w-8 h-6 bg-zinc-100 dark:bg-slate-800 rounded text-xs font-medium text-zinc-600 dark:text-slate-300">
@@ -442,59 +605,237 @@ export default function WidgetDebug() {
           </div>
         </Show>
 
-        {/* Detail Modal */}
+        {/* Mapping Editor Modal */}
         <Show when={selectedMapping()}>
           <div
             class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            onClick={() => setSelectedMapping(null)}
+            onClick={closeModal}
           >
             <div
-              class="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden shadow-2xl"
+              class="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden shadow-2xl flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
-              <div class="p-6 border-b border-zinc-200 dark:border-slate-800 flex items-center justify-between">
-                <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Mapping Details</h2>
-                <button
-                  onClick={() => setSelectedMapping(null)}
-                  class="p-2 hover:bg-zinc-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-zinc-500"
-                >
-                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
-              </div>
-              <div class="p-6 overflow-y-auto max-h-[60vh] space-y-4">
-                <DetailRow label="Raw Model" value={selectedMapping()!.rawModel} mono />
-                <DetailRow label="Normalized" value={selectedMapping()!.normalizedModel || "—"} mono />
-                <DetailRow label="Source" value={selectedMapping()!.source} />
-                <div>
-                  <div class="text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wide mb-1">
-                    Status
+              {/* Header */}
+              <div class="p-6 border-b border-zinc-200 dark:border-slate-800 flex-shrink-0">
+                <div class="flex items-start justify-between gap-4">
+                  <div class="min-w-0 flex-1">
+                    <h2 class="text-lg font-semibold text-zinc-900 dark:text-white truncate">
+                      {selectedMapping()!.rawModel}
+                    </h2>
+                    <Show when={selectedMapping()!.normalizedModel}>
+                      <p class="text-sm text-zinc-500 dark:text-slate-400 mt-0.5 truncate">
+                        {selectedMapping()!.normalizedModel}
+                      </p>
+                    </Show>
+                    <div class="flex items-center gap-3 mt-2">
+                      <StatusBadge status={selectedMapping()!.status} />
+                      <span class="text-xs text-zinc-500 dark:text-slate-400">
+                        Used {selectedMapping()!.usageCount} times
+                      </span>
+                      <span class="text-xs text-zinc-500 dark:text-slate-400">
+                        First seen: {formatDate(selectedMapping()!.firstSeenAt)}
+                      </span>
+                    </div>
                   </div>
-                  <StatusBadge status={selectedMapping()!.status} />
+                  <button
+                    onClick={closeModal}
+                    class="p-2 hover:bg-zinc-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-zinc-500 flex-shrink-0"
+                  >
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
                 </div>
-                <DetailRow label="Usage Count" value={String(selectedMapping()!.usageCount)} />
-                <DetailRow label="First Seen" value={formatDate(selectedMapping()!.firstSeenAt)} />
-                <DetailRow label="Last Seen" value={formatDate(selectedMapping()!.lastSeenAt)} />
-                <DetailRow
-                  label="Matched Device"
-                  value={selectedMapping()!.deviceId || "No match"}
-                  mono
-                  highlight={!selectedMapping()!.deviceId ? "rose" : "emerald"}
-                />
-                <DetailRow
-                  label="Confidence"
-                  value={
-                    selectedMapping()!.confidence !== null
-                      ? `${Math.round(selectedMapping()!.confidence! * 100)}%`
-                      : "N/A"
-                  }
-                />
+              </div>
+
+              {/* Content */}
+              <div class="flex-1 overflow-y-auto p-6 space-y-6">
+                {/* Loading state */}
+                <Show when={modalLoading()}>
+                  <div class="flex items-center justify-center py-8 gap-3">
+                    <div class="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                    <span class="text-zinc-500 dark:text-slate-400">Loading suggestions...</span>
+                  </div>
+                </Show>
+
+                <Show when={!modalLoading()}>
+                  {/* Selected Device */}
+                  <Show when={selectedDeviceId()}>
+                    <div class="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl p-4">
+                      <div class="flex items-center justify-between">
+                        <div>
+                          <div class="text-xs font-medium text-indigo-600 dark:text-indigo-400 uppercase tracking-wide mb-1">
+                            Selected Device
+                          </div>
+                          <div class="font-medium text-zinc-900 dark:text-white">
+                            {selectedDeviceName() ?? selectedDeviceId()}
+                          </div>
+                          <div class="text-xs text-zinc-500 dark:text-slate-400 font-mono mt-0.5">
+                            {selectedDeviceId()}
+                          </div>
+                        </div>
+                        <button
+                          onClick={clearSelection}
+                          class="px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white border border-zinc-300 dark:border-slate-700 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                  </Show>
+
+                  {/* Suggested Matches */}
+                  <Show when={suggestions().length > 0}>
+                    <div>
+                      <div class="text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wide mb-3">
+                        Suggested Matches
+                      </div>
+                      <div class="space-y-2">
+                        <For each={suggestions().slice(0, 5)}>
+                          {(suggestion, idx) => (
+                            <button
+                              onClick={() => selectSuggestion(suggestion)}
+                              class={`w-full text-left p-3 rounded-xl border transition-colors ${
+                                selectedDeviceId() === suggestion.deviceId
+                                  ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20"
+                                  : "border-zinc-200 dark:border-slate-800 hover:border-zinc-300 dark:hover:border-slate-700 hover:bg-zinc-50 dark:hover:bg-slate-800/50"
+                              }`}
+                            >
+                              <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3 min-w-0">
+                                  <div
+                                    class={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                                      selectedDeviceId() === suggestion.deviceId
+                                        ? "border-indigo-500 bg-indigo-500"
+                                        : "border-zinc-300 dark:border-slate-600"
+                                    }`}
+                                  >
+                                    <Show when={selectedDeviceId() === suggestion.deviceId}>
+                                      <div class="w-1.5 h-1.5 bg-white rounded-full" />
+                                    </Show>
+                                  </div>
+                                  <div class="min-w-0">
+                                    <div class="flex items-center gap-2">
+                                      <span class="font-medium text-zinc-900 dark:text-white truncate">
+                                        {suggestion.name}
+                                      </span>
+                                      <Show when={idx() === 0 && suggestion.confidence >= 0.97}>
+                                        <span class="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded text-xs font-medium">
+                                          Recommended
+                                        </span>
+                                      </Show>
+                                    </div>
+                                    <div class="text-xs text-zinc-500 dark:text-slate-400 font-mono truncate">
+                                      {suggestion.slug}
+                                    </div>
+                                  </div>
+                                </div>
+                                <span
+                                  class={`px-2 py-0.5 rounded text-xs font-medium ${
+                                    suggestion.confidence >= 0.9
+                                      ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+                                      : "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                                  }`}
+                                >
+                                  {Math.round(suggestion.confidence * 100)}%
+                                </span>
+                              </div>
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  </Show>
+
+                  {/* Device Search */}
+                  <div>
+                    <div class="text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wide mb-3">
+                      Search Devices
+                    </div>
+                    <div class="relative">
+                      <input
+                        type="text"
+                        placeholder="Search by name, slug, or brand..."
+                        value={deviceSearch()}
+                        onInput={(e) => handleDeviceSearch(e.currentTarget.value)}
+                        class="w-full px-3 py-2 text-sm bg-zinc-100 dark:bg-slate-800 border border-zinc-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-zinc-900 dark:text-white placeholder-zinc-500 dark:placeholder-slate-400"
+                      />
+                      <Show when={searchLoading()}>
+                        <div class="absolute right-3 top-1/2 -translate-y-1/2">
+                          <div class="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      </Show>
+                    </div>
+
+                    {/* Search Results */}
+                    <Show when={searchResults().length > 0}>
+                      <div class="mt-2 border border-zinc-200 dark:border-slate-800 rounded-lg overflow-hidden">
+                        <For each={searchResults()}>
+                          {(result) => (
+                            <button
+                              onClick={() => selectSearchResult(result)}
+                              class="w-full text-left px-3 py-2 hover:bg-zinc-50 dark:hover:bg-slate-800/50 transition-colors border-b last:border-b-0 border-zinc-100 dark:border-slate-800"
+                            >
+                              <div class="flex items-center justify-between">
+                                <div class="min-w-0">
+                                  <div class="font-medium text-zinc-900 dark:text-white text-sm truncate">
+                                    {result.name}
+                                  </div>
+                                  <div class="text-xs text-zinc-500 dark:text-slate-400 font-mono truncate">
+                                    {result.slug}
+                                  </div>
+                                </div>
+                                <Show when={result.brand}>
+                                  <span class="text-xs text-zinc-500 dark:text-slate-400 flex-shrink-0 ml-2">
+                                    {result.brand}
+                                  </span>
+                                </Show>
+                              </div>
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </div>
+                </Show>
+              </div>
+
+              {/* Footer Actions */}
+              <div class="p-6 border-t border-zinc-200 dark:border-slate-800 flex-shrink-0">
+                <div class="flex items-center justify-end gap-3">
+                  <button
+                    onClick={closeModal}
+                    disabled={actionLoading()}
+                    class="px-4 py-2 text-sm font-medium text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white border border-zinc-300 dark:border-slate-700 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleIgnore}
+                    disabled={actionLoading()}
+                    class="px-4 py-2 text-sm font-medium bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    <Show when={actionLoading()}>
+                      <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    </Show>
+                    Ignore
+                  </button>
+                  <button
+                    onClick={handleConfirm}
+                    disabled={actionLoading() || !selectedDeviceId()}
+                    class="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    <Show when={actionLoading()}>
+                      <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    </Show>
+                    Confirm & Lock
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -520,32 +861,6 @@ function StatCard(props: { label: string; value: number; color?: "emerald" | "am
         class={`text-2xl font-bold mt-1 ${props.color ? colorClasses[props.color] : "text-zinc-900 dark:text-white"}`}
       >
         {props.value.toLocaleString()}
-      </div>
-    </div>
-  );
-}
-
-function DetailRow(props: {
-  label: string;
-  value: string;
-  mono?: boolean;
-  highlight?: "emerald" | "rose";
-}) {
-  return (
-    <div>
-      <div class="text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wide mb-1">
-        {props.label}
-      </div>
-      <div
-        class={`text-sm text-zinc-900 dark:text-white break-all ${props.mono ? "font-mono" : ""} ${
-          props.highlight === "emerald"
-            ? "text-emerald-600 dark:text-emerald-400"
-            : props.highlight === "rose"
-              ? "text-rose-600 dark:text-rose-400"
-              : ""
-        }`}
-      >
-        {props.value}
       </div>
     </div>
   );
