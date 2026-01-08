@@ -1,4 +1,5 @@
 import { Effect, Layer, Context, Data } from "effect";
+import { SqlClient } from "@effect/sql";
 import { WidgetDataService } from "./widget-data";
 import {
   renderPriceWidget,
@@ -6,6 +7,8 @@ import {
   renderErrorWidget,
   ArrowVariant,
 } from "./widget-render";
+import { YandexAffiliateService } from "./yandex-affiliate";
+import { ALLOWED_HOSTS } from "../sources/yandex_market/url-utils";
 
 export class WidgetServiceError extends Data.TaggedError("WidgetServiceError")<{
   message: string;
@@ -42,12 +45,127 @@ function makeCacheKey(params: WidgetParams): string {
   return `${params.slug}:${arrowVariant}:${theme}`;
 }
 
+type QuoteNeedingAffiliate = {
+  id: number;
+  url: string;
+};
+
 export const WidgetServiceLive = Layer.effect(
   WidgetService,
   Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
     const widgetDataService = yield* WidgetDataService;
+    const affiliateService = yield* YandexAffiliateService;
 
     const cache = new Map<string, CacheEntry>();
+    const inflightSlugs = new Set<string>();
+
+    // Find Yandex quotes that need affiliate links for a device
+    const getQuotesNeedingAffiliateLinks = (
+      deviceId: string,
+    ): Effect.Effect<QuoteNeedingAffiliate[], never> =>
+      sql<{ id: number; url: string }>`
+        SELECT id, url FROM price_quotes
+        WHERE device_id = ${deviceId}
+          AND source = 'yandex_market'
+          AND url IS NOT NULL
+          AND (affiliate_url IS NULL OR affiliate_url = '')
+          AND is_available = 1
+      `.pipe(
+        Effect.map((rows) =>
+          rows.filter((r) => {
+            try {
+              const u = new URL(r.url);
+              return ALLOWED_HOSTS.includes(u.hostname);
+            } catch {
+              return false;
+            }
+          }),
+        ),
+        Effect.catchAll(() => Effect.succeed([])),
+      );
+
+    // Background task to generate affiliate links
+    const triggerAffiliateBackfill = (
+      slug: string,
+      deviceId: string,
+      deviceName: string,
+      imageUrl: string | null,
+    ): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        if (inflightSlugs.has(slug)) return;
+        inflightSlugs.add(slug);
+
+        const task = Effect.gen(function* () {
+          const quotes = yield* getQuotesNeedingAffiliateLinks(deviceId);
+          if (quotes.length === 0) return;
+
+          yield* Effect.logInfo("Starting affiliate backfill").pipe(
+            Effect.annotateLogs({ slug, deviceId, quoteCount: quotes.length }),
+          );
+
+          // Get or create ERID
+          const erid = yield* affiliateService.getOrCreateErid({
+            deviceId,
+            deviceName,
+            imageUrl: imageUrl ?? undefined,
+          });
+
+          // Create affiliate links for each quote
+          for (const quote of quotes) {
+            yield* Effect.gen(function* () {
+              const affiliateUrl = yield* affiliateService.createAffiliateLink({
+                url: quote.url,
+                erid,
+              });
+
+              yield* sql`
+                UPDATE price_quotes
+                SET affiliate_url = ${affiliateUrl},
+                    affiliate_url_created_at = CURRENT_TIMESTAMP,
+                    affiliate_error = NULL
+                WHERE id = ${quote.id}
+              `.pipe(Effect.asVoid);
+            }).pipe(
+              Effect.catchAll((error) =>
+                sql`
+                  UPDATE price_quotes
+                  SET affiliate_error = ${error instanceof Error ? error.message : String(error)}
+                  WHERE id = ${quote.id}
+                `.pipe(
+                  Effect.asVoid,
+                  Effect.catchAll(() => Effect.void),
+                ),
+              ),
+            );
+          }
+
+          // Invalidate cache for this slug
+          for (const key of cache.keys()) {
+            if (key.startsWith(`${slug}:`)) {
+              cache.delete(key);
+            }
+          }
+
+          yield* Effect.logInfo("Affiliate backfill completed").pipe(
+            Effect.annotateLogs({ slug, deviceId, quoteCount: quotes.length }),
+          );
+        }).pipe(
+          Effect.catchAll((error) =>
+            Effect.logWarning("Affiliate backfill failed").pipe(
+              Effect.annotateLogs({ slug, deviceId, error }),
+            ),
+          ),
+          Effect.ensuring(
+            Effect.sync(() => {
+              inflightSlugs.delete(slug);
+            }),
+          ),
+        );
+
+        // Fire and forget
+        yield* Effect.forkDaemon(task);
+      });
 
     const evictOldestIfNeeded = () => {
       if (cache.size < CACHE_MAX_ENTRIES) return;
@@ -103,6 +221,19 @@ export const WidgetServiceLive = Layer.effect(
           if (data === null) {
             html = renderNotFoundWidget(params.slug);
           } else {
+            // Check if we need to backfill affiliate links (fire-and-forget)
+            const hasYandexPrices = data.prices.some((p) => p.source === "yandex_market");
+            if (hasYandexPrices) {
+              yield* triggerAffiliateBackfill(
+                params.slug,
+                data.device.id,
+                data.device.brand
+                  ? `${data.device.brand} ${data.device.name}`
+                  : data.device.name,
+                data.specs.image,
+              );
+            }
+
             html = renderPriceWidget(data, {
               arrowVariant: params.arrowVariant,
               theme: params.theme,

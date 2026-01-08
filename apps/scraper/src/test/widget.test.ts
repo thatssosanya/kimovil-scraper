@@ -4,6 +4,7 @@ import { SqlClient } from "@effect/sql";
 import { createTestSqlClient } from "./setup";
 import { WidgetService, WidgetServiceLive } from "../services/widget";
 import { WidgetDataService, WidgetDataServiceLive } from "../services/widget-data";
+import { YandexAffiliateServiceLive } from "../services/yandex-affiliate";
 
 const initTestSchema = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -42,7 +43,21 @@ const initTestSchema = Effect.gen(function* () {
       currency TEXT NOT NULL,
       url TEXT,
       scraped_at INTEGER NOT NULL,
-      is_available INTEGER NOT NULL DEFAULT 1
+      is_available INTEGER NOT NULL DEFAULT 1,
+      affiliate_url TEXT,
+      affiliate_url_created_at TEXT,
+      affiliate_error TEXT,
+      redirect_type TEXT
+    )
+  `);
+
+  yield* sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS widget_creatives (
+      device_id TEXT PRIMARY KEY,
+      erid TEXT NOT NULL,
+      clid INTEGER NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
 });
@@ -52,8 +67,13 @@ const TestSchemaLive = Layer.effectDiscard(initTestSchema);
 const createTestLayer = () => {
   const SqlWithSchema = Layer.provideMerge(TestSchemaLive, createTestSqlClient());
   const WidgetDataLayer = Layer.provideMerge(WidgetDataServiceLive, SqlWithSchema);
-  const WidgetLayer = Layer.provideMerge(WidgetServiceLive, WidgetDataLayer);
-  return Layer.merge(WidgetLayer, SqlWithSchema);
+  const YandexAffiliateLayer = Layer.provideMerge(YandexAffiliateServiceLive, SqlWithSchema);
+  const WidgetLayer = WidgetServiceLive.pipe(
+    Layer.provide(WidgetDataLayer),
+    Layer.provide(YandexAffiliateLayer),
+    Layer.provide(SqlWithSchema),
+  );
+  return Layer.mergeAll(WidgetLayer, WidgetDataLayer, SqlWithSchema);
 };
 
 const runWidgetTest = <A, E>(

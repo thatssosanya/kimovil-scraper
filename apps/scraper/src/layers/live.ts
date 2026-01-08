@@ -65,8 +65,15 @@ const SchedulerLayer = SchedulerServiceLive.pipe(
 // WidgetDataService depends only on SQL
 const WidgetDataLayer = WidgetDataServiceLive.pipe(Layer.provide(SqlLayer));
 
-// WidgetService depends on WidgetDataService
-const WidgetLayer = WidgetServiceLive.pipe(Layer.provide(WidgetDataLayer));
+// YandexAffiliateService depends only on SQL
+const YandexAffiliateLayer = YandexAffiliateServiceLive.pipe(Layer.provide(SqlLayer));
+
+// WidgetService depends on WidgetDataService, SqlClient, and YandexAffiliateService
+const WidgetLayer = WidgetServiceLive.pipe(
+  Layer.provide(WidgetDataLayer),
+  Layer.provide(YandexAffiliateLayer),
+  Layer.provide(SqlLayer),
+);
 
 // WordPressSyncService depends only on SQL
 const WordPressSyncLayer = WordPressSyncServiceLive.pipe(Layer.provide(SqlLayer));
@@ -86,9 +93,6 @@ const CatalogueLinkLayer = CatalogueLinkServiceLive.pipe(
   Layer.provide(LinkResolverLayer),
   Layer.provide(SqlLayer),
 );
-
-// YandexAffiliateService depends only on SQL
-const YandexAffiliateLayer = YandexAffiliateServiceLive.pipe(Layer.provide(SqlLayer));
 
 // DataLayer is just BaseDataLayer now (PhoneDataService removed)
 const DataLayer = BaseDataLayer;
