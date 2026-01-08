@@ -71,6 +71,7 @@ type PriceOfferRow = {
   seller: string | null;
   price_minor_units: number;
   url: string | null;
+  affiliate_url: string | null;
   is_available: number;
   row_num: number;
 };
@@ -133,12 +134,13 @@ export const WidgetDataServiceLive = Layer.effect(
                 seller,
                 price_minor_units,
                 url,
+                affiliate_url,
                 is_available,
                 ROW_NUMBER() OVER (PARTITION BY source ORDER BY price_minor_units ASC) as row_num
               FROM price_quotes
               WHERE device_id = ${deviceId} AND is_available = 1
             )
-            SELECT source, seller, price_minor_units, url, is_available, row_num
+            SELECT source, seller, price_minor_units, url, affiliate_url, is_available, row_num
             FROM ranked
             WHERE row_num <= 3
             ORDER BY source, row_num
@@ -150,7 +152,7 @@ export const WidgetDataServiceLive = Layer.effect(
             sourceOffers.push({
               seller: offer.seller ?? "Unknown",
               price: offer.price_minor_units,
-              url: offer.url ?? undefined,
+              url: offer.affiliate_url ?? offer.url ?? undefined,
               isAvailable: offer.is_available === 1,
             });
             offersBySource.set(offer.source, sourceOffers);

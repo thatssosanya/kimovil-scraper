@@ -26,6 +26,7 @@ import { PriceRuClientLive } from "../sources/price_ru";
 import { CatalogueSqlClientLive } from "../sql/catalogue";
 import { LinkResolverServiceLive } from "../services/link-resolver";
 import { CatalogueLinkServiceLive } from "../services/catalogue-link";
+import { YandexAffiliateServiceLive } from "../services/yandex-affiliate";
 
 const SearchServiceLayer = SearchServiceKimovil.pipe(
   Layer.provide(BrowserServiceLive),
@@ -86,6 +87,9 @@ const CatalogueLinkLayer = CatalogueLinkServiceLive.pipe(
   Layer.provide(SqlLayer),
 );
 
+// YandexAffiliateService depends only on SQL
+const YandexAffiliateLayer = YandexAffiliateServiceLive.pipe(Layer.provide(SqlLayer));
+
 // DataLayer is just BaseDataLayer now (PhoneDataService removed)
 const DataLayer = BaseDataLayer;
 
@@ -108,6 +112,7 @@ export const LiveLayer = Layer.mergeAll(
   SqlLayer,
   PriceRuClientLive,
   CatalogueLinkLayer,
+  YandexAffiliateLayer,
 );
 
 export type LiveLayerType = typeof LiveLayer;

@@ -1218,6 +1218,22 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     `);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_catalogue_link_cache_slug ON catalogue_link_cache(slug)`);
 
+    // Widget creatives for Yandex affiliate links (erid/clid per device)
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS widget_creatives (
+        device_id TEXT PRIMARY KEY,
+        erid TEXT NOT NULL,
+        clid INTEGER NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Affiliate URL columns for price_quotes
+    yield* ensureColumn(sql, "price_quotes", "affiliate_url", "TEXT");
+    yield* ensureColumn(sql, "price_quotes", "affiliate_url_created_at", "TEXT");
+    yield* ensureColumn(sql, "price_quotes", "affiliate_error", "TEXT");
+
     yield* Effect.logInfo("Schema initialized");
   });
 

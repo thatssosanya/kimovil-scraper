@@ -14,6 +14,7 @@ import { WidgetService } from "../services/widget";
 import { parseYandexPrices } from "../sources/yandex_market/extractor";
 import { validateYandexMarketUrl, ALLOWED_HOSTS } from "../sources/yandex_market/url-utils";
 import { YandexBrowserError } from "../sources/yandex_market/errors";
+import { YandexAffiliateService } from "../services/yandex-affiliate";
 import { extractVariantKey } from "../sources/price_ru/variant-utils";
 
 const VALID_STATUSES = ["pending", "suggested", "auto_confirmed", "confirmed", "ignored", "needs_review"] as const;
@@ -373,6 +374,74 @@ export const createWidgetMappingsRoutes = () =>
           });
 
           yield* priceService.updatePriceSummary(device.id);
+
+          // Generate affiliate links (best-effort)
+          yield* Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            const affiliateService = yield* YandexAffiliateService;
+
+            // Get device image from entity data if available
+            const entityResult = yield* entityData.getFinalData(device.id, "specs").pipe(
+              Effect.catchAll(() => Effect.succeed(null)),
+            );
+            const entityData_ = entityResult as { photos?: string[] } | null;
+            const imageUrl = entityData_?.photos?.[0];
+
+            // Get or create ERID for this device
+            const erid = yield* affiliateService.getOrCreateErid({
+              deviceId: device.id,
+              deviceName: device.name,
+              imageUrl,
+            });
+
+            // Create affiliate links for each offer with valid Yandex URL
+            const offersWithUrls = offers.filter((o) => {
+              if (!o.url) return false;
+              try {
+                const u = new URL(o.url);
+                return ALLOWED_HOSTS.includes(u.hostname);
+              } catch {
+                return false;
+              }
+            });
+            for (const offer of offersWithUrls) {
+              yield* Effect.gen(function* () {
+                const affiliateUrl = yield* affiliateService.createAffiliateLink({
+                  url: offer.url!,
+                  erid,
+                });
+
+                yield* sql`
+                  UPDATE price_quotes 
+                  SET affiliate_url = ${affiliateUrl}, 
+                      affiliate_url_created_at = CURRENT_TIMESTAMP, 
+                      affiliate_error = NULL
+                  WHERE device_id = ${device.id} 
+                    AND source = 'yandex_market' 
+                    AND url = ${offer.url}
+                `.pipe(Effect.asVoid);
+              }).pipe(
+                Effect.catchAll((error) =>
+                  sql`
+                    UPDATE price_quotes 
+                    SET affiliate_error = ${error instanceof Error ? error.message : String(error)}
+                    WHERE device_id = ${device.id} 
+                      AND source = 'yandex_market' 
+                      AND url = ${offer.url}
+                  `.pipe(
+                    Effect.asVoid,
+                    Effect.catchAll(() => Effect.void),
+                  ),
+                ),
+              );
+            }
+          }).pipe(
+            Effect.catchAll((error) =>
+              Effect.logWarning("Affiliate link generation failed").pipe(
+                Effect.annotateLogs({ deviceId: device.id, error }),
+              ),
+            ),
+          );
 
           // Invalidate widget cache
           const widgetService = yield* WidgetService;
