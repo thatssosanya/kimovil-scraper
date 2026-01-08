@@ -28,6 +28,8 @@ interface CatalogueDeviceRow {
 
 interface CatalogueLinkRow {
   url: string;
+  price: number;
+  updatedAt: string;
 }
 
 interface CachedLinkRow {
@@ -175,7 +177,7 @@ export const CatalogueLinkServiceLive = Layer.effect(
 
           const linkRows = yield* catalogueSql
             .executeRaw<CatalogueLinkRow>(
-              `SELECT l.url FROM Link l 
+              `SELECT l.url, l.price, l.updatedAt FROM Link l 
                WHERE l.deviceId = ? 
                AND (l.url LIKE '%kik.cat%' OR l.url LIKE '%ya.cc%' OR l.url LIKE '%market.yandex%')`,
               [device.deviceId],
@@ -183,7 +185,15 @@ export const CatalogueLinkServiceLive = Layer.effect(
             .pipe(Effect.mapError(mapCatalogueSqlError));
 
           const links = yield* Effect.all(
-            linkRows.map((row) => resolveLink(slug, row.url)),
+            linkRows.map((row) =>
+              resolveLink(slug, row.url).pipe(
+                Effect.map((resolved) => ({
+                  ...resolved,
+                  price: row.price,
+                  updatedAt: row.updatedAt,
+                })),
+              ),
+            ),
             { concurrency: 3 },
           );
 

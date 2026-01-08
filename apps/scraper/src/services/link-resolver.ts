@@ -12,6 +12,9 @@ export interface ResolvedLink {
   isYandexMarket: boolean;
   externalId: string | null;
   error?: string;
+  // From catalogue Link table
+  price?: number;
+  updatedAt?: string;
 }
 
 const MAX_REDIRECTS = 5;

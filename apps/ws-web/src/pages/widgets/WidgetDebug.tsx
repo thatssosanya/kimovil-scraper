@@ -214,6 +214,8 @@ export default function WidgetDebug() {
     externalId: string | null;
     error?: string;
     fromCache?: boolean;
+    price?: number;
+    updatedAt?: string;
   }
   const [catalogueLinks, setCatalogueLinks] = createSignal<CatalogueLink[] | null>(null);
   const [_catalogueLoading, setCatalogueLoading] = createSignal(false);
@@ -1539,26 +1541,60 @@ export default function WidgetDebug() {
                                         <Show when={catalogueLinks()?.some(l => l.isYandexMarket && l.resolvedUrl)}>
                                           <div class="mb-2">
                                             <For each={catalogueLinks()!.filter(l => l.isYandexMarket && l.resolvedUrl)}>
-                                              {(link) => (
-                                                <button
-                                                  onClick={() => {
-                                                    setYandexUrl(link.resolvedUrl!);
-                                                    handleScrapeYandex();
-                                                  }}
-                                                  disabled={yandexScraping()}
-                                                  class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-left rounded-md hover:bg-zinc-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
-                                                >
-                                                  <svg class="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                                                  </svg>
-                                                  <span class="truncate flex-1 text-zinc-700 dark:text-slate-300">
-                                                    Use saved link
-                                                  </span>
-                                                  <span class="text-zinc-400 dark:text-slate-500 text-[10px] flex-shrink-0">
-                                                    from catalogue
-                                                  </span>
-                                                </button>
-                                              )}
+                                              {(link) => {
+                                                const formatCataloguePrice = (price?: number) => {
+                                                  if (!price) return null;
+                                                  return new Intl.NumberFormat("ru-RU", {
+                                                    style: "currency",
+                                                    currency: "RUB",
+                                                    minimumFractionDigits: 0,
+                                                    maximumFractionDigits: 0,
+                                                  }).format(price);
+                                                };
+                                                const formatRelativeDate = (dateStr?: string) => {
+                                                  if (!dateStr) return null;
+                                                  const date = new Date(dateStr);
+                                                  const now = new Date();
+                                                  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+                                                  if (diffDays === 0) return "today";
+                                                  if (diffDays === 1) return "1d ago";
+                                                  if (diffDays < 7) return `${diffDays}d ago`;
+                                                  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+                                                  return `${Math.floor(diffDays / 30)}mo ago`;
+                                                };
+                                                const priceStr = formatCataloguePrice(link.price);
+                                                const dateStr = formatRelativeDate(link.updatedAt);
+                                                return (
+                                                  <button
+                                                    onClick={() => {
+                                                      setYandexUrl(link.resolvedUrl!);
+                                                      handleScrapeYandex();
+                                                    }}
+                                                    disabled={yandexScraping()}
+                                                    class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-left rounded-md hover:bg-zinc-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+                                                  >
+                                                    <svg class="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                                    </svg>
+                                                    <div class="flex-1 min-w-0">
+                                                      <div class="text-zinc-700 dark:text-slate-300">Use saved link</div>
+                                                      <Show when={priceStr || dateStr}>
+                                                        <div class="flex items-center gap-1.5 text-[10px] text-zinc-400 dark:text-slate-500">
+                                                          <Show when={priceStr}>
+                                                            <span class="font-medium text-zinc-500 dark:text-slate-400">{priceStr}</span>
+                                                          </Show>
+                                                          <Show when={priceStr && dateStr}>
+                                                            <span>·</span>
+                                                          </Show>
+                                                          <Show when={dateStr}>
+                                                            <span>{dateStr}</span>
+                                                          </Show>
+                                                        </div>
+                                                      </Show>
+                                                    </div>
+                                                  </button>
+                                                );
+                                              }}
                                             </For>
                                           </div>
                                           <div class="border-t border-zinc-100 dark:border-slate-700 my-2" />

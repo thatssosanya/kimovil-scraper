@@ -1,5 +1,6 @@
 import { Effect, Layer, Context, Data } from "effect";
 import { SqlClient, SqlError } from "@effect/sql";
+import { generateDeviceId } from "@repo/scraper-domain/server";
 
 // =============================================================================
 // Brand Detection Patterns (extracted from widget-debug.ts)
@@ -258,13 +259,38 @@ export interface SuggestedMatch {
   confidence: number;
 }
 
+export interface PostInfo {
+  postId: number;
+  title: string;
+  url: string;
+  dateGmt: string;
+}
+
+export interface DevicePreview {
+  id: string;
+  slug: string;
+  name: string;
+  brand: string | null;
+}
+
+export interface NewDeviceDefaults {
+  brand: string | null;
+  modelName: string;
+  suggestedSlug: string;
+}
+
+export interface MappingContext {
+  mapping: WidgetMapping | null;
+  suggestions: SuggestedMatch[];
+  posts: PostInfo[];
+  devicePreview: DevicePreview | null;
+  newDeviceDefaults: NewDeviceDefaults;
+}
+
 export interface WidgetMappingService {
   syncMappings: () => Effect.Effect<{ created: number; updated: number }, WidgetMappingError>;
 
-  getMapping: (rawModel: string) => Effect.Effect<
-    { mapping: WidgetMapping | null; suggestions: SuggestedMatch[] },
-    WidgetMappingError
-  >;
+  getMapping: (rawModel: string) => Effect.Effect<MappingContext, WidgetMappingError>;
 
   updateMapping: (
     rawModel: string,
@@ -275,12 +301,20 @@ export interface WidgetMappingService {
     status?: MappingStatus | "needs_review";
     limit?: number;
     offset?: number;
+    seenAfter?: number;  // Unix timestamp - filter by last_seen_at >= this
+    seenBefore?: number; // Unix timestamp - filter by last_seen_at <= this
   }) => Effect.Effect<{ mappings: WidgetMapping[]; total: number }, WidgetMappingError>;
 
   searchDevices: (query: string, limit?: number) => Effect.Effect<
     Array<{ id: string; slug: string; name: string; brand: string | null }>,
     WidgetMappingError
   >;
+
+  createDevice: (input: {
+    slug: string;
+    name: string;
+    brand: string | null;
+  }) => Effect.Effect<{ id: string; slug: string; name: string; brand: string | null }, WidgetMappingError>;
 }
 
 export const WidgetMappingService = Context.GenericTag<WidgetMappingService>("WidgetMappingService");
@@ -316,6 +350,13 @@ interface DeviceRow {
   slug: string;
   name: string;
   brand: string | null;
+}
+
+interface PostRow {
+  post_id: number;
+  title: string;
+  slug: string;
+  post_date_gmt: string;
 }
 
 // =============================================================================
@@ -365,9 +406,17 @@ export const WidgetMappingServiceLive = Layer.effect(
             GROUP BY w.search_text
           `;
 
+          yield* Effect.logInfo("syncMappings: loaded widget rows").pipe(
+            Effect.annotateLogs({ count: widgetRows.length }),
+          );
+
           const devices = yield* sql<DeviceRow>`
             SELECT id, slug, name, brand FROM devices
           `;
+
+          yield* Effect.logInfo("syncMappings: loaded devices").pipe(
+            Effect.annotateLogs({ count: devices.length }),
+          );
 
           let created = 0;
           let updated = 0;
@@ -390,24 +439,24 @@ export const WidgetMappingServiceLive = Layer.effect(
             ? devices.find(d => d.slug === match.slug)?.id ?? null
             : null;
 
-          // Use INSERT ... ON CONFLICT for atomic upsert
-          // Only update device_id/confidence/status for non-locked statuses
-          // Always update usage_count and timestamps
-          const result = yield* sql.unsafe(`
+          // Use INSERT ... ON CONFLICT with RETURNING to get insert/update status
+          // RETURNING gives us the row after the operation - we can tell insert vs update
+          // by comparing created_at and updated_at (equal = insert, different = update)
+          const returned = yield* sql<{ created_at: number; updated_at: number }>`
             INSERT INTO widget_model_mappings (
               source, raw_model, normalized_model, device_id, confidence, status,
               usage_count, first_seen_at, last_seen_at, created_at, updated_at
             )
             VALUES (
               'wordpress',
-              ?,
-              ?,
-              ?,
-              ?,
-              ?,
-              ?,
-              ?,
-              ?,
+              ${row.raw},
+              ${normalized},
+              ${deviceId},
+              ${match?.confidence ?? null},
+              ${status},
+              ${row.count},
+              ${row.first_seen},
+              ${row.last_seen},
               unixepoch(),
               unixepoch()
             )
@@ -416,43 +465,28 @@ export const WidgetMappingServiceLive = Layer.effect(
               first_seen_at = COALESCE(widget_model_mappings.first_seen_at, excluded.first_seen_at),
               last_seen_at = excluded.last_seen_at,
               updated_at = unixepoch(),
-              -- Only update matching info for non-locked statuses
               device_id = CASE
-                WHEN widget_model_mappings.status IN ('confirmed', 'ignored') THEN widget_model_mappings.device_id
+                WHEN widget_model_mappings.status IN ('auto_confirmed', 'confirmed', 'ignored') OR widget_model_mappings.locked = 1 THEN widget_model_mappings.device_id
                 ELSE excluded.device_id
               END,
               confidence = CASE
-                WHEN widget_model_mappings.status IN ('confirmed', 'ignored') THEN widget_model_mappings.confidence
+                WHEN widget_model_mappings.status IN ('auto_confirmed', 'confirmed', 'ignored') OR widget_model_mappings.locked = 1 THEN widget_model_mappings.confidence
                 ELSE excluded.confidence
               END,
               status = CASE
-                WHEN widget_model_mappings.status IN ('confirmed', 'ignored') THEN widget_model_mappings.status
+                WHEN widget_model_mappings.status IN ('auto_confirmed', 'confirmed', 'ignored') OR widget_model_mappings.locked = 1 THEN widget_model_mappings.status
                 ELSE excluded.status
               END,
               normalized_model = CASE
-                WHEN widget_model_mappings.status IN ('confirmed', 'ignored') THEN widget_model_mappings.normalized_model
+                WHEN widget_model_mappings.status IN ('auto_confirmed', 'confirmed', 'ignored') OR widget_model_mappings.locked = 1 THEN widget_model_mappings.normalized_model
                 ELSE excluded.normalized_model
               END
-          `, [
-            row.raw,
-            normalized,
-            deviceId,
-            match?.confidence ?? null,
-            status,
-            row.count,
-            row.first_seen,
-            row.last_seen,
-          ]);
+            RETURNING created_at, updated_at
+          `;
 
-          // SQLite returns changes() for the last statement
-          const changes = (result as unknown as { changes?: number }).changes ?? 0;
-          if (changes > 0) {
-            // Check if it was an insert or update by checking rowid
-            const checkRow = yield* sql<{ id: number; created_at: number; updated_at: number }>`
-              SELECT id, created_at, updated_at FROM widget_model_mappings
-              WHERE source = 'wordpress' AND raw_model = ${row.raw}
-            `;
-            if (checkRow.length > 0 && checkRow[0].created_at === checkRow[0].updated_at) {
+          if (returned.length > 0) {
+            const r = returned[0];
+            if (r.created_at === r.updated_at) {
               created++;
             } else {
               updated++;
@@ -481,9 +515,6 @@ export const WidgetMappingServiceLive = Layer.effect(
         const brand = detectBrand(rawModel);
 
         const suggestions: SuggestedMatch[] = [];
-        const slugVariants = toSlugVariants(normalized);
-        const brandVariants = brand ? toSlugVariants(`${brand} ${normalized}`) : [];
-        const allVariants = [...slugVariants, ...brandVariants];
 
         for (const device of devices) {
           const match = findBestMatch(normalized, [device], brand);
@@ -498,9 +529,60 @@ export const WidgetMappingServiceLive = Layer.effect(
         }
 
         suggestions.sort((a, b) => b.confidence - a.confidence);
-        const topSuggestions = suggestions.slice(0, 5);
+        const topSuggestions = suggestions.slice(0, 10);
 
-        return { mapping, suggestions: topSuggestions };
+        // Fetch posts where this widget appears
+        const postRows = yield* sql<PostRow>`
+          SELECT DISTINCT
+            w.post_id,
+            p.title,
+            p.slug,
+            w.post_date_gmt
+          FROM wordpress_widget_cache w
+          JOIN wp_posts_cache p ON w.post_id = p.post_id
+          WHERE w.search_text = ${rawModel}
+            AND p.status = 'publish'
+          ORDER BY w.post_date_gmt DESC
+          LIMIT 20
+        `;
+
+        const posts: PostInfo[] = postRows.map((row) => ({
+          postId: row.post_id,
+          title: row.title,
+          url: `https://click-or-die.ru/${row.slug}/`,
+          dateGmt: row.post_date_gmt,
+        }));
+
+        // Get device preview for the mapped device or top suggestion
+        let devicePreview: DevicePreview | null = null;
+        const previewDeviceId = mapping?.deviceId ?? topSuggestions[0]?.deviceId ?? null;
+        if (previewDeviceId) {
+          const device = devices.find((d) => d.id === previewDeviceId);
+          if (device) {
+            devicePreview = {
+              id: device.id,
+              slug: device.slug,
+              name: device.name,
+              brand: device.brand,
+            };
+          }
+        }
+
+        // Generate defaults for creating a new device
+        const suggestedSlug = toSlugForm(normalized);
+        const newDeviceDefaults: NewDeviceDefaults = {
+          brand,
+          modelName: normalized || rawModel,
+          suggestedSlug,
+        };
+
+        return {
+          mapping,
+          suggestions: topSuggestions,
+          posts,
+          devicePreview,
+          newDeviceDefaults,
+        };
       }).pipe(Effect.mapError(mapError));
 
     const updateMapping: WidgetMappingService["updateMapping"] = (rawModel, update) =>
@@ -564,52 +646,187 @@ export const WidgetMappingServiceLive = Layer.effect(
       Effect.gen(function* () {
         const limit = options.limit ?? 50;
         const offset = options.offset ?? 0;
+        const seenAfter = options.seenAfter ?? null;
+        const seenBefore = options.seenBefore ?? null;
 
         let mappings: WidgetMapping[];
         let total: number;
 
-        // Order by usage_count DESC, then confidence ASC (NULLs last for review priority)
+        // Build date filter conditions
+        // Uses last_seen_at to filter widgets active in the selected period
         if (options.status === "needs_review") {
-          const rows = yield* sql<MappingRow>`
-            SELECT * FROM widget_model_mappings
-            WHERE status IN ('pending', 'suggested')
-            ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
-            LIMIT ${limit} OFFSET ${offset}
-          `;
-          mappings = rows.map(rowToMapping);
-
-          const countRows = yield* sql<{ count: number }>`
-            SELECT COUNT(*) as count FROM widget_model_mappings
-            WHERE status IN ('pending', 'suggested')
-          `;
-          total = countRows[0].count;
+          if (seenAfter !== null && seenBefore !== null) {
+            const rows = yield* sql<MappingRow>`
+              SELECT * FROM widget_model_mappings
+              WHERE status IN ('pending', 'suggested')
+                AND last_seen_at >= ${seenAfter} AND last_seen_at <= ${seenBefore}
+              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              LIMIT ${limit} OFFSET ${offset}
+            `;
+            mappings = rows.map(rowToMapping);
+            const countRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM widget_model_mappings
+              WHERE status IN ('pending', 'suggested')
+                AND last_seen_at >= ${seenAfter} AND last_seen_at <= ${seenBefore}
+            `;
+            total = countRows[0].count;
+          } else if (seenAfter !== null) {
+            const rows = yield* sql<MappingRow>`
+              SELECT * FROM widget_model_mappings
+              WHERE status IN ('pending', 'suggested')
+                AND last_seen_at >= ${seenAfter}
+              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              LIMIT ${limit} OFFSET ${offset}
+            `;
+            mappings = rows.map(rowToMapping);
+            const countRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM widget_model_mappings
+              WHERE status IN ('pending', 'suggested')
+                AND last_seen_at >= ${seenAfter}
+            `;
+            total = countRows[0].count;
+          } else if (seenBefore !== null) {
+            const rows = yield* sql<MappingRow>`
+              SELECT * FROM widget_model_mappings
+              WHERE status IN ('pending', 'suggested')
+                AND last_seen_at <= ${seenBefore}
+              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              LIMIT ${limit} OFFSET ${offset}
+            `;
+            mappings = rows.map(rowToMapping);
+            const countRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM widget_model_mappings
+              WHERE status IN ('pending', 'suggested')
+                AND last_seen_at <= ${seenBefore}
+            `;
+            total = countRows[0].count;
+          } else {
+            const rows = yield* sql<MappingRow>`
+              SELECT * FROM widget_model_mappings
+              WHERE status IN ('pending', 'suggested')
+              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              LIMIT ${limit} OFFSET ${offset}
+            `;
+            mappings = rows.map(rowToMapping);
+            const countRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM widget_model_mappings
+              WHERE status IN ('pending', 'suggested')
+            `;
+            total = countRows[0].count;
+          }
         } else if (options.status) {
           const status = options.status;
-          const rows = yield* sql<MappingRow>`
-            SELECT * FROM widget_model_mappings
-            WHERE status = ${status}
-            ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
-            LIMIT ${limit} OFFSET ${offset}
-          `;
-          mappings = rows.map(rowToMapping);
-
-          const countRows = yield* sql<{ count: number }>`
-            SELECT COUNT(*) as count FROM widget_model_mappings
-            WHERE status = ${status}
-          `;
-          total = countRows[0].count;
+          if (seenAfter !== null && seenBefore !== null) {
+            const rows = yield* sql<MappingRow>`
+              SELECT * FROM widget_model_mappings
+              WHERE status = ${status}
+                AND last_seen_at >= ${seenAfter} AND last_seen_at <= ${seenBefore}
+              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              LIMIT ${limit} OFFSET ${offset}
+            `;
+            mappings = rows.map(rowToMapping);
+            const countRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM widget_model_mappings
+              WHERE status = ${status}
+                AND last_seen_at >= ${seenAfter} AND last_seen_at <= ${seenBefore}
+            `;
+            total = countRows[0].count;
+          } else if (seenAfter !== null) {
+            const rows = yield* sql<MappingRow>`
+              SELECT * FROM widget_model_mappings
+              WHERE status = ${status}
+                AND last_seen_at >= ${seenAfter}
+              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              LIMIT ${limit} OFFSET ${offset}
+            `;
+            mappings = rows.map(rowToMapping);
+            const countRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM widget_model_mappings
+              WHERE status = ${status}
+                AND last_seen_at >= ${seenAfter}
+            `;
+            total = countRows[0].count;
+          } else if (seenBefore !== null) {
+            const rows = yield* sql<MappingRow>`
+              SELECT * FROM widget_model_mappings
+              WHERE status = ${status}
+                AND last_seen_at <= ${seenBefore}
+              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              LIMIT ${limit} OFFSET ${offset}
+            `;
+            mappings = rows.map(rowToMapping);
+            const countRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM widget_model_mappings
+              WHERE status = ${status}
+                AND last_seen_at <= ${seenBefore}
+            `;
+            total = countRows[0].count;
+          } else {
+            const rows = yield* sql<MappingRow>`
+              SELECT * FROM widget_model_mappings
+              WHERE status = ${status}
+              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              LIMIT ${limit} OFFSET ${offset}
+            `;
+            mappings = rows.map(rowToMapping);
+            const countRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM widget_model_mappings
+              WHERE status = ${status}
+            `;
+            total = countRows[0].count;
+          }
         } else {
-          const rows = yield* sql<MappingRow>`
-            SELECT * FROM widget_model_mappings
-            ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
-            LIMIT ${limit} OFFSET ${offset}
-          `;
-          mappings = rows.map(rowToMapping);
-
-          const countRows = yield* sql<{ count: number }>`
-            SELECT COUNT(*) as count FROM widget_model_mappings
-          `;
-          total = countRows[0].count;
+          if (seenAfter !== null && seenBefore !== null) {
+            const rows = yield* sql<MappingRow>`
+              SELECT * FROM widget_model_mappings
+              WHERE last_seen_at >= ${seenAfter} AND last_seen_at <= ${seenBefore}
+              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              LIMIT ${limit} OFFSET ${offset}
+            `;
+            mappings = rows.map(rowToMapping);
+            const countRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM widget_model_mappings
+              WHERE last_seen_at >= ${seenAfter} AND last_seen_at <= ${seenBefore}
+            `;
+            total = countRows[0].count;
+          } else if (seenAfter !== null) {
+            const rows = yield* sql<MappingRow>`
+              SELECT * FROM widget_model_mappings
+              WHERE last_seen_at >= ${seenAfter}
+              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              LIMIT ${limit} OFFSET ${offset}
+            `;
+            mappings = rows.map(rowToMapping);
+            const countRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM widget_model_mappings
+              WHERE last_seen_at >= ${seenAfter}
+            `;
+            total = countRows[0].count;
+          } else if (seenBefore !== null) {
+            const rows = yield* sql<MappingRow>`
+              SELECT * FROM widget_model_mappings
+              WHERE last_seen_at <= ${seenBefore}
+              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              LIMIT ${limit} OFFSET ${offset}
+            `;
+            mappings = rows.map(rowToMapping);
+            const countRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM widget_model_mappings
+              WHERE last_seen_at <= ${seenBefore}
+            `;
+            total = countRows[0].count;
+          } else {
+            const rows = yield* sql<MappingRow>`
+              SELECT * FROM widget_model_mappings
+              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              LIMIT ${limit} OFFSET ${offset}
+            `;
+            mappings = rows.map(rowToMapping);
+            const countRows = yield* sql<{ count: number }>`
+              SELECT COUNT(*) as count FROM widget_model_mappings
+            `;
+            total = countRows[0].count;
+          }
         }
 
         return { mappings, total };
@@ -626,12 +843,35 @@ export const WidgetMappingServiceLive = Layer.effect(
         return [...rows];
       }).pipe(Effect.mapError(mapError));
 
+    const createDevice: WidgetMappingService["createDevice"] = (input) =>
+      Effect.gen(function* () {
+        const id = generateDeviceId(input.slug);
+
+        // Check if device with same slug already exists
+        const existing = yield* sql<DeviceRow>`
+          SELECT id, slug, name, brand FROM devices WHERE slug = ${input.slug}
+        `;
+        if (existing.length > 0) {
+          return yield* Effect.fail(
+            new WidgetMappingError({ message: `Device with slug "${input.slug}" already exists` })
+          );
+        }
+
+        yield* sql`
+          INSERT INTO devices (id, slug, name, brand, created_at, updated_at)
+          VALUES (${id}, ${input.slug}, ${input.name}, ${input.brand}, unixepoch(), unixepoch())
+        `;
+
+        return { id, slug: input.slug, name: input.name, brand: input.brand };
+      }).pipe(Effect.mapError(mapError));
+
     return {
       syncMappings,
       getMapping,
       updateMapping,
       listMappings,
       searchDevices,
+      createDevice,
     } satisfies WidgetMappingService;
   }),
 );
