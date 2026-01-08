@@ -42,18 +42,16 @@ const migrateTableRename = (
     }
   }).pipe(Effect.asVoid, Effect.mapError((e) => e as SqlError.SqlError));
 
-const migrateWidgetMappingsStatus = (sql: SqlClient.SqlClient) =>
-  Effect.gen(function* () {
-    const result = yield* sql.unsafe(`
-      UPDATE widget_model_mappings
-      SET status = 'suggested', updated_at = unixepoch()
-      WHERE status = 'ambiguous'
-    `);
-    const changes = (result as unknown as { changes?: number }).changes ?? 0;
-    if (changes > 0) {
-      yield* Effect.logInfo(`Migrated ${changes} widget_model_mappings from 'ambiguous' to 'suggested'`);
-    }
-  }).pipe(Effect.asVoid, Effect.mapError((e) => e as SqlError.SqlError));
+const columnExists = (
+  sql: SqlClient.SqlClient,
+  table: string,
+  column: string,
+): Effect.Effect<boolean, SqlError.SqlError> =>
+  sql.unsafe(`PRAGMA table_info(${table})`).pipe(
+    Effect.map((columns) =>
+      (columns as Array<{ name: string }>).some((c) => c.name === column),
+    ),
+  );
 
 const migrateWidgetMappingsStatusConstraint = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlError> =>
   Effect.gen(function* () {
@@ -64,6 +62,11 @@ const migrateWidgetMappingsStatusConstraint = (sql: SqlClient.SqlClient): Effect
     if (!needsMigration) return;
 
     yield* Effect.logInfo("Migrating widget_model_mappings table to update status constraint...");
+
+    // Check which columns exist in the old table
+    const hasUsageCount = yield* columnExists(sql, "widget_model_mappings", "usage_count");
+    const hasFirstSeenAt = yield* columnExists(sql, "widget_model_mappings", "first_seen_at");
+    const hasLastSeenAt = yield* columnExists(sql, "widget_model_mappings", "last_seen_at");
 
     yield* sql.withTransaction(
       Effect.gen(function* () {
@@ -87,12 +90,17 @@ const migrateWidgetMappingsStatusConstraint = (sql: SqlClient.SqlClient): Effect
           )
         `);
 
+        // Build SELECT with fallbacks for missing columns
+        const usageCountExpr = hasUsageCount ? "COALESCE(usage_count, 0)" : "0";
+        const firstSeenExpr = hasFirstSeenAt ? "first_seen_at" : "NULL";
+        const lastSeenExpr = hasLastSeenAt ? "last_seen_at" : "NULL";
+
         yield* sql.unsafe(`
           INSERT INTO widget_model_mappings_new
           SELECT id, source, raw_model, normalized_model, device_id, confidence,
             CASE WHEN status = 'ambiguous' THEN 'suggested' ELSE status END,
             override_category_id, locked,
-            COALESCE(usage_count, 0), first_seen_at, last_seen_at,
+            ${usageCountExpr}, ${firstSeenExpr}, ${lastSeenExpr},
             created_at, updated_at
           FROM widget_model_mappings
         `);
@@ -587,17 +595,6 @@ const migrateDeviceSourcesRemoveUniqueConstraint = (
       "Migrated device_sources: removed UNIQUE(device_id, source) constraint",
     );
   });
-
-const columnExists = (
-  sql: SqlClient.SqlClient,
-  table: string,
-  column: string,
-): Effect.Effect<boolean, SqlError.SqlError> =>
-  sql.unsafe(`PRAGMA table_info(${table})`).pipe(
-    Effect.map((columns) =>
-      (columns as Array<{ name: string }>).some((c) => c.name === column),
-    ),
-  );
 
 const migrateDeviceSourcesAddNotFoundStatus = (
   sql: SqlClient.SqlClient,
@@ -1160,7 +1157,6 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* ensureColumn(sql, "widget_model_mappings", "usage_count", "INTEGER NOT NULL DEFAULT 0");
     yield* ensureColumn(sql, "widget_model_mappings", "first_seen_at", "INTEGER");
     yield* ensureColumn(sql, "widget_model_mappings", "last_seen_at", "INTEGER");
-    yield* migrateWidgetMappingsStatus(sql);
 
     yield* seedDeviceCategories(sql);
 
@@ -1204,6 +1200,23 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_widget_post ON wordpress_widget_cache(post_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_posts_modified ON wp_posts_cache(post_modified_gmt)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_posts_date ON wp_posts_cache(post_date_gmt)`);
+
+    // Cache for resolved catalogue links (kik.cat, ya.cc shorteners)
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS catalogue_link_cache (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        slug TEXT NOT NULL,
+        original_url TEXT NOT NULL,
+        resolved_url TEXT,
+        is_yandex_market INTEGER NOT NULL DEFAULT 0,
+        external_id TEXT,
+        error TEXT,
+        resolved_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        UNIQUE(slug, original_url)
+      )
+    `);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_catalogue_link_cache_slug ON catalogue_link_cache(slug)`);
 
     yield* Effect.logInfo("Schema initialized");
   });
