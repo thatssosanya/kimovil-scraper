@@ -1,0 +1,19 @@
+meta {
+  name: Delete Raw Data
+  type: http
+  seq: 2
+}
+
+delete {
+  url: {{baseUrl}}/api/phone-data/raw/:slug
+  body: none
+  auth: none
+}
+
+params:path {
+  slug: samsung-galaxy-s24-ultra
+}
+
+docs {
+  Delete raw extracted data for a device.
+}

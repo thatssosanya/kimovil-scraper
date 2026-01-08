@@ -1,0 +1,39 @@
+meta {
+  name: Create Schedule
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/schedules
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "name": "Daily Kimovil Scrape",
+    "source": "kimovil",
+    "dataKind": "specs",
+    "cronExpression": "0 0 * * *",
+    "jobType": "scrape",
+    "mode": "fast",
+    "filter": null,
+    "runOnce": false,
+    "timezone": "UTC"
+  }
+}
+
+docs {
+  Create a new schedule.
+  
+  - name: Human-readable schedule name
+  - source: Data source (kimovil, yandex_market, etc.)
+  - dataKind: Data type (specs, prices)
+  - cronExpression: Standard 5-field cron expression
+  - jobType: scrape, process_raw, process_ai
+  - mode: fast, complex (optional)
+  - filter: Filter expression (optional)
+  - runOnce: Run only once (optional)
+  - timezone: Timezone for cron (optional)
+}

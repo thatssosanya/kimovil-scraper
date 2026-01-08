@@ -1,0 +1,16 @@
+meta {
+  name: List Users (Admin)
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/auth/admin/list-users
+  body: none
+  auth: none
+}
+
+docs {
+  List all users (admin only).
+  Requires admin session cookie.
+}

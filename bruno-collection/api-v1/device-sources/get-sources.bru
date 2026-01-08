@@ -1,0 +1,25 @@
+meta {
+  name: Get Device Sources
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/device-sources/:slug
+  body: none
+  auth: none
+}
+
+params:path {
+  slug: samsung-galaxy-s24-ultra
+}
+
+params:query {
+  ~source: yandex_market
+}
+
+docs {
+  Get all source links for a device.
+  
+  - source: Filter by source (optional)
+}

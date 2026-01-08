@@ -1,0 +1,21 @@
+meta {
+  name: Delete Raw Data
+  type: http
+  seq: 6
+}
+
+delete {
+  url: {{baseUrl}}/api/v2/devices/:slug/sources/:source/raw-data/:dataKind
+  body: none
+  auth: none
+}
+
+params:path {
+  slug: samsung-galaxy-s24-ultra
+  source: kimovil
+  dataKind: specs
+}
+
+docs {
+  Delete raw extracted data for a device.
+}

@@ -1,0 +1,6 @@
+{
+  "version": "1",
+  "name": "Scraper API",
+  "type": "collection",
+  "ignore": ["node_modules", ".git"]
+}

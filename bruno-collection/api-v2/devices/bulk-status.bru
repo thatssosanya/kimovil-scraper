@@ -1,0 +1,25 @@
+meta {
+  name: Bulk Device Status
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/api/v2/devices/bulk-status
+  body: none
+  auth: none
+}
+
+params:query {
+  slugs: samsung-galaxy-s24-ultra,iphone-15-pro
+  ~source: kimovil
+}
+
+docs {
+  Get status for multiple devices at once.
+  
+  Returns for each slug:
+  - hasHtml, hasRawData, hasAiData
+  - isCorrupted, corruptionReason
+  - priceSourceCount, hasPrices, hasPriceRuLink
+}

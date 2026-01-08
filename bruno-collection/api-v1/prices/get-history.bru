@@ -1,0 +1,27 @@
+meta {
+  name: Get Price History
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/prices/:slug/history
+  body: none
+  auth: none
+}
+
+params:path {
+  slug: samsung-galaxy-s24-ultra
+}
+
+params:query {
+  ~days: 30
+  ~variant: 256gb
+}
+
+docs {
+  Get price history for a device.
+  
+  - days: Number of days of history (default: 30)
+  - variant: Filter by variant key (optional)
+}

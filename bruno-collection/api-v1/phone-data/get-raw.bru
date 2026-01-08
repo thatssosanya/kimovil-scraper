@@ -1,0 +1,19 @@
+meta {
+  name: Get Raw Data
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/phone-data/raw/:slug
+  body: none
+  auth: none
+}
+
+params:path {
+  slug: samsung-galaxy-s24-ultra
+}
+
+docs {
+  Get raw extracted data (before AI normalization) for a device.
+}

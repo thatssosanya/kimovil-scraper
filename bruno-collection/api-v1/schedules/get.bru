@@ -1,0 +1,19 @@
+meta {
+  name: Get Schedule
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/schedules/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 1
+}
+
+docs {
+  Get a specific schedule by ID.
+}

@@ -1,0 +1,22 @@
+meta {
+  name: Get Scrape Status
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/scrape/status
+  body: none
+  auth: none
+}
+
+params:query {
+  externalIds: samsung-galaxy-s24-ultra,iphone-15-pro
+  source: kimovil
+}
+
+docs {
+  Bulk status check for multiple devices.
+  
+  Returns hasHtml, hasRawData, hasAiData, queueStatus, isCorrupted for each.
+}

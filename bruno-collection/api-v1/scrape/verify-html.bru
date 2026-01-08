@@ -1,0 +1,24 @@
+meta {
+  name: Verify HTML
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/scrape/verify
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "source": "kimovil",
+    "externalIds": ["samsung-galaxy-s24-ultra", "iphone-15-pro"]
+  }
+}
+
+docs {
+  Verify HTML integrity for multiple devices.
+  
+  Checks for bot placeholders, missing structure, etc.
+}

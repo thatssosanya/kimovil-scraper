@@ -1,0 +1,33 @@
+meta {
+  name: List Devices
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/v2/devices?limit=50
+  body: none
+  auth: none
+}
+
+params:query {
+  limit: 50
+  ~search: samsung
+  ~filter: unscraped
+  ~offset: 
+  ~source: kimovil
+}
+
+docs {
+  List devices with stats and filtering.
+  
+  Filters:
+  - corrupted: Has corrupted HTML
+  - valid: Has valid HTML
+  - scraped: Has any HTML
+  - unscraped: No HTML
+  - has_raw: Has raw extracted data
+  - has_ai: Has AI-normalized data
+  - needs_raw: Has HTML but no raw data
+  - needs_ai: Has raw data but no AI data
+}

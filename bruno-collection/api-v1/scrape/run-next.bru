@@ -1,0 +1,15 @@
+meta {
+  name: Run Next Queue Item
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/scrape/run-next
+  body: none
+  auth: none
+}
+
+docs {
+  Process the next pending item in the queue.
+}

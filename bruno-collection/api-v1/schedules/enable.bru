@@ -1,0 +1,19 @@
+meta {
+  name: Enable Schedule
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/schedules/:id/enable
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 1
+}
+
+docs {
+  Enable a schedule and set next_run_at.
+}

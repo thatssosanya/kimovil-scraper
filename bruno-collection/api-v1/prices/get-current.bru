@@ -1,0 +1,19 @@
+meta {
+  name: Get Current Prices
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/prices/:slug
+  body: none
+  auth: none
+}
+
+params:path {
+  slug: samsung-galaxy-s24-ultra
+}
+
+docs {
+  Get current price summary for a device.
+}

@@ -1,0 +1,15 @@
+meta {
+  name: Get Device Stats
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v2/devices/stats
+  body: none
+  auth: none
+}
+
+docs {
+  Get device count statistics.
+}

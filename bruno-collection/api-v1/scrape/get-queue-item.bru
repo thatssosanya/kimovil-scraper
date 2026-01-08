@@ -1,0 +1,20 @@
+meta {
+  name: Get Queue Item
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/api/scrape/queue/:source/:externalId
+  body: none
+  auth: none
+}
+
+params:path {
+  source: kimovil
+  externalId: samsung-galaxy-s24-ultra
+}
+
+docs {
+  Get a specific queue item by source and externalId.
+}

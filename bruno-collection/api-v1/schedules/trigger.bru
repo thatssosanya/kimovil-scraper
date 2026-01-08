@@ -1,0 +1,19 @@
+meta {
+  name: Trigger Schedule Now
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/schedules/:id/trigger
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 1
+}
+
+docs {
+  Manually trigger a schedule to run immediately.
+}

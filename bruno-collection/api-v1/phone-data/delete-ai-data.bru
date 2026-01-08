@@ -1,0 +1,19 @@
+meta {
+  name: Delete AI Data
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/api/phone-data/:slug
+  body: none
+  auth: none
+}
+
+params:path {
+  slug: samsung-galaxy-s24-ultra
+}
+
+docs {
+  Delete AI-normalized data for a device.
+}

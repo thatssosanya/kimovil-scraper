@@ -1,0 +1,35 @@
+meta {
+  name: Create Job
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v2/jobs
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jobType": "scrape",
+    "mode": "fast",
+    "slugs": ["samsung-galaxy-s24-ultra", "iphone-15-pro"],
+    "source": "kimovil",
+    "dataKind": "specs"
+  }
+}
+
+docs {
+  Create a job with specific slugs.
+  
+  Job types:
+  - scrape: Full scrape (HTML + raw + AI)
+  - process_raw: Extract raw data from HTML
+  - process_ai: AI normalization
+  - clear_html: Delete HTML
+  - clear_raw: Delete raw data
+  - clear_processed: Delete final data
+  
+  Modes: fast, complex
+}

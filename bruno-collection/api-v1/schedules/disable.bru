@@ -1,0 +1,19 @@
+meta {
+  name: Disable Schedule
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/schedules/:id/disable
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 1
+}
+
+docs {
+  Disable a schedule.
+}

@@ -1,0 +1,29 @@
+meta {
+  name: Get Price Quotes
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/prices/:slug/quotes
+  body: none
+  auth: none
+}
+
+params:path {
+  slug: samsung-galaxy-s24-ultra
+}
+
+params:query {
+  ~source: yandex_market
+  ~externalId: 12345
+  ~limit: 500
+}
+
+docs {
+  Get all price quotes for a device.
+  
+  - source: Filter by source (optional)
+  - externalId: Filter by external ID (optional)
+  - limit: Max results (default: 500)
+}

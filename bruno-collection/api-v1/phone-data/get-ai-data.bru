@@ -1,0 +1,19 @@
+meta {
+  name: Get AI Data
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/phone-data/:slug
+  body: none
+  auth: none
+}
+
+params:path {
+  slug: samsung-galaxy-s24-ultra
+}
+
+docs {
+  Get AI-normalized/processed data for a device.
+}

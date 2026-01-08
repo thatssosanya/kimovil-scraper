@@ -1,0 +1,20 @@
+meta {
+  name: Get Cached HTML
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/scrape/html/:source/:externalId
+  body: none
+  auth: none
+}
+
+params:path {
+  source: kimovil
+  externalId: samsung-galaxy-s24-ultra
+}
+
+docs {
+  Get cached HTML for a device from a specific source.
+}

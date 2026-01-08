@@ -1,0 +1,20 @@
+meta {
+  name: Delete Final Data
+  type: http
+  seq: 8
+}
+
+delete {
+  url: {{baseUrl}}/api/v2/devices/:slug/data/:dataKind
+  body: none
+  auth: none
+}
+
+params:path {
+  slug: samsung-galaxy-s24-ultra
+  dataKind: specs
+}
+
+docs {
+  Delete final (AI-normalized) data for a device.
+}

@@ -1,0 +1,29 @@
+meta {
+  name: Get Job Summary
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/jobs/:jobId/summary
+  body: none
+  auth: none
+}
+
+params:path {
+  jobId: scrape-1234567890-abc123
+}
+
+params:query {
+  ~status: error
+  ~limit: 100
+  ~offset: 0
+}
+
+docs {
+  Get job summary with stats and items.
+  
+  - status: Filter items by status (pending, running, done, error)
+  - limit: Max items to return (default: 100, max: 500)
+  - offset: Pagination offset
+}

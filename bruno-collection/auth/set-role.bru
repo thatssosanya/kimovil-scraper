@@ -1,0 +1,24 @@
+meta {
+  name: Set User Role (Admin)
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/auth/admin/set-role
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "userId": "user-id-here",
+    "role": "editor"
+  }
+}
+
+docs {
+  Set user role (admin only).
+  
+  Available roles: subscriber, author, editor, admin
+}

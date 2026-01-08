@@ -1,0 +1,21 @@
+meta {
+  name: List Queue Items
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/scrape/queue
+  body: none
+  auth: none
+}
+
+params:query {
+  ~status: pending
+}
+
+docs {
+  List queue items.
+  
+  Optional status filter: pending, running, done, error
+}

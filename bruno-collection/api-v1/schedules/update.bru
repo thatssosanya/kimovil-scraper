@@ -1,0 +1,30 @@
+meta {
+  name: Update Schedule
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/api/schedules/:id
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 1
+}
+
+body:json {
+  {
+    "name": "Daily Kimovil Scrape (Updated)",
+    "source": "kimovil",
+    "dataKind": "specs",
+    "cronExpression": "0 2 * * *",
+    "jobType": "scrape",
+    "mode": "fast"
+  }
+}
+
+docs {
+  Update an existing schedule.
+}

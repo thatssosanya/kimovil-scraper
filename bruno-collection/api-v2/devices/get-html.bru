@@ -1,0 +1,20 @@
+meta {
+  name: Get Device HTML
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/v2/devices/:slug/sources/:source/html
+  body: none
+  auth: none
+}
+
+params:path {
+  slug: samsung-galaxy-s24-ultra
+  source: kimovil
+}
+
+docs {
+  Get cached HTML for a device from a specific source.
+}

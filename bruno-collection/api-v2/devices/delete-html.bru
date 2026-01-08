@@ -1,0 +1,20 @@
+meta {
+  name: Delete Device HTML
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/api/v2/devices/:slug/sources/:source/html
+  body: none
+  auth: none
+}
+
+params:path {
+  slug: samsung-galaxy-s24-ultra
+  source: kimovil
+}
+
+docs {
+  Delete cached HTML for a device.
+}

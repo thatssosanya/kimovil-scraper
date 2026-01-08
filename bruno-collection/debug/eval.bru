@@ -1,0 +1,37 @@
+meta {
+  name: Debug Eval
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/debug/eval
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "code": "return await LiveRuntime.runPromise(JobQueueService.pipe(Effect.flatMap(s => s.getQueueItems())))"
+  }
+}
+
+docs {
+  ⚠️ DANGEROUS - DEV ONLY ⚠️
+  
+  Execute arbitrary JavaScript with access to Effect runtime and all services.
+  
+  Available in context:
+  - Effect, LiveRuntime
+  - JobQueueService
+  - DeviceDiscoveryService
+  - DeviceRegistryService
+  - HtmlCacheService
+  - EntityDataService
+  - ScrapeRecordService
+  - PriceService
+  
+  Example queries:
+  - Get all jobs: `return await LiveRuntime.runPromise(JobQueueService.pipe(Effect.flatMap(s => s.getQueueItems())))`
+  - Get device count: `return await LiveRuntime.runPromise(DeviceRegistryService.pipe(Effect.flatMap(s => s.getDeviceCount())))`
+}

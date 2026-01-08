@@ -1,0 +1,27 @@
+meta {
+  name: Queue Scrape
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/scrape/queue
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "source": "kimovil",
+    "externalId": "samsung-galaxy-s24-ultra",
+    "mode": "fast"
+  }
+}
+
+docs {
+  Queue a scrape job for a device.
+  
+  - source: Data source (kimovil, yandex_market, etc.)
+  - externalId: The device slug/identifier
+  - mode: "fast" (HTML only) or "complex" (full AI processing)
+}

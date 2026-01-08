@@ -1,0 +1,21 @@
+meta {
+  name: Get Raw Data
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/v2/devices/:slug/sources/:source/raw-data/:dataKind
+  body: none
+  auth: none
+}
+
+params:path {
+  slug: samsung-galaxy-s24-ultra
+  source: kimovil
+  dataKind: specs
+}
+
+docs {
+  Get raw extracted data for a device from a specific source.
+}

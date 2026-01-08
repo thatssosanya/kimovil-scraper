@@ -1,0 +1,25 @@
+meta {
+  name: Get Job Errors
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/bulk/:jobId/errors
+  body: none
+  auth: none
+}
+
+params:path {
+  jobId: scrape-1234567890-abc123
+}
+
+params:query {
+  ~limit: 100
+}
+
+docs {
+  Get error items for a specific job.
+  
+  Returns externalId, source, error, errorCode, attempt, updatedAt.
+}
