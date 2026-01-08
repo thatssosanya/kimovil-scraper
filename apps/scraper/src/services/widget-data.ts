@@ -12,6 +12,7 @@ export interface WidgetPriceOffer {
   price: number;
   url?: string;
   isAvailable: boolean;
+  redirectType?: "to_merchant" | "to_price";
 }
 
 export interface WidgetSourcePrices {
@@ -73,6 +74,7 @@ type PriceOfferRow = {
   url: string | null;
   affiliate_url: string | null;
   is_available: number;
+  redirect_type: string | null;
   row_num: number;
 };
 
@@ -128,7 +130,7 @@ export const WidgetDataServiceLive = Layer.effect(
           `;
 
           const topOffers = yield* sql<PriceOfferRow>`
-            WITH ranked AS (
+            WITH cheapest_per_seller AS (
               SELECT 
                 source,
                 seller,
@@ -136,11 +138,25 @@ export const WidgetDataServiceLive = Layer.effect(
                 url,
                 affiliate_url,
                 is_available,
-                ROW_NUMBER() OVER (PARTITION BY source ORDER BY price_minor_units ASC) as row_num
+                redirect_type,
+                ROW_NUMBER() OVER (PARTITION BY source, seller ORDER BY price_minor_units ASC) as seller_rank
               FROM price_quotes
               WHERE device_id = ${deviceId} AND is_available = 1
+            ),
+            ranked AS (
+              SELECT 
+                source,
+                seller,
+                price_minor_units,
+                url,
+                affiliate_url,
+                is_available,
+                redirect_type,
+                ROW_NUMBER() OVER (PARTITION BY source ORDER BY price_minor_units ASC) as row_num
+              FROM cheapest_per_seller
+              WHERE seller_rank = 1
             )
-            SELECT source, seller, price_minor_units, url, affiliate_url, is_available, row_num
+            SELECT source, seller, price_minor_units, url, affiliate_url, is_available, redirect_type, row_num
             FROM ranked
             WHERE row_num <= 3
             ORDER BY source, row_num
@@ -154,6 +170,7 @@ export const WidgetDataServiceLive = Layer.effect(
               price: offer.price_minor_units,
               url: offer.affiliate_url ?? offer.url ?? undefined,
               isAvailable: offer.is_available === 1,
+              redirectType: (offer.redirect_type as "to_merchant" | "to_price") ?? undefined,
             });
             offersBySource.set(offer.source, sourceOffers);
           }
