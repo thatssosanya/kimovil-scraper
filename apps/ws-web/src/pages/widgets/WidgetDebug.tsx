@@ -1,123 +1,25 @@
 import { createSignal, Show, For, onMount, createEffect, onCleanup } from "solid-js";
 import { Header } from "../../components/Header";
-
-type MappingStatus = "pending" | "suggested" | "auto_confirmed" | "confirmed" | "ignored";
-
-interface WidgetMapping {
-  id: number;
-  source: string;
-  rawModel: string;
-  normalizedModel: string | null;
-  deviceId: string | null;
-  confidence: number | null;
-  status: MappingStatus;
-  usageCount: number;
-  firstSeenAt: number | null;
-  lastSeenAt: number | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
-interface MappingsResponse {
-  mappings: WidgetMapping[];
-  total: number;
-}
-
-interface SyncStatus {
-  lastSyncedAt: string | null;
-  lastModifiedGmt: string | null;
-  postsCount: number;
-  widgetsCount: number;
-}
-
-interface SuggestedMatch {
-  deviceId: string;
-  slug: string;
-  name: string;
-  confidence: number;
-}
-
-interface DeviceSearchResult {
-  id: string;
-  slug: string;
-  name: string;
-  brand: string | null;
-}
-
-interface PostInfo {
-  postId: number;
-  title: string;
-  url: string;
-  dateGmt: string;
-}
-
-interface DevicePreview {
-  id: string;
-  slug: string;
-  name: string;
-  brand: string | null;
-}
-
-interface NewDeviceDefaults {
-  brand: string | null;
-  modelName: string;
-  suggestedSlug: string;
-}
-
-interface PriceInfo {
-  deviceId: string;
-  deviceName: string;
-  summary: {
-    minPrice: number;
-    maxPrice: number;
-    currency: string;
-    updatedAt: number;
-  } | null;
-  linkedSources: Array<{
-    source: string;
-    externalId: string;
-    url: string | null;
-  }>;
-}
-
-interface ScrapeResult {
-  success: boolean;
-  error?: string;
-  message?: string;
-  offerCount?: number;
-  savedCount?: number;
-  minPrice?: number;
-  maxPrice?: number;
-}
-
-interface MappingContext {
-  mapping: WidgetMapping | null;
-  suggestions: SuggestedMatch[];
-  posts: PostInfo[];
-  devicePreview: DevicePreview | null;
-  newDeviceDefaults: NewDeviceDefaults;
-}
-
-type SortField = "usageCount" | "rawModel" | "status" | "confidence";
-type StatusTab = "all" | "needs_review" | "auto_confirmed" | "confirmed" | "ignored";
-type PeriodOption = "all" | "1d" | "7d" | "30d" | "90d" | "custom";
-type PreviewTab = "widget" | "device" | "prices";
-
-const STATUS_TABS: { id: StatusTab; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "needs_review", label: "Needs Review" },
-  { id: "auto_confirmed", label: "Auto-confirmed" },
-  { id: "confirmed", label: "Confirmed" },
-  { id: "ignored", label: "Ignored" },
-];
-
-const PERIOD_OPTIONS: { id: PeriodOption; label: string; days: number | null }[] = [
-  { id: "all", label: "All time", days: null },
-  { id: "1d", label: "Last day", days: 1 },
-  { id: "7d", label: "Last 7 days", days: 7 },
-  { id: "30d", label: "Last 30 days", days: 30 },
-  { id: "90d", label: "Last 90 days", days: 90 },
-];
+import {
+  type MappingStatus,
+  type WidgetMapping,
+  type SyncStatus,
+  type SuggestedMatch,
+  type DeviceSearchResult,
+  type PostInfo,
+  type DevicePreview,
+  type NewDeviceDefaults,
+  type PriceInfo,
+  type SortField,
+  type StatusTab,
+  type PeriodOption,
+  type PreviewTab,
+  type DetailedQuote,
+  type CatalogueLink,
+  STATUS_TABS,
+  PERIOD_OPTIONS,
+} from "./WidgetDebug.types";
+import * as api from "../../api/widgetMappings";
 
 const getPeriodTimestamps = (period: PeriodOption): { seenAfter?: number; seenBefore?: number } => {
   const option = PERIOD_OPTIONS.find((p) => p.id === period);
@@ -126,41 +28,6 @@ const getPeriodTimestamps = (period: PeriodOption): { seenAfter?: number; seenBe
   const now = Math.floor(Date.now() / 1000);
   const seenAfter = now - option.days * 24 * 60 * 60;
   return { seenAfter, seenBefore: now };
-};
-
-const fetchMappingContext = async (rawModel: string): Promise<MappingContext> => {
-  const res = await fetch(
-    `http://localhost:1488/api/widget-mappings/${encodeURIComponent(rawModel)}`,
-    { credentials: "include" }
-  );
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-};
-
-const searchDevices = async (query: string) => {
-  const res = await fetch(
-    `http://localhost:1488/api/widget-mappings/devices/search?q=${encodeURIComponent(query)}&limit=10`,
-    { credentials: "include" }
-  );
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json() as Promise<DeviceSearchResult[]>;
-};
-
-const updateMapping = async (
-  rawModel: string,
-  update: { deviceId?: string | null; status?: MappingStatus }
-) => {
-  const res = await fetch(
-    `http://localhost:1488/api/widget-mappings/${encodeURIComponent(rawModel)}`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(update),
-      credentials: "include",
-    }
-  );
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
 };
 
 export default function WidgetDebug() {
@@ -208,17 +75,6 @@ export default function WidgetDebug() {
   const [priceLoading, setPriceLoading] = createSignal(false);
 
   // Detailed quotes for Prices tab
-  interface DetailedQuote {
-    seller: string;
-    price: number;
-    variantKey?: string;
-    variantLabel?: string;
-    url?: string;
-    isAvailable: boolean;
-    externalId?: string;
-    source: string;
-    scrapedAt: number;
-  }
   const [detailedQuotes, setDetailedQuotes] = createSignal<DetailedQuote[]>([]);
   const [priceRuScraping, setPriceRuScraping] = createSignal(false);
   const [yandexScraping, setYandexScraping] = createSignal(false);
@@ -227,16 +83,6 @@ export default function WidgetDebug() {
   const [scrapeSuccess, setScrapeSuccess] = createSignal<string | null>(null);
 
   // Catalogue links state
-  interface CatalogueLink {
-    originalUrl: string;
-    resolvedUrl: string | null;
-    isYandexMarket: boolean;
-    externalId: string | null;
-    error?: string;
-    fromCache?: boolean;
-    price?: number;
-    updatedAt?: string;
-  }
   const [catalogueLinks, setCatalogueLinks] = createSignal<CatalogueLink[] | null>(null);
   const [_catalogueLoading, setCatalogueLoading] = createSignal(false);
 
@@ -245,15 +91,13 @@ export default function WidgetDebug() {
     setError(null);
     try {
       const tab = statusTab();
-      const statusParam = tab === "all" ? "" : `&status=${tab}`;
       const periodTs = getPeriodTimestamps(period());
-      const periodParams = [
-        periodTs.seenAfter ? `&seenAfter=${periodTs.seenAfter}` : "",
-        periodTs.seenBefore ? `&seenBefore=${periodTs.seenBefore}` : "",
-      ].join("");
-      const res = await fetch(`http://localhost:1488/api/widget-mappings?limit=1000${statusParam}${periodParams}`, { credentials: "include" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json: MappingsResponse = await res.json();
+      const json = await api.getMappings({
+        limit: 1000,
+        status: tab === "all" ? undefined : tab,
+        seenAfter: periodTs.seenAfter,
+        seenBefore: periodTs.seenBefore,
+      });
       setMappings(json.mappings);
       setTotal(json.total);
     } catch (e) {
@@ -265,9 +109,7 @@ export default function WidgetDebug() {
 
   const fetchSyncStatus = async () => {
     try {
-      const res = await fetch("http://localhost:1488/api/widget-debug/sync-status", { credentials: "include" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
+      const json = await api.getSyncStatus();
       setSyncStatus(json);
     } catch (e) {
       console.error("Failed to fetch sync status:", e);
@@ -277,8 +119,7 @@ export default function WidgetDebug() {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const res = await fetch("http://localhost:1488/api/widget-debug/refresh", { method: "POST", credentials: "include" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await api.triggerSync();
       await fetchSyncStatus();
       await fetchMappings();
     } catch (e) {
@@ -309,7 +150,7 @@ export default function WidgetDebug() {
     setScrapeSuccess(null);
 
     try {
-      const data = await fetchMappingContext(mapping.rawModel);
+      const data = await api.getMappingContext(mapping.rawModel);
       setSuggestions(data.suggestions);
       setPosts(data.posts);
       setDevicePreview(data.devicePreview);
@@ -378,7 +219,7 @@ export default function WidgetDebug() {
     const rawModel = mapping.rawModel;
     setActionLoading(true);
     try {
-      await updateMapping(rawModel, {
+      await api.updateMapping(rawModel, {
         deviceId: selectedDeviceId(),
         status: "confirmed",
       });
@@ -398,7 +239,7 @@ export default function WidgetDebug() {
     const rawModel = mapping.rawModel;
     setActionLoading(true);
     try {
-      await updateMapping(rawModel, { status: "ignored" });
+      await api.updateMapping(rawModel, { status: "ignored" });
       await fetchMappings();
       advanceToNext(rawModel);
     } catch (e) {
@@ -449,21 +290,8 @@ export default function WidgetDebug() {
     setWidgetLoading(true);
     setWidgetFetched(false);
     try {
-      // Invalidate server-side cache if busting
-      if (bustCache) {
-        await fetch(`http://localhost:1488/widget/v1/invalidate/${encodeURIComponent(slug)}`, { method: "POST" }).catch(() => {});
-      }
-      const cacheBuster = bustCache ? `&_t=${Date.now()}` : "";
-      const res = await fetch(
-        `http://localhost:1488/widget/v1/price/${encodeURIComponent(slug)}?theme=dark${cacheBuster}`,
-        bustCache ? { cache: "no-store" } : undefined
-      );
-      if (res.ok) {
-        const html = await res.text();
-        setWidgetHtml(html || null);
-      } else {
-        setWidgetHtml(null);
-      }
+      const html = await api.getWidgetHtml(slug, bustCache);
+      setWidgetHtml(html);
     } catch {
       setWidgetHtml(null);
     } finally {
@@ -495,21 +323,8 @@ export default function WidgetDebug() {
     setCreateError(null);
 
     try {
-      const res = await fetch("http://localhost:1488/api/widget-mappings/devices", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, name, brand }),
-        credentials: "include",
-      });
+      const device = await api.createDevice({ slug, name, brand });
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
-
-      const device = await res.json();
-
-      // Select the newly created device
       setSelectedDeviceId(device.id);
       setSelectedDeviceName(device.name);
       setDevicePreview({
@@ -529,19 +344,14 @@ export default function WidgetDebug() {
   const fetchPriceInfo = async (deviceId: string) => {
     setPriceLoading(true);
     try {
-      const res = await fetch(`http://localhost:1488/api/widget-mappings/prices/${deviceId}`, { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setPriceInfo(data);
-        // Store detailed quotes for Prices tab
-        if (data.quotes) {
-          setDetailedQuotes(data.quotes);
-        }
-        // Pre-fill yandex URL if there's a linked source
-        const yandexLink = data.linkedSources?.find((s: { source: string; url: string | null }) => s.source === "yandex_market");
-        if (yandexLink?.url) {
-          setYandexUrl(yandexLink.url);
-        }
+      const data = await api.getPriceInfo(deviceId);
+      setPriceInfo(data);
+      if ((data as PriceInfo & { quotes?: DetailedQuote[] }).quotes) {
+        setDetailedQuotes((data as PriceInfo & { quotes: DetailedQuote[] }).quotes);
+      }
+      const yandexLink = data.linkedSources?.find((s) => s.source === "yandex_market");
+      if (yandexLink?.url) {
+        setYandexUrl(yandexLink.url);
       }
     } catch (e) {
       console.error("Failed to fetch price info:", e);
@@ -559,11 +369,7 @@ export default function WidgetDebug() {
     setScrapeSuccess(null);
 
     try {
-      const res = await fetch(`http://localhost:1488/api/widget-mappings/scrape/price-ru/${device.id}`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const data: ScrapeResult = await res.json();
+      const data = await api.scrapePriceRu(device.id);
 
       if (!data.success) {
         setScrapeError(data.error || "Failed to scrape");
@@ -573,7 +379,6 @@ export default function WidgetDebug() {
         setScrapeSuccess(
           `Found ${data.offerCount} offers (${formatPrice(data.minPrice)} - ${formatPrice(data.maxPrice)})`
         );
-        // Refresh price info and widget with cache bust
         await fetchPriceInfo(device.id);
         setWidgetHtml(null);
         fetchWidgetPreview(device.slug, true);
@@ -595,13 +400,7 @@ export default function WidgetDebug() {
     setScrapeSuccess(null);
 
     try {
-      const res = await fetch(`http://localhost:1488/api/widget-mappings/scrape/yandex/${device.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-        credentials: "include",
-      });
-      const data: ScrapeResult = await res.json();
+      const data = await api.scrapeYandex(device.id, url);
 
       if (!data.success) {
         setScrapeError(data.error || "Failed to scrape");
@@ -611,7 +410,6 @@ export default function WidgetDebug() {
         setScrapeSuccess(
           `Found ${data.offerCount} offers (${formatPrice(data.minPrice)} - ${formatPrice(data.maxPrice)})`
         );
-        // Refresh price info and widget with cache bust
         await fetchPriceInfo(device.id);
         setWidgetHtml(null);
         fetchWidgetPreview(device.slug, true);
@@ -645,13 +443,8 @@ export default function WidgetDebug() {
   const fetchCatalogueLinks = async (slug: string) => {
     setCatalogueLoading(true);
     try {
-      const res = await fetch(`http://localhost:1488/api/widget-mappings/catalogue-links/${encodeURIComponent(slug)}`, { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        setCatalogueLinks(data.links);
-      } else {
-        setCatalogueLinks([]);
-      }
+      const links = await api.getCatalogueLinks(slug);
+      setCatalogueLinks(links);
     } catch {
       setCatalogueLinks([]);
     } finally {
@@ -681,7 +474,7 @@ export default function WidgetDebug() {
     setSearchLoading(true);
     searchTimeout = setTimeout(async () => {
       try {
-        const results = await searchDevices(query);
+        const results = await api.searchDevices(query);
         setSearchResults(results);
       } catch (e) {
         console.error("Search failed:", e);
@@ -846,7 +639,7 @@ export default function WidgetDebug() {
 
   return (
     <div class="min-h-screen bg-zinc-100 dark:bg-slate-950">
-      <Header currentPage="widgets" />
+      <Header currentPage="widget-debug" />
 
       <div class="max-w-7xl mx-auto px-4 py-8">
         {/* Header */}
