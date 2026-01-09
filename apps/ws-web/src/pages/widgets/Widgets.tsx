@@ -1,5 +1,6 @@
 import { createSignal, createEffect, Show, For, onCleanup, type Accessor } from "solid-js";
 import { Header } from "../../components/Header";
+import { api } from "../../api/client";
 
 type ArrowVariant = "neutral" | "up" | "down" | "hot" | "new";
 
@@ -32,7 +33,7 @@ function WidgetConfig(props: WidgetConfigProps) {
     
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:1488/api/v2/devices?search=${encodeURIComponent(query)}&limit=8`);
+      const res = await api(`/api/v2/devices?search=${encodeURIComponent(query)}&limit=8`);
       if (res.ok) {
         const data = await res.json();
         setSuggestions(data.devices.map((d: any) => ({
@@ -172,9 +173,7 @@ export default function Widgets() {
     setLoading(true);
     setError(null);
     
-    fetch(
-      `http://localhost:1488/widget/v1/price/${encodeURIComponent(currentSlug)}?arrowVariant=${currentVariant}`
-    )
+    api(`/widget/v1/price/${encodeURIComponent(currentSlug)}?arrowVariant=${currentVariant}`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.text();

@@ -8,6 +8,7 @@ import {
 } from "solid-js";
 import { Request } from "@repo/scraper-protocol";
 import { Header } from "./components/Header";
+import { api } from "./api/client";
 
 interface SearchOption {
   name: string;
@@ -53,7 +54,7 @@ function App() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch("http://localhost:1488/api/v2/devices/stats");
+      const res = await api("/api/v2/devices/stats");
       const data: Stats = await res.json();
       setStats(data);
     } catch (e) {
@@ -64,8 +65,8 @@ function App() {
   const fetchSlugStatus = async (slugs: string[]) => {
     if (slugs.length === 0) return;
     try {
-      const res = await fetch(
-        `http://localhost:1488/api/v2/devices/bulk-status?slugs=${slugs.join(",")}&source=kimovil`,
+      const res = await api(
+        `/api/v2/devices/bulk-status?slugs=${slugs.join(",")}&source=kimovil`,
       );
       const data: Record<string, ScrapeStatus> = await res.json();
       setSlugStatus(data);
