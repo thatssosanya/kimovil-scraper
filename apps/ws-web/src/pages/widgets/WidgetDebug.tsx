@@ -1,4 +1,4 @@
-import { createSignal, Show, onMount, createEffect } from "solid-js";
+import { createSignal, Show, onMount, createEffect, onCleanup } from "solid-js";
 import { Header } from "../../components/Header";
 import {
   type WidgetMapping,
@@ -24,6 +24,33 @@ const getPeriodTimestamps = (period: PeriodOption): { seenAfter?: number; seenBe
   return { seenAfter, seenBefore: now };
 };
 
+const parseStatusTab = (value: string | null): StatusTab => {
+  const allowed: StatusTab[] = ["all", "needs_review", "auto_confirmed", "confirmed", "ignored"];
+  return allowed.includes(value as StatusTab) ? (value as StatusTab) : "all";
+};
+
+const parsePeriod = (value: string | null): PeriodOption => {
+  const allowed: PeriodOption[] = ["all", "1d", "7d", "30d", "90d"];
+  return allowed.includes(value as PeriodOption) ? (value as PeriodOption) : "all";
+};
+
+const parseSortField = (value: string | null): SortField => {
+  const allowed: SortField[] = ["usageCount", "rawModel", "status", "confidence"];
+  return allowed.includes(value as SortField) ? (value as SortField) : "usageCount";
+};
+
+const parseOrder = (value: string | null): boolean => {
+  return value !== "asc";
+};
+
+function updateQuery(paramsUpdater: (params: URLSearchParams) => void) {
+  const params = new URLSearchParams(window.location.search);
+  paramsUpdater(params);
+  const search = params.toString();
+  const url = `${window.location.pathname}${search ? "?" + search : ""}`;
+  history.replaceState(null, "", url);
+}
+
 export default function WidgetDebug() {
   const [mappings, setMappings] = createSignal<WidgetMapping[]>([]);
   const [total, setTotal] = createSignal(0);
@@ -33,10 +60,13 @@ export default function WidgetDebug() {
   const [sortField, setSortField] = createSignal<SortField>("usageCount");
   const [sortDesc, setSortDesc] = createSignal(true);
   const [statusTab, setStatusTab] = createSignal<StatusTab>("all");
-  const [selectedMapping, setSelectedMapping] = createSignal<WidgetMapping | null>(null);
+  const [selectedRawModel, setSelectedRawModel] = createSignal<string | null>(null);
   const [syncStatus, setSyncStatus] = createSignal<SyncStatus | null>(null);
   const [syncing, setSyncing] = createSignal(false);
   const [period, setPeriod] = createSignal<PeriodOption>("all");
+  const [initializing, setInitializing] = createSignal(true);
+
+  const selectedMapping = () => mappings().find((m) => m.rawModel === selectedRawModel()) ?? null;
 
   const fetchMappings = async () => {
     setLoading(true);
@@ -82,11 +112,11 @@ export default function WidgetDebug() {
   };
 
   const openMappingEditor = (mapping: WidgetMapping) => {
-    setSelectedMapping(mapping);
+    setSelectedRawModel(mapping.rawModel);
   };
 
   const closeModal = () => {
-    setSelectedMapping(null);
+    setSelectedRawModel(null);
   };
 
   const handleMappingUpdated = () => {
@@ -94,6 +124,32 @@ export default function WidgetDebug() {
   };
 
   onMount(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      setStatusTab(parseStatusTab(params.get("status")));
+      setPeriod(parsePeriod(params.get("period")));
+      setSearch(params.get("q") ?? "");
+      setSortField(parseSortField(params.get("sort")));
+      setSortDesc(parseOrder(params.get("order")));
+      setSelectedRawModel(params.get("mapping"));
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    onCleanup(() => window.removeEventListener("popstate", handlePopState));
+
+    const params = new URLSearchParams(window.location.search);
+    setStatusTab(parseStatusTab(params.get("status")));
+    setPeriod(parsePeriod(params.get("period")));
+    setSearch(params.get("q") ?? "");
+    setSortField(parseSortField(params.get("sort")));
+    setSortDesc(parseOrder(params.get("order")));
+
+    const mappingParam = params.get("mapping");
+    if (mappingParam) {
+      setSelectedRawModel(mappingParam);
+    }
+
+    setInitializing(false);
     fetchMappings();
     fetchSyncStatus();
   });
@@ -101,7 +157,29 @@ export default function WidgetDebug() {
   createEffect(() => {
     statusTab();
     period();
-    fetchMappings();
+    if (!initializing()) {
+      fetchMappings();
+    }
+  });
+
+  createEffect(() => {
+    const status = statusTab();
+    const periodVal = period();
+    const qVal = search();
+    const sort = sortField();
+    const desc = sortDesc();
+    const mapping = selectedRawModel();
+
+    if (initializing()) return;
+
+    updateQuery((params) => {
+      status === "all" ? params.delete("status") : params.set("status", status);
+      periodVal === "all" ? params.delete("period") : params.set("period", periodVal);
+      qVal ? params.set("q", qVal) : params.delete("q");
+      sort === "usageCount" ? params.delete("sort") : params.set("sort", sort);
+      desc ? params.delete("order") : params.set("order", "asc");
+      mapping ? params.set("mapping", mapping) : params.delete("mapping");
+    });
   });
 
   const filteredMappings = () => {
