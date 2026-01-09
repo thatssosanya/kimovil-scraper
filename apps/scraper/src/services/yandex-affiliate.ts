@@ -7,13 +7,30 @@ export class YandexAffiliateError extends Data.TaggedError("YandexAffiliateError
 }> {}
 
 export interface YandexAffiliateService {
-  readonly getOrCreateErid: (params: {
+  /**
+   * Get ERID from database only - no creation
+   */
+  readonly getErid: (deviceId: string) => Effect.Effect<string | null, YandexAffiliateError>;
+
+  /**
+   * Create a creative with Yandex API and store ERID - admin-only operation
+   */
+  readonly createAndStoreErid: (params: {
     deviceId: string;
     deviceName: string;
-    imageUrl?: string;
+    imageUrl: string;
+    description?: string;
   }) => Effect.Effect<string, YandexAffiliateError>;
 
-  readonly createAffiliateLink: (params: {
+  /**
+   * Build a basic CLID-only affiliate URL - no API call needed
+   */
+  readonly buildBasicAffiliateUrl: (url: string) => Effect.Effect<string, YandexAffiliateError>;
+
+  /**
+   * Create a full affiliate link using ERID via Yandex API
+   */
+  readonly createAffiliateLinkWithErid: (params: {
     url: string;
     erid: string;
   }) => Effect.Effect<string, YandexAffiliateError>;
@@ -61,13 +78,10 @@ const retrySchedule = Schedule.exponential("500 millis").pipe(
   Schedule.intersect(Schedule.recurs(2)),
   Schedule.whileInput((e: YandexAffiliateError) => {
     const cause = e.cause as unknown;
-    // Check if cause has HTTP status (from our HTTP error)
     if (cause && typeof cause === "object" && "status" in cause) {
       const status = (cause as { status: number }).status;
-      // Retry only on transient server/client-timeout conditions
       return status >= 500 || status === 408 || status === 429;
     }
-    // Also retry on network/timeout errors
     return e.message.includes("timeout") || e.message.includes("network");
   }),
 );
@@ -224,21 +238,18 @@ export const YandexAffiliateServiceLive = Layer.effect(
     const createCreative = (params: {
       deviceId: string;
       deviceName: string;
-      imageUrl?: string;
+      imageUrl: string;
+      description?: string;
     }): Effect.Effect<string, YandexAffiliateError> =>
       Effect.gen(function* () {
         const token = yield* getOAuthToken();
-
-        const mediaData = params.imageUrl
-          ? [{ media_url: params.imageUrl, media_url_file_type: "image" }]
-          : [];
 
         const body = {
           clid,
           form: "text-graphic-block",
           text_data: [params.deviceName],
-          media_data: mediaData,
-          description: `Рекламный креатив для ${params.deviceName}`,
+          media_data: [{ media_url: params.imageUrl, media_url_file_type: "image" }],
+          description: params.description ?? `Рекламный креатив для ${params.deviceName}`,
         };
 
         const doRequest = (authToken: string) =>
@@ -291,21 +302,27 @@ export const YandexAffiliateServiceLive = Layer.effect(
     });
 
     return YandexAffiliateService.of({
-      getOrCreateErid: (params) =>
+      getErid: (deviceId) =>
+        getEridFromDb(deviceId),
+
+      createAndStoreErid: (params) =>
         creativesEnabled
           ? Effect.gen(function* () {
-              const existingErid = yield* getEridFromDb(params.deviceId);
-              if (existingErid) {
-                return existingErid;
-              }
-
               const newErid = yield* createCreative(params);
 
               yield* upsertErid(params.deviceId, newErid).pipe(
                 Effect.catchAll((error) =>
-                  Effect.logWarning("Failed to save ERID to database").pipe(
-                    Effect.annotateLogs({ deviceId: params.deviceId, error }),
-                  ),
+                  Effect.gen(function* () {
+                    yield* Effect.logWarning("Failed to save ERID to database").pipe(
+                      Effect.annotateLogs({ deviceId: params.deviceId, error }),
+                    );
+                    return yield* Effect.fail(
+                      new YandexAffiliateError({
+                        message: "Created ERID but failed to save to database",
+                        cause: error,
+                      }),
+                    );
+                  }),
                 ),
               );
 
@@ -313,7 +330,30 @@ export const YandexAffiliateServiceLive = Layer.effect(
             })
           : Effect.fail(creativesNotConfiguredError),
 
-      createAffiliateLink: (params) =>
+      buildBasicAffiliateUrl: (url) =>
+        affiliateLinksEnabled
+          ? Effect.gen(function* () {
+              const encodedUrl = encodeURIComponent(url);
+              const apiUrl = `https://api.content.market.yandex.ru/v3/affiliate/partner/link/create?url=${encodedUrl}&clid=${clid}&format=json`;
+
+              const response = yield* request<AffiliateLinkResponse>(apiUrl, {
+                method: "GET",
+                headers: { Authorization: apiKey },
+              });
+
+              if (response.status !== "OK" || !response.link?.url) {
+                return yield* Effect.fail(
+                  new YandexAffiliateError({
+                    message: `Basic affiliate link creation failed: ${response.error ?? "no URL returned"}`,
+                  }),
+                );
+              }
+
+              return response.link.url;
+            })
+          : Effect.fail(affiliateLinksNotConfiguredError),
+
+      createAffiliateLinkWithErid: (params) =>
         affiliateLinksEnabled
           ? Effect.gen(function* () {
               const encodedUrl = encodeURIComponent(params.url);
