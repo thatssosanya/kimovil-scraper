@@ -101,7 +101,7 @@ interface MappingContext {
 type SortField = "usageCount" | "rawModel" | "status" | "confidence";
 type StatusTab = "all" | "needs_review" | "auto_confirmed" | "confirmed" | "ignored";
 type PeriodOption = "all" | "7d" | "30d" | "90d" | "custom";
-type PreviewTab = "device" | "widget";
+type PreviewTab = "widget" | "device" | "prices";
 
 const STATUS_TABS: { id: StatusTab; label: string }[] = [
   { id: "all", label: "All" },
@@ -193,13 +193,27 @@ export default function WidgetDebug() {
   const [createError, setCreateError] = createSignal<string | null>(null);
 
   // Preview tab state
-  const [previewTab, setPreviewTab] = createSignal<PreviewTab>("device");
+  const [previewTab, setPreviewTab] = createSignal<PreviewTab>("widget");
   const [widgetHtml, setWidgetHtml] = createSignal<string | null>(null);
   const [widgetLoading, setWidgetLoading] = createSignal(false);
 
   // Price scraping state
   const [priceInfo, setPriceInfo] = createSignal<PriceInfo | null>(null);
   const [priceLoading, setPriceLoading] = createSignal(false);
+
+  // Detailed quotes for Prices tab
+  interface DetailedQuote {
+    seller: string;
+    price: number;
+    variantKey?: string;
+    variantLabel?: string;
+    url?: string;
+    isAvailable: boolean;
+    externalId?: string;
+    source: string;
+    scrapedAt: number;
+  }
+  const [detailedQuotes, setDetailedQuotes] = createSignal<DetailedQuote[]>([]);
   const [priceRuScraping, setPriceRuScraping] = createSignal(false);
   const [yandexScraping, setYandexScraping] = createSignal(false);
   const [yandexUrl, setYandexUrl] = createSignal("");
@@ -280,7 +294,7 @@ export default function WidgetDebug() {
     setDeviceSearch("");
     setSearchResults([]);
     setCreateError(null);
-    setPreviewTab("device");
+    setPreviewTab("widget");
     setWidgetHtml(null);
     // Reset price state
     setPriceInfo(null);
@@ -419,7 +433,7 @@ export default function WidgetDebug() {
     setSelectedDeviceName(null);
     setDevicePreview(null);
     setWidgetHtml(null);
-    setPreviewTab("device");
+    setPreviewTab("widget");
   };
 
   const fetchWidgetPreview = async (slug: string, bustCache = false) => {
@@ -503,6 +517,10 @@ export default function WidgetDebug() {
       if (res.ok) {
         const data = await res.json();
         setPriceInfo(data);
+        // Store detailed quotes for Prices tab
+        if (data.quotes) {
+          setDetailedQuotes(data.quotes);
+        }
         // Pre-fill yandex URL if there's a linked source
         const yandexLink = data.linkedSources?.find((s: { source: string; url: string | null }) => s.source === "yandex_market");
         if (yandexLink?.url) {
@@ -604,7 +622,7 @@ export default function WidgetDebug() {
   createEffect(() => {
     const tab = previewTab();
     const device = devicePreview();
-    if (tab === "widget" && device && !priceInfo() && !priceLoading()) {
+    if ((tab === "widget" || tab === "prices") && device && !priceInfo() && !priceLoading()) {
       fetchPriceInfo(device.id);
     }
   });
@@ -1155,70 +1173,72 @@ export default function WidgetDebug() {
                         </Show>
                       </div>
 
-                      {/* Suggested Matches */}
-                      <div>
-                        <div class="text-xs font-semibold text-zinc-500 dark:text-slate-400 uppercase tracking-wider mb-3">
-                          Suggested Matches
-                        </div>
-                        <Show when={suggestions().length > 0} fallback={
-                          <div class="text-sm text-zinc-400 dark:text-slate-500 italic py-2">
-                            No matching devices found
+                      {/* Suggested Matches - hide when already confirmed */}
+                      <Show when={selectedMapping()?.status !== "confirmed"}>
+                        <div>
+                          <div class="text-xs font-semibold text-zinc-500 dark:text-slate-400 uppercase tracking-wider mb-3">
+                            Suggested Matches
                           </div>
-                        }>
-                          <div class="space-y-1.5">
-                            <For each={suggestions()}>
-                              {(suggestion, idx) => (
-                                <button
-                                  onClick={() => selectSuggestion(suggestion)}
-                                  class={`w-full text-left px-3 py-2.5 rounded-lg border transition-all duration-150 ${
-                                    selectedDeviceId() === suggestion.deviceId
-                                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 ring-1 ring-indigo-500/20"
-                                      : "border-zinc-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-zinc-300 dark:hover:border-slate-700"
-                                  }`}
-                                >
-                                  <div class="flex items-center justify-between gap-2">
-                                    <div class="flex items-center gap-2.5 min-w-0">
-                                      <div
-                                        class={`w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 ${
-                                          selectedDeviceId() === suggestion.deviceId
-                                            ? "border-indigo-500 bg-indigo-500"
-                                            : "border-zinc-300 dark:border-slate-600"
-                                        }`}
-                                      />
-                                      <div class="min-w-0">
-                                        <div class="flex items-center gap-2">
-                                          <span class="font-medium text-sm text-zinc-900 dark:text-white truncate">
-                                            {suggestion.name}
-                                          </span>
-                                          <Show when={idx() === 0 && suggestion.confidence >= 0.97}>
-                                            <span class="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded text-[10px] font-semibold uppercase">
-                                              Best
+                          <Show when={suggestions().length > 0} fallback={
+                            <div class="text-sm text-zinc-400 dark:text-slate-500 italic py-2">
+                              No matching devices found
+                            </div>
+                          }>
+                            <div class="space-y-1.5">
+                              <For each={suggestions()}>
+                                {(suggestion, idx) => (
+                                  <button
+                                    onClick={() => selectSuggestion(suggestion)}
+                                    class={`w-full text-left px-3 py-2.5 rounded-lg border transition-all duration-150 ${
+                                      selectedDeviceId() === suggestion.deviceId
+                                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 ring-1 ring-indigo-500/20"
+                                        : "border-zinc-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-zinc-300 dark:hover:border-slate-700"
+                                    }`}
+                                  >
+                                    <div class="flex items-center justify-between gap-2">
+                                      <div class="flex items-center gap-2.5 min-w-0">
+                                        <div
+                                          class={`w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 ${
+                                            selectedDeviceId() === suggestion.deviceId
+                                              ? "border-indigo-500 bg-indigo-500"
+                                              : "border-zinc-300 dark:border-slate-600"
+                                          }`}
+                                        />
+                                        <div class="min-w-0">
+                                          <div class="flex items-center gap-2">
+                                            <span class="font-medium text-sm text-zinc-900 dark:text-white truncate">
+                                              {suggestion.name}
                                             </span>
-                                          </Show>
-                                        </div>
-                                        <div class="text-xs text-zinc-400 dark:text-slate-500 font-mono truncate">
-                                          {suggestion.slug}
+                                            <Show when={idx() === 0 && suggestion.confidence >= 0.97}>
+                                              <span class="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded text-[10px] font-semibold uppercase">
+                                                Best
+                                              </span>
+                                            </Show>
+                                          </div>
+                                          <div class="text-xs text-zinc-400 dark:text-slate-500 font-mono truncate">
+                                            {suggestion.slug}
+                                          </div>
                                         </div>
                                       </div>
+                                      <span
+                                        class={`px-2 py-0.5 rounded text-xs font-semibold flex-shrink-0 ${
+                                          suggestion.confidence >= 0.9
+                                            ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300"
+                                            : suggestion.confidence >= 0.7
+                                            ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
+                                            : "bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-400"
+                                        }`}
+                                      >
+                                        {Math.round(suggestion.confidence * 100)}%
+                                      </span>
                                     </div>
-                                    <span
-                                      class={`px-2 py-0.5 rounded text-xs font-semibold flex-shrink-0 ${
-                                        suggestion.confidence >= 0.9
-                                          ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300"
-                                          : suggestion.confidence >= 0.7
-                                          ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
-                                          : "bg-zinc-100 dark:bg-slate-800 text-zinc-600 dark:text-slate-400"
-                                      }`}
-                                    >
-                                      {Math.round(suggestion.confidence * 100)}%
-                                    </span>
-                                  </div>
-                                </button>
-                              )}
-                            </For>
-                          </div>
-                        </Show>
-                      </div>
+                                  </button>
+                                )}
+                              </For>
+                            </div>
+                          </Show>
+                        </div>
+                      </Show>
 
                       {/* Device Search */}
                       <div>
@@ -1272,37 +1292,49 @@ export default function WidgetDebug() {
 
                     {/* Actions Footer */}
                     <div class="flex-shrink-0 p-4 bg-white dark:bg-slate-900 border-t border-zinc-200 dark:border-slate-800">
-                      <div class="flex items-center justify-between gap-3">
-                        <button
-                          onClick={closeModal}
-                          disabled={actionLoading()}
-                          class="px-4 py-2 text-sm font-medium text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white transition-colors disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
-                        <div class="flex items-center gap-2">
+                      <Show when={selectedMapping()?.status === "confirmed"} fallback={
+                        <div class="flex items-center justify-between gap-3">
                           <button
-                            onClick={handleIgnore}
+                            onClick={closeModal}
                             disabled={actionLoading()}
-                            class="px-4 py-2 text-sm font-medium border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors disabled:opacity-50 flex items-center gap-2"
+                            class="px-4 py-2 text-sm font-medium text-zinc-600 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white transition-colors disabled:opacity-50"
                           >
-                            <Show when={actionLoading()}>
-                              <div class="w-3.5 h-3.5 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
-                            </Show>
-                            Ignore
+                            Cancel
                           </button>
+                          <div class="flex items-center gap-2">
+                            <button
+                              onClick={handleIgnore}
+                              disabled={actionLoading()}
+                              class="px-4 py-2 text-sm font-medium border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors disabled:opacity-50 flex items-center gap-2"
+                            >
+                              <Show when={actionLoading()}>
+                                <div class="w-3.5 h-3.5 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                              </Show>
+                              Ignore
+                            </button>
+                            <button
+                              onClick={handleConfirm}
+                              disabled={actionLoading() || !selectedDeviceId()}
+                              class="px-5 py-2 text-sm font-semibold bg-gradient-to-b from-indigo-500 to-indigo-600 text-white rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm shadow-indigo-500/25 flex items-center gap-2"
+                            >
+                              <Show when={actionLoading()}>
+                                <div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              </Show>
+                              Confirm Match
+                            </button>
+                          </div>
+                        </div>
+                      }>
+                        {/* Simplified footer for confirmed mappings */}
+                        <div class="flex items-center justify-end">
                           <button
-                            onClick={handleConfirm}
-                            disabled={actionLoading() || !selectedDeviceId()}
-                            class="px-5 py-2 text-sm font-semibold bg-gradient-to-b from-indigo-500 to-indigo-600 text-white rounded-lg hover:from-indigo-600 hover:to-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm shadow-indigo-500/25 flex items-center gap-2"
+                            onClick={closeModal}
+                            class="px-5 py-2 text-sm font-medium bg-zinc-100 dark:bg-slate-800 text-zinc-700 dark:text-slate-300 rounded-lg hover:bg-zinc-200 dark:hover:bg-slate-700 transition-colors"
                           >
-                            <Show when={actionLoading()}>
-                              <div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            </Show>
-                            Confirm Match
+                            Done
                           </button>
                         </div>
-                      </div>
+                      </Show>
                     </div>
                   </div>
 
@@ -1433,6 +1465,19 @@ export default function WidgetDebug() {
                           {/* Subtle tab bar */}
                           <div class="flex items-center gap-1 mb-4 border-b border-zinc-200 dark:border-slate-800">
                             <button
+                              onClick={() => setPreviewTab("widget")}
+                              class={`relative px-3 py-2 text-sm font-medium transition-colors ${
+                                previewTab() === "widget"
+                                  ? "text-zinc-900 dark:text-white"
+                                  : "text-zinc-400 dark:text-slate-500 hover:text-zinc-600 dark:hover:text-slate-300"
+                              }`}
+                            >
+                              Widget
+                              <Show when={previewTab() === "widget"}>
+                                <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
+                              </Show>
+                            </button>
+                            <button
                               onClick={() => setPreviewTab("device")}
                               class={`relative px-3 py-2 text-sm font-medium transition-colors ${
                                 previewTab() === "device"
@@ -1446,15 +1491,20 @@ export default function WidgetDebug() {
                               </Show>
                             </button>
                             <button
-                              onClick={() => setPreviewTab("widget")}
+                              onClick={() => setPreviewTab("prices")}
                               class={`relative px-3 py-2 text-sm font-medium transition-colors ${
-                                previewTab() === "widget"
+                                previewTab() === "prices"
                                   ? "text-zinc-900 dark:text-white"
                                   : "text-zinc-400 dark:text-slate-500 hover:text-zinc-600 dark:hover:text-slate-300"
                               }`}
                             >
-                              Widget
-                              <Show when={previewTab() === "widget"}>
+                              Prices
+                              <Show when={detailedQuotes().length > 0}>
+                                <span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 dark:bg-slate-800 text-zinc-500 dark:text-slate-400 rounded">
+                                  {detailedQuotes().length}
+                                </span>
+                              </Show>
+                              <Show when={previewTab() === "prices"}>
                                 <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
                               </Show>
                             </button>
@@ -1704,6 +1754,216 @@ export default function WidgetDebug() {
                                       No price data available
                                     </p>
                                   </div>
+                                </Show>
+                              </div>
+                            </Show>
+
+                            <Show when={previewTab() === "prices"}>
+                              {/* Prices breakdown by source */}
+                              <div class="space-y-4">
+                                <Show when={priceLoading()}>
+                                  <div class="flex items-center justify-center py-12 bg-white dark:bg-slate-900 rounded-lg border border-zinc-200 dark:border-slate-800">
+                                    <div class="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                                  </div>
+                                </Show>
+
+                                <Show when={!priceLoading() && detailedQuotes().length === 0}>
+                                  <div class="flex flex-col items-center justify-center py-12 bg-zinc-50 dark:bg-slate-900 rounded-lg border border-zinc-200 dark:border-slate-800">
+                                    <svg class="w-8 h-8 text-zinc-300 dark:text-slate-700 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <p class="text-xs text-zinc-400 dark:text-slate-500">
+                                      No price quotes available
+                                    </p>
+                                  </div>
+                                </Show>
+
+                                <Show when={!priceLoading() && detailedQuotes().length > 0}>
+                                  {(() => {
+                                    const quotes = detailedQuotes();
+                                    const yandexQuotes = quotes.filter(q => q.source === "yandex_market");
+                                    const priceRuQuotes = quotes.filter(q => q.source === "price_ru");
+                                    
+                                    // Group price.ru by seller, get min price per seller
+                                    const priceRuBySeller = new Map<string, typeof priceRuQuotes>();
+                                    for (const q of priceRuQuotes) {
+                                      const existing = priceRuBySeller.get(q.seller);
+                                      if (existing) {
+                                        existing.push(q);
+                                      } else {
+                                        priceRuBySeller.set(q.seller, [q]);
+                                      }
+                                    }
+                                    
+                                    // Sort sellers by min price
+                                    const sortedSellers = [...priceRuBySeller.entries()]
+                                      .map(([seller, quotes]) => ({
+                                        seller,
+                                        quotes: quotes.sort((a, b) => a.price - b.price),
+                                        minPrice: Math.min(...quotes.map(q => q.price)),
+                                      }))
+                                      .sort((a, b) => a.minPrice - b.minPrice);
+
+                                    const formatPriceRub = (minorUnits: number) => {
+                                      const rubles = Math.round(minorUnits / 100);
+                                      return rubles.toLocaleString("ru-RU") + " ₽";
+                                    };
+
+                                    const formatTime = (ts: number) => {
+                                      const d = new Date(ts * 1000);
+                                      return d.toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+                                    };
+
+                                    return (
+                                      <div class="space-y-4">
+                                        {/* Yandex Market section */}
+                                        <Show when={yandexQuotes.length > 0}>
+                                          <div class="bg-white dark:bg-slate-900 rounded-lg border border-zinc-200 dark:border-slate-800 overflow-hidden">
+                                            <div class="px-4 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-900/30">
+                                              <div class="flex items-center justify-between">
+                                                <div class="flex items-center gap-2">
+                                                  <svg class="w-4 h-4 text-amber-600 dark:text-amber-400" viewBox="0 0 24 24" fill="currentColor">
+                                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                                                  </svg>
+                                                  <span class="text-sm font-semibold text-amber-800 dark:text-amber-300">Яндекс Маркет</span>
+                                                </div>
+                                                <span class="text-xs text-amber-600 dark:text-amber-400">
+                                                  {yandexQuotes.length} {yandexQuotes.length === 1 ? "предложение" : "предложений"}
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <div class="divide-y divide-zinc-100 dark:divide-slate-800">
+                                              <For each={yandexQuotes.sort((a, b) => a.price - b.price)}>
+                                                {(quote) => (
+                                                  <div class="px-4 py-3 flex items-center justify-between gap-3">
+                                                    <div class="flex-1 min-w-0">
+                                                      <div class="flex items-center gap-2">
+                                                        <span class="text-sm font-medium text-zinc-900 dark:text-white truncate">
+                                                          {quote.seller}
+                                                        </span>
+                                                        <Show when={!quote.isAvailable}>
+                                                          <span class="px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 dark:bg-slate-800 text-zinc-500 rounded">
+                                                            нет в наличии
+                                                          </span>
+                                                        </Show>
+                                                      </div>
+                                                      <Show when={quote.variantLabel}>
+                                                        <p class="text-xs text-zinc-500 dark:text-slate-400 truncate mt-0.5">
+                                                          {quote.variantLabel}
+                                                        </p>
+                                                      </Show>
+                                                    </div>
+                                                    <div class="text-right flex-shrink-0">
+                                                      <div class="text-sm font-semibold text-zinc-900 dark:text-white tabular-nums">
+                                                        {formatPriceRub(quote.price)}
+                                                      </div>
+                                                      <div class="text-[10px] text-zinc-400 dark:text-slate-500">
+                                                        {formatTime(quote.scrapedAt)}
+                                                      </div>
+                                                    </div>
+                                                    <Show when={quote.url}>
+                                                      <a
+                                                        href={quote.url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        class="p-1.5 text-zinc-400 hover:text-indigo-500 transition-colors"
+                                                      >
+                                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                                        </svg>
+                                                      </a>
+                                                    </Show>
+                                                  </div>
+                                                )}
+                                              </For>
+                                            </div>
+                                          </div>
+                                        </Show>
+
+                                        {/* Price.ru section */}
+                                        <Show when={sortedSellers.length > 0}>
+                                          <div class="bg-white dark:bg-slate-900 rounded-lg border border-zinc-200 dark:border-slate-800 overflow-hidden">
+                                            <div class="px-4 py-3 bg-cyan-50 dark:bg-cyan-900/20 border-b border-cyan-100 dark:border-cyan-900/30">
+                                              <div class="flex items-center justify-between">
+                                                <div class="flex items-center gap-2">
+                                                  <svg class="w-4 h-4 text-cyan-600 dark:text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                  </svg>
+                                                  <span class="text-sm font-semibold text-cyan-800 dark:text-cyan-300">Price.ru</span>
+                                                </div>
+                                                <span class="text-xs text-cyan-600 dark:text-cyan-400">
+                                                  {sortedSellers.length} {sortedSellers.length === 1 ? "магазин" : "магазинов"} · {priceRuQuotes.length} предложений
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <div class="divide-y divide-zinc-100 dark:divide-slate-800">
+                                              <For each={sortedSellers}>
+                                                {(sellerGroup) => (
+                                                  <div class="px-4 py-3">
+                                                    <div class="flex items-center justify-between gap-3 mb-2">
+                                                      <span class="text-sm font-semibold text-zinc-900 dark:text-white">
+                                                        {sellerGroup.seller}
+                                                      </span>
+                                                      <span class="text-sm font-bold text-cyan-600 dark:text-cyan-400 tabular-nums">
+                                                        от {formatPriceRub(sellerGroup.minPrice)}
+                                                      </span>
+                                                    </div>
+                                                    <div class="space-y-1.5">
+                                                      <For each={sellerGroup.quotes.slice(0, 5)}>
+                                                        {(quote) => (
+                                                          <div class="flex items-center justify-between gap-2 pl-3 py-1 bg-zinc-50 dark:bg-slate-800/50 rounded text-xs">
+                                                            <div class="flex items-center gap-2 min-w-0 flex-1">
+                                                              <Show when={quote.variantLabel || quote.variantKey}>
+                                                                <span class="text-zinc-600 dark:text-slate-400 truncate">
+                                                                  {quote.variantLabel || quote.variantKey}
+                                                                </span>
+                                                              </Show>
+                                                              <Show when={!quote.variantLabel && !quote.variantKey}>
+                                                                <span class="text-zinc-400 dark:text-slate-500 italic">
+                                                                  без варианта
+                                                                </span>
+                                                              </Show>
+                                                              <Show when={!quote.isAvailable}>
+                                                                <span class="px-1 py-0.5 text-[9px] font-medium bg-zinc-200 dark:bg-slate-700 text-zinc-500 dark:text-slate-400 rounded">
+                                                                  нет
+                                                                </span>
+                                                              </Show>
+                                                            </div>
+                                                            <div class="flex items-center gap-2 flex-shrink-0">
+                                                              <span class="font-medium text-zinc-700 dark:text-slate-300 tabular-nums">
+                                                                {formatPriceRub(quote.price)}
+                                                              </span>
+                                                              <Show when={quote.url}>
+                                                                <a
+                                                                  href={quote.url}
+                                                                  target="_blank"
+                                                                  rel="noopener noreferrer"
+                                                                  class="p-1 text-zinc-400 hover:text-indigo-500 transition-colors"
+                                                                >
+                                                                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                                                  </svg>
+                                                                </a>
+                                                              </Show>
+                                                            </div>
+                                                          </div>
+                                                        )}
+                                                      </For>
+                                                      <Show when={sellerGroup.quotes.length > 5}>
+                                                        <div class="text-[10px] text-zinc-400 dark:text-slate-500 pl-3">
+                                                          + ещё {sellerGroup.quotes.length - 5} вариантов
+                                                        </div>
+                                                      </Show>
+                                                    </div>
+                                                  </div>
+                                                )}
+                                              </For>
+                                            </div>
+                                          </div>
+                                        </Show>
+                                      </div>
+                                    );
+                                  })()}
                                 </Show>
                               </div>
                             </Show>
