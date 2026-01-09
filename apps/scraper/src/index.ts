@@ -14,13 +14,16 @@ import { runSchedulerLoop } from "./services/scheduler";
 import { createApiRoutes } from "./routes/api";
 import { createApiV2Routes } from "./routes/api-v2";
 import { createDebugRoutes } from "./routes/debug";
-import { createAuthRoutes } from "./routes/auth";
+import { createAuthRoutes, requireRole } from "./routes/auth";
 import { createWidgetRoutes } from "./routes/widget";
 import { createWidgetDebugRoutes } from "./routes/widget-debug";
 import { createWidgetMappingsRoutes } from "./routes/widget-mappings";
 import { createWsServer } from "./routes/ws-server";
 
 const bulkJobManager = new BulkJobManager(LiveRuntime);
+
+// Paths that don't require authentication
+const PUBLIC_PATH_PREFIXES = ["/widget/v1/", "/api/auth/"];
 
 // Create Elysia app WITHOUT the node adapter - we'll own the http.Server ourselves
 const app = new Elysia()
@@ -34,6 +37,19 @@ const app = new Elysia()
     ],
     credentials: true,
   }))
+  .onBeforeHandle(async ({ request, set }) => {
+    const url = new URL(request.url);
+    const isPublic = PUBLIC_PATH_PREFIXES.some((prefix) => url.pathname.startsWith(prefix));
+    
+    if (!isPublic) {
+      try {
+        await requireRole(request, "admin");
+      } catch {
+        set.status = 401;
+        return { error: "Unauthorized" };
+      }
+    }
+  })
   .use(createAuthRoutes())
   .use(createApiRoutes(bulkJobManager))
   .use(createApiV2Routes(bulkJobManager))

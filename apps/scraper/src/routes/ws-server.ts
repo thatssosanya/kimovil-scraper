@@ -1,10 +1,11 @@
 import { WebSocketServer, WebSocket } from "ws";
-import type { Server } from "http";
+import type { Server, IncomingMessage } from "http";
 import { Effect, Stream } from "effect";
+import { getSession } from "./auth";
 import { Schema } from "@effect/schema";
 import { LiveRuntime } from "../layers/live";
 import {
-  Request,
+  Request as WsRequest,
   Response,
   HealthCheckResult,
   ErrorResponse,
@@ -55,7 +56,7 @@ import { ALLOWED_HOSTS, validateYandexMarketUrl } from "../sources/yandex_market
 import { YandexBrowserError } from "../sources/yandex_market/errors";
 
 type StreamHandler = (
-  request: Request,
+  request: WsRequest,
   ws: Ws,
 ) => Effect.Effect<void, unknown, unknown>;
 
@@ -896,13 +897,34 @@ export function createWsServer(
   const handlers = createHandlers(bulkJobManager);
   const wss = new WebSocketServer({ noServer: true });
 
-  httpServer.on("upgrade", (request, socket, head) => {
+  // Convert Node IncomingMessage headers to Web API Headers for auth check
+  const toWebHeaders = (req: IncomingMessage): Headers => {
+    const headers = new Headers();
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (value) headers.set(key, Array.isArray(value) ? value.join(", ") : value);
+    }
+    return headers;
+  };
+
+  httpServer.on("upgrade", async (request, socket, head) => {
     const pathname = new URL(
       request.url ?? "",
       `http://${request.headers.host}`,
     ).pathname;
 
     if (pathname === "/ws") {
+      // Check auth before upgrading
+      const fakeRequest = new Request("http://localhost/ws", {
+        headers: toWebHeaders(request),
+      });
+      const session = await getSession(fakeRequest);
+      
+      if (!session || (session.user as { role?: string }).role !== "admin") {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit("connection", ws, request);
       });
@@ -942,7 +964,7 @@ export function createWsServer(
       }
 
       const program = Effect.gen(function* () {
-        const request = yield* Schema.decodeUnknown(Request)(parsed);
+        const request = yield* Schema.decodeUnknown(WsRequest)(parsed);
 
         const handler = handlers[request.method];
         if (!handler) {
