@@ -1,4 +1,4 @@
-import { createSignal, Show, onMount, createEffect, onCleanup } from "solid-js";
+import { createSignal, createMemo, Show, onMount, createEffect, onCleanup, on } from "solid-js";
 import { Header } from "../../components/Header";
 import {
   type WidgetMapping,
@@ -66,7 +66,7 @@ export default function WidgetDebug() {
   const [period, setPeriod] = createSignal<PeriodOption>("all");
   const [initializing, setInitializing] = createSignal(true);
 
-  const selectedMapping = () => mappings().find((m) => m.rawModel === selectedRawModel()) ?? null;
+  const selectedMapping = createMemo(() => mappings().find((m) => m.rawModel === selectedRawModel()) ?? null);
 
   const fetchMappings = async () => {
     setLoading(true);
@@ -154,13 +154,11 @@ export default function WidgetDebug() {
     fetchSyncStatus();
   });
 
-  createEffect(() => {
-    statusTab();
-    period();
-    if (!initializing()) {
+  createEffect(
+    on([statusTab, period], () => {
       fetchMappings();
-    }
-  });
+    }, { defer: true })
+  );
 
   createEffect(() => {
     const status = statusTab();
@@ -182,7 +180,7 @@ export default function WidgetDebug() {
     });
   });
 
-  const filteredMappings = () => {
+  const filteredMappings = createMemo(() => {
     let items = [...mappings()];
 
     const q = search().toLowerCase();
@@ -207,7 +205,7 @@ export default function WidgetDebug() {
     });
 
     return items;
-  };
+  });
 
   const toggleSort = (field: SortField) => {
     if (sortField() === field) {
@@ -218,10 +216,12 @@ export default function WidgetDebug() {
     }
   };
 
-  const needsReviewCount = () =>
-    mappings().filter((m) => m.status === "pending" || m.status === "suggested").length;
-  const confirmedCount = () =>
-    mappings().filter((m) => m.status === "confirmed" || m.status === "auto_confirmed").length;
+  const needsReviewCount = createMemo(() =>
+    mappings().filter((m) => m.status === "pending" || m.status === "suggested").length
+  );
+  const confirmedCount = createMemo(() =>
+    mappings().filter((m) => m.status === "confirmed" || m.status === "auto_confirmed").length
+  );
 
   return (
     <div class="min-h-screen bg-zinc-100 dark:bg-slate-950">
