@@ -380,19 +380,10 @@ export const createWidgetMappingsRoutes = () =>
             const sql = yield* SqlClient.SqlClient;
             const affiliateService = yield* YandexAffiliateService;
 
-            // Get device image from entity data if available
-            const entityResult = yield* entityData.getFinalData(device.id, "specs").pipe(
+            // Check for existing ERID (never auto-create)
+            const erid = yield* affiliateService.getErid(device.id).pipe(
               Effect.catchAll(() => Effect.succeed(null)),
             );
-            const entityData_ = entityResult as { photos?: string[] } | null;
-            const imageUrl = entityData_?.photos?.[0];
-
-            // Get or create ERID for this device
-            const erid = yield* affiliateService.getOrCreateErid({
-              deviceId: device.id,
-              deviceName: device.name,
-              imageUrl,
-            });
 
             // Create affiliate links for each offer with valid Yandex URL
             const offersWithUrls = offers.filter((o) => {
@@ -406,10 +397,18 @@ export const createWidgetMappingsRoutes = () =>
             });
             for (const offer of offersWithUrls) {
               yield* Effect.gen(function* () {
-                const affiliateUrl = yield* affiliateService.createAffiliateLink({
-                  url: offer.url!,
-                  erid,
-                });
+                let affiliateUrl: string;
+
+                if (erid) {
+                  // Use full API with ERID
+                  affiliateUrl = yield* affiliateService.createAffiliateLinkWithErid({
+                    url: offer.url!,
+                    erid,
+                  });
+                } else {
+                  // Fallback to CLID-only URL (no API call)
+                  affiliateUrl = yield* affiliateService.buildBasicAffiliateUrl(offer.url!);
+                }
 
                 yield* sql`
                   UPDATE price_quotes 

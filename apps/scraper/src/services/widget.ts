@@ -86,12 +86,13 @@ export const WidgetServiceLive = Layer.effect(
       );
 
     // Background task to generate affiliate links
+    // Never auto-creates creatives - uses ERID if exists, otherwise CLID-only
     const triggerAffiliateBackfill = (
       slug: string,
       deviceId: string,
-      deviceName: string,
-      imageUrl: string | null,
-    ): Effect.Effect<void> =>
+      _deviceName: string,
+      _imageUrl: string | null,
+    ): Effect.Effect<void, never, never> =>
       Effect.gen(function* () {
         if (inflightSlugs.has(slug)) return;
         inflightSlugs.add(slug);
@@ -104,20 +105,26 @@ export const WidgetServiceLive = Layer.effect(
             Effect.annotateLogs({ slug, deviceId, quoteCount: quotes.length }),
           );
 
-          // Get or create ERID
-          const erid = yield* affiliateService.getOrCreateErid({
-            deviceId,
-            deviceName,
-            imageUrl: imageUrl ?? undefined,
-          });
+          // Check for existing ERID (never auto-create)
+          const erid = yield* affiliateService.getErid(deviceId).pipe(
+            Effect.catchAll(() => Effect.succeed(null)),
+          );
 
           // Create affiliate links for each quote
           for (const quote of quotes) {
             yield* Effect.gen(function* () {
-              const affiliateUrl = yield* affiliateService.createAffiliateLink({
-                url: quote.url,
-                erid,
-              });
+              let affiliateUrl: string;
+
+              if (erid) {
+                // Use full API with ERID
+                affiliateUrl = yield* affiliateService.createAffiliateLinkWithErid({
+                  url: quote.url,
+                  erid,
+                });
+              } else {
+                // Fallback to CLID-only URL (no API call)
+                affiliateUrl = yield* affiliateService.buildBasicAffiliateUrl(quote.url);
+              }
 
               yield* sql`
                 UPDATE price_quotes
@@ -148,7 +155,7 @@ export const WidgetServiceLive = Layer.effect(
           }
 
           yield* Effect.logInfo("Affiliate backfill completed").pipe(
-            Effect.annotateLogs({ slug, deviceId, quoteCount: quotes.length }),
+            Effect.annotateLogs({ slug, deviceId, quoteCount: quotes.length, hasErid: !!erid }),
           );
         }).pipe(
           Effect.catchAll((error) =>
