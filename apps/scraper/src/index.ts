@@ -25,7 +25,13 @@ const bulkJobManager = new BulkJobManager(LiveRuntime);
 // Create Elysia app WITHOUT the node adapter - we'll own the http.Server ourselves
 const app = new Elysia()
   .use(cors({ 
-    origin: ["http://localhost:5173", "http://127.0.0.1:5173", "http://click-or-die.test"],
+    origin: [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "http://click-or-die.test",
+      "https://click-or-die.ru",
+      "https://www.click-or-die.ru",
+    ],
     credentials: true,
   }))
   .use(createAuthRoutes())
