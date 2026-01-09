@@ -1,4 +1,5 @@
 import { createSignal, createEffect, Show, For, type Accessor, onCleanup } from "solid-js";
+import { apiFetch } from "../../../lib/api";
 
 interface PriceOffer {
   seller: string;
@@ -72,7 +73,7 @@ function WidgetConfig(props: WidgetConfigProps) {
     
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:1488/api/v2/devices?search=${encodeURIComponent(query)}&limit=8`);
+      const res = await apiFetch(`/api/v2/devices?search=${encodeURIComponent(query)}&limit=8`);
       if (res.ok) {
         const data = await res.json();
         setSuggestions(data.devices.map((d: any) => ({
@@ -228,8 +229,8 @@ export function PalachPriceWidget(props: PalachPriceWidgetProps) {
 
     try {
       const [phoneRes, quotesRes] = await Promise.all([
-        fetch(`http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/raw-data/specs`),
-        fetch(`http://localhost:1488/api/prices/${encodeURIComponent(slug)}/quotes?limit=10`),
+        apiFetch(`/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/raw-data/specs`),
+        apiFetch(`/api/prices/${encodeURIComponent(slug)}/quotes?limit=10`),
       ]);
 
       if (phoneRes.ok) {

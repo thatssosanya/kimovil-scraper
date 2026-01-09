@@ -1,4 +1,5 @@
 import { createSignal, createEffect, Show, For } from "solid-js";
+import { apiFetch } from "../../../lib/api";
 
 interface PriceOffer {
   seller: string;
@@ -36,8 +37,8 @@ export function PriceWidget(props: PriceWidgetProps) {
 
     try {
       const [phoneRes, quotesRes] = await Promise.all([
-        fetch(`http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/raw-data/specs`),
-        fetch(`http://localhost:1488/api/prices/${encodeURIComponent(slug)}/quotes?limit=10`),
+        apiFetch(`/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/raw-data/specs`),
+        apiFetch(`/api/prices/${encodeURIComponent(slug)}/quotes?limit=10`),
       ]);
 
       if (phoneRes.ok) {

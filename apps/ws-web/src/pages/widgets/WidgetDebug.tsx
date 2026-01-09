@@ -1,5 +1,6 @@
 import { createSignal, Show, For, onMount, createEffect, onCleanup } from "solid-js";
 import { Header } from "../../components/Header";
+import { apiFetch } from "../../lib/api";
 
 type MappingStatus = "pending" | "suggested" | "auto_confirmed" | "confirmed" | "ignored";
 
@@ -128,16 +129,16 @@ const getPeriodTimestamps = (period: PeriodOption): { seenAfter?: number; seenBe
 };
 
 const fetchMappingContext = async (rawModel: string): Promise<MappingContext> => {
-  const res = await fetch(
-    `http://localhost:1488/api/widget-mappings/${encodeURIComponent(rawModel)}`
+  const res = await apiFetch(
+    `/api/widget-mappings/${encodeURIComponent(rawModel)}`
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 };
 
 const searchDevices = async (query: string) => {
-  const res = await fetch(
-    `http://localhost:1488/api/widget-mappings/devices/search?q=${encodeURIComponent(query)}&limit=10`
+  const res = await apiFetch(
+    `/api/widget-mappings/devices/search?q=${encodeURIComponent(query)}&limit=10`
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<DeviceSearchResult[]>;
@@ -147,8 +148,8 @@ const updateMapping = async (
   rawModel: string,
   update: { deviceId?: string | null; status?: MappingStatus }
 ) => {
-  const res = await fetch(
-    `http://localhost:1488/api/widget-mappings/${encodeURIComponent(rawModel)}`,
+  const res = await apiFetch(
+    `/api/widget-mappings/${encodeURIComponent(rawModel)}`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -245,7 +246,7 @@ export default function WidgetDebug() {
         periodTs.seenAfter ? `&seenAfter=${periodTs.seenAfter}` : "",
         periodTs.seenBefore ? `&seenBefore=${periodTs.seenBefore}` : "",
       ].join("");
-      const res = await fetch(`http://localhost:1488/api/widget-mappings?limit=1000${statusParam}${periodParams}`);
+      const res = await apiFetch(`/api/widget-mappings?limit=1000${statusParam}${periodParams}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: MappingsResponse = await res.json();
       setMappings(json.mappings);
@@ -259,7 +260,7 @@ export default function WidgetDebug() {
 
   const fetchSyncStatus = async () => {
     try {
-      const res = await fetch("http://localhost:1488/api/widget-debug/sync-status");
+      const res = await apiFetch("/api/widget-debug/sync-status");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setSyncStatus(json);
@@ -271,7 +272,7 @@ export default function WidgetDebug() {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const res = await fetch("http://localhost:1488/api/widget-debug/refresh", { method: "POST" });
+      const res = await apiFetch("/api/widget-debug/refresh", { method: "POST" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await fetchSyncStatus();
       await fetchMappings();
@@ -440,8 +441,8 @@ export default function WidgetDebug() {
     setWidgetLoading(true);
     try {
       const cacheBuster = bustCache ? `&_t=${Date.now()}` : "";
-      const res = await fetch(
-        `http://localhost:1488/widget/v1/price/${encodeURIComponent(slug)}?theme=dark${cacheBuster}`,
+      const res = await apiFetch(
+        `/widget/v1/price/${encodeURIComponent(slug)}?theme=dark${cacheBuster}`,
         bustCache ? { cache: "no-store" } : undefined
       );
       if (res.ok) {
@@ -480,7 +481,7 @@ export default function WidgetDebug() {
     setCreateError(null);
 
     try {
-      const res = await fetch("http://localhost:1488/api/widget-mappings/devices", {
+      const res = await apiFetch("/api/widget-mappings/devices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slug, name, brand }),
@@ -513,7 +514,7 @@ export default function WidgetDebug() {
   const fetchPriceInfo = async (deviceId: string) => {
     setPriceLoading(true);
     try {
-      const res = await fetch(`http://localhost:1488/api/widget-mappings/prices/${deviceId}`);
+      const res = await apiFetch(`/api/widget-mappings/prices/${deviceId}`);
       if (res.ok) {
         const data = await res.json();
         setPriceInfo(data);
@@ -543,7 +544,7 @@ export default function WidgetDebug() {
     setScrapeSuccess(null);
 
     try {
-      const res = await fetch(`http://localhost:1488/api/widget-mappings/scrape/price-ru/${device.id}`, {
+      const res = await apiFetch(`/api/widget-mappings/scrape/price-ru/${device.id}`, {
         method: "POST",
       });
       const data: ScrapeResult = await res.json();
@@ -580,7 +581,7 @@ export default function WidgetDebug() {
     setScrapeSuccess(null);
 
     try {
-      const res = await fetch(`http://localhost:1488/api/widget-mappings/scrape/yandex/${device.id}`, {
+      const res = await apiFetch(`/api/widget-mappings/scrape/yandex/${device.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
@@ -631,7 +632,7 @@ export default function WidgetDebug() {
   const fetchCatalogueLinks = async (slug: string) => {
     setCatalogueLoading(true);
     try {
-      const res = await fetch(`http://localhost:1488/api/widget-mappings/catalogue-links/${encodeURIComponent(slug)}`);
+      const res = await apiFetch(`/api/widget-mappings/catalogue-links/${encodeURIComponent(slug)}`);
       if (res.ok) {
         const data = await res.json();
         setCatalogueLinks(data.links);

@@ -1,4 +1,5 @@
 import { createSignal, onMount, Show } from "solid-js";
+import { apiFetch } from "../../lib/api";
 import type { FilterType } from "./types";
 import type { TabId } from "./components/TabBar";
 import { useBulkJobs } from "./hooks/useBulkJobs";
@@ -121,7 +122,7 @@ function SlugsContent(props: {
     setErrorItemsLoading(true);
     setErrorItems([]);
     try {
-      const res = await fetch(`http://localhost:1488/api/bulk/${jobId}/errors?limit=200`);
+      const res = await apiFetch(`/api/bulk/${jobId}/errors?limit=200`);
       const data = await res.json();
       setErrorItems(data.items || []);
     } catch (e) {
