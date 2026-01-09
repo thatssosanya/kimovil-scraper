@@ -1,4 +1,4 @@
-import { Effect, Layer, Context, Data, Schedule } from "effect";
+import { Effect, Layer, Context, Data, Schedule, Ref } from "effect";
 import { SqlClient } from "@effect/sql";
 
 export class YandexAffiliateError extends Data.TaggedError("YandexAffiliateError")<{
@@ -32,6 +32,17 @@ interface AffiliateLinkResponse {
   status: string;
   link?: { url: string };
   error?: string;
+}
+
+interface YandexOAuthTokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in?: number;
+}
+
+interface CachedOAuthToken {
+  token: string;
+  expiresAt: number;
 }
 
 type WidgetCreativeRow = {
@@ -69,14 +80,27 @@ export const YandexAffiliateServiceLive = Layer.effect(
     const clidRaw = process.env.YANDEX_AFFILIATE_CLID;
     const clid = clidRaw ? Number.parseInt(clidRaw, 10) : NaN;
     const apiKey = process.env.YANDEX_AFFILIATE_API_KEY ?? "";
+    const oauthClientId = process.env.YANDEX_OAUTH_CLIENT_ID ?? "";
+    const oauthClientSecret = process.env.YANDEX_OAUTH_CLIENT_SECRET ?? "";
+    const oauthTokenUrl = "https://oauth.yandex.ru/token";
 
-    const affiliateEnabled = Number.isFinite(clid) && clid > 0 && !!apiKey;
+    const affiliateLinksEnabled = Number.isFinite(clid) && clid > 0 && !!apiKey;
+    const creativesEnabled =
+      Number.isFinite(clid) && clid > 0 && !!oauthClientId && !!oauthClientSecret;
 
-    if (!affiliateEnabled) {
+    if (!affiliateLinksEnabled) {
       yield* Effect.logWarning(
-        "Yandex affiliate disabled: missing or invalid YANDEX_AFFILIATE_CLID / YANDEX_AFFILIATE_API_KEY",
+        "Yandex affiliate links disabled: missing or invalid YANDEX_AFFILIATE_CLID / YANDEX_AFFILIATE_API_KEY",
       );
     }
+
+    if (!creativesEnabled) {
+      yield* Effect.logWarning(
+        "Yandex creatives disabled: missing or invalid YANDEX_AFFILIATE_CLID / YANDEX_OAUTH_CLIENT_ID / YANDEX_OAUTH_CLIENT_SECRET",
+      );
+    }
+
+    const tokenRef = yield* Ref.make<CachedOAuthToken | null>(null);
 
     const request = <T>(
       url: string,
@@ -130,12 +154,81 @@ export const YandexAffiliateServiceLive = Layer.effect(
         Effect.mapError(mapError),
       );
 
+    const fetchNewOAuthToken = (): Effect.Effect<CachedOAuthToken, YandexAffiliateError> =>
+      Effect.gen(function* () {
+        const body = new URLSearchParams({
+          grant_type: "client_credentials",
+          client_id: oauthClientId,
+          client_secret: oauthClientSecret,
+        });
+
+        const res = yield* Effect.tryPromise({
+          try: () =>
+            fetch(oauthTokenUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: body.toString(),
+            }),
+          catch: mapError,
+        });
+
+        if (!res.ok) {
+          return yield* Effect.fail(
+            new YandexAffiliateError({
+              message: `OAuth token request failed: HTTP ${res.status}`,
+              cause: { status: res.status },
+            }),
+          );
+        }
+
+        const data = yield* Effect.tryPromise({
+          try: () => res.json() as Promise<YandexOAuthTokenResponse>,
+          catch: mapError,
+        });
+
+        if (!data.access_token) {
+          return yield* Effect.fail(
+            new YandexAffiliateError({ message: "OAuth response missing access_token" }),
+          );
+        }
+
+        const expiresInMs = (data.expires_in ?? 3600) * 1000;
+        const cached: CachedOAuthToken = {
+          token: data.access_token,
+          expiresAt: Date.now() + expiresInMs,
+        };
+
+        yield* Ref.set(tokenRef, cached);
+        return cached;
+      });
+
+    const getOAuthToken = (): Effect.Effect<string, YandexAffiliateError> =>
+      Effect.gen(function* () {
+        if (!creativesEnabled) {
+          return yield* Effect.fail(
+            new YandexAffiliateError({ message: "Yandex creatives not configured" }),
+          );
+        }
+
+        const cached = yield* Ref.get(tokenRef);
+        const now = Date.now();
+
+        if (cached && cached.expiresAt - 60_000 > now) {
+          return cached.token;
+        }
+
+        const fresh = yield* fetchNewOAuthToken();
+        return fresh.token;
+      });
+
     const createCreative = (params: {
       deviceId: string;
       deviceName: string;
       imageUrl?: string;
     }): Effect.Effect<string, YandexAffiliateError> =>
       Effect.gen(function* () {
+        const token = yield* getOAuthToken();
+
         const mediaData = params.imageUrl
           ? [{ media_url: params.imageUrl, media_url_file_type: "image" }]
           : [];
@@ -148,13 +241,34 @@ export const YandexAffiliateServiceLive = Layer.effect(
           description: `Рекламный креатив для ${params.deviceName}`,
         };
 
-        const response = yield* request<CreativeResponse>(
-          "https://distribution.yandex.net/api/v2/creatives/",
-          {
+        const doRequest = (authToken: string) =>
+          request<CreativeResponse>("https://distribution.yandex.net/api/v2/creatives/", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `OAuth ${authToken}`,
+            },
             body: JSON.stringify(body),
-          },
+          });
+
+        const response = yield* doRequest(token).pipe(
+          Effect.catchIf(
+            (e) => {
+              const cause = e.cause as unknown;
+              return (
+                cause != null &&
+                typeof cause === "object" &&
+                "status" in cause &&
+                (cause as { status: number }).status === 401
+              );
+            },
+            () =>
+              Effect.gen(function* () {
+                yield* Ref.set(tokenRef, null);
+                const freshToken = yield* fetchNewOAuthToken();
+                return yield* doRequest(freshToken.token);
+              }),
+          ),
         );
 
         if (response.result !== "ok" || !response.data?.token) {
@@ -168,13 +282,17 @@ export const YandexAffiliateServiceLive = Layer.effect(
         return response.data.token;
       });
 
-    const notConfiguredError = new YandexAffiliateError({
-      message: "Yandex affiliate is not configured",
+    const creativesNotConfiguredError = new YandexAffiliateError({
+      message: "Yandex creatives not configured",
+    });
+
+    const affiliateLinksNotConfiguredError = new YandexAffiliateError({
+      message: "Yandex affiliate links not configured",
     });
 
     return YandexAffiliateService.of({
       getOrCreateErid: (params) =>
-        affiliateEnabled
+        creativesEnabled
           ? Effect.gen(function* () {
               const existingErid = yield* getEridFromDb(params.deviceId);
               if (existingErid) {
@@ -193,10 +311,10 @@ export const YandexAffiliateServiceLive = Layer.effect(
 
               return newErid;
             })
-          : Effect.fail(notConfiguredError),
+          : Effect.fail(creativesNotConfiguredError),
 
       createAffiliateLink: (params) =>
-        affiliateEnabled
+        affiliateLinksEnabled
           ? Effect.gen(function* () {
               const encodedUrl = encodeURIComponent(params.url);
               const url = `https://api.content.market.yandex.ru/v3/affiliate/partner/link/create?url=${encodedUrl}&clid=${clid}&erid=${params.erid}&format=json`;
@@ -216,7 +334,7 @@ export const YandexAffiliateServiceLive = Layer.effect(
 
               return response.link.url;
             })
-          : Effect.fail(notConfiguredError),
+          : Effect.fail(affiliateLinksNotConfiguredError),
     });
   }),
 );
