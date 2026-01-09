@@ -1,7 +1,6 @@
 import { createSignal, Show, For, onMount, createEffect, onCleanup } from "solid-js";
 import { Header } from "../../components/Header";
 import {
-  type MappingStatus,
   type WidgetMapping,
   type SyncStatus,
   type SuggestedMatch,
@@ -16,10 +15,14 @@ import {
   type PreviewTab,
   type DetailedQuote,
   type CatalogueLink,
-  STATUS_TABS,
   PERIOD_OPTIONS,
 } from "./WidgetDebug.types";
 import * as api from "../../api/widgetMappings";
+import { SyncStatusCard } from "./components/SyncStatusCard";
+import { StatsRow } from "./components/StatsRow";
+import { FiltersBar } from "./components/FiltersBar";
+import { MappingsTable } from "./components/MappingsTable";
+import { StatusBadge } from "./components/StatusBadge";
 
 const getPeriodTimestamps = (period: PeriodOption): { seenAfter?: number; seenBefore?: number } => {
   const option = PERIOD_OPTIONS.find((p) => p.id === period);
@@ -598,40 +601,6 @@ export default function WidgetDebug() {
     return d.toLocaleString();
   };
 
-  const formatDateStr = (dateStr: string | null) => {
-    if (!dateStr) return "Never";
-    const d = new Date(dateStr);
-    return d.toLocaleString();
-  };
-
-  const SortIcon = (props: { field: SortField }) => (
-    <Show when={sortField() === props.field}>
-      <span class="ml-1 text-indigo-500">{sortDesc() ? "↓" : "↑"}</span>
-    </Show>
-  );
-
-  const StatusBadge = (props: { status: MappingStatus }) => {
-    const styles: Record<MappingStatus, string> = {
-      pending: "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400",
-      suggested: "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300",
-      auto_confirmed: "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300",
-      confirmed: "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300",
-      ignored: "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-500 line-through",
-    };
-    const labels: Record<MappingStatus, string> = {
-      pending: "Pending",
-      suggested: "Suggested",
-      auto_confirmed: "Auto",
-      confirmed: "Confirmed",
-      ignored: "Ignored",
-    };
-    return (
-      <span class={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${styles[props.status]}`}>
-        {labels[props.status]}
-      </span>
-    );
-  };
-
   const needsReviewCount = () =>
     mappings().filter((m) => m.status === "pending" || m.status === "suggested").length;
   const confirmedCount = () =>
@@ -650,114 +619,21 @@ export default function WidgetDebug() {
           </p>
         </div>
 
-        {/* Sync Status Card */}
-        <div class="bg-white dark:bg-slate-900 rounded-xl border border-zinc-200 dark:border-slate-800 p-4 mb-6">
-          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div class="flex flex-wrap gap-6 text-sm">
-              <div>
-                <span class="text-zinc-500 dark:text-slate-400">Last synced:</span>
-                <span class="ml-2 font-medium text-zinc-900 dark:text-white">
-                  {formatDateStr(syncStatus()?.lastSyncedAt ?? null)}
-                </span>
-              </div>
-              <div>
-                <span class="text-zinc-500 dark:text-slate-400">Posts cached:</span>
-                <span class="ml-2 font-medium text-zinc-900 dark:text-white">
-                  {syncStatus()?.postsCount?.toLocaleString() ?? "—"}
-                </span>
-              </div>
-              <div>
-                <span class="text-zinc-500 dark:text-slate-400">Widgets cached:</span>
-                <span class="ml-2 font-medium text-zinc-900 dark:text-white">
-                  {syncStatus()?.widgetsCount?.toLocaleString() ?? "—"}
-                </span>
-              </div>
-            </div>
-            <button
-              onClick={handleSync}
-              disabled={syncing()}
-              class="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-2"
-            >
-              <Show when={syncing()}>
-                <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              </Show>
-              {syncing() ? "Syncing..." : "Sync from WordPress"}
-            </button>
-          </div>
-        </div>
+        <SyncStatusCard syncStatus={syncStatus()} syncing={syncing()} onSync={handleSync} />
 
-        {/* Stats Cards */}
-        <div class="grid grid-cols-3 gap-4 mb-6">
-          <StatCard label="Total Mappings" value={total()} />
-          <StatCard label="Needs Review" value={needsReviewCount()} color="amber" />
-          <StatCard label="Confirmed" value={confirmedCount()} color="emerald" />
-        </div>
+        <StatsRow total={total()} needsReviewCount={needsReviewCount()} confirmedCount={confirmedCount()} />
 
-        {/* Filters */}
-        <div class="bg-white dark:bg-slate-900 rounded-xl border border-zinc-200 dark:border-slate-800 p-4 mb-6">
-          <div class="flex flex-col md:flex-row gap-4 items-start md:items-center">
-            {/* Search */}
-            <input
-              type="text"
-              placeholder="Search models..."
-              value={search()}
-              onInput={(e) => setSearch(e.currentTarget.value)}
-              class="flex-1 px-3 py-2 text-sm bg-zinc-100 dark:bg-slate-800 border border-zinc-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-zinc-900 dark:text-white placeholder-zinc-500 dark:placeholder-slate-400"
-            />
-
-            {/* Status Tabs */}
-            <div class="flex gap-1 bg-zinc-100 dark:bg-slate-800 rounded-lg p-1">
-              <For each={STATUS_TABS}>
-                {(tab) => (
-                  <button
-                    onClick={() => setStatusTab(tab.id)}
-                    class={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                      statusTab() === tab.id
-                        ? "bg-white dark:bg-slate-700 text-zinc-900 dark:text-white shadow-sm"
-                        : "text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                )}
-              </For>
-            </div>
-
-            {/* Period Selector */}
-            <div class="flex items-center gap-2">
-              <div class="flex items-center gap-1.5 text-zinc-500 dark:text-slate-400">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <div class="flex gap-0.5 bg-zinc-100 dark:bg-slate-800 rounded-lg p-0.5">
-                <For each={PERIOD_OPTIONS}>
-                  {(opt) => (
-                    <button
-                      onClick={() => setPeriod(opt.id)}
-                      class={`px-2.5 py-1 text-xs font-medium rounded-md transition-all duration-150 ${
-                        period() === opt.id
-                          ? "bg-gradient-to-b from-indigo-500 to-indigo-600 text-white shadow-sm shadow-indigo-500/25"
-                          : "text-zinc-500 dark:text-slate-400 hover:text-zinc-700 dark:hover:text-slate-300"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  )}
-                </For>
-              </div>
-            </div>
-
-            {/* Refresh */}
-            <button
-              onClick={fetchMappings}
-              disabled={loading() || syncing()}
-              class="px-4 py-2 text-sm font-medium bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-lg hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-50 transition-colors"
-            >
-              {loading() ? "Loading..." : syncing() ? "Syncing..." : "Refresh"}
-            </button>
-          </div>
-        </div>
+        <FiltersBar
+          search={search()}
+          onSearchChange={setSearch}
+          statusTab={statusTab()}
+          onStatusTabChange={setStatusTab}
+          period={period()}
+          onPeriodChange={setPeriod}
+          loading={loading()}
+          syncing={syncing()}
+          onRefresh={fetchMappings}
+        />
 
         {/* Error */}
         <Show when={error()}>
@@ -778,111 +654,14 @@ export default function WidgetDebug() {
 
         {/* Table */}
         <Show when={!loading() && !syncing()}>
-          <div class="bg-white dark:bg-slate-900 rounded-xl border border-zinc-200 dark:border-slate-800 overflow-hidden">
-            <div class="overflow-x-auto">
-              <table class="w-full text-sm">
-                <thead>
-                  <tr class="bg-zinc-50 dark:bg-slate-800/50 border-b border-zinc-200 dark:border-slate-800">
-                    <th
-                      class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400 cursor-pointer hover:text-zinc-900 dark:hover:text-white"
-                      onClick={() => toggleSort("usageCount")}
-                    >
-                      Count <SortIcon field="usageCount" />
-                    </th>
-                    <th
-                      class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400 cursor-pointer hover:text-zinc-900 dark:hover:text-white"
-                      onClick={() => toggleSort("status")}
-                    >
-                      Status <SortIcon field="status" />
-                    </th>
-                    <th
-                      class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400 cursor-pointer hover:text-zinc-900 dark:hover:text-white"
-                      onClick={() => toggleSort("rawModel")}
-                    >
-                      Raw Model <SortIcon field="rawModel" />
-                    </th>
-                    <th class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400">
-                      Normalized
-                    </th>
-                    <th
-                      class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400 cursor-pointer hover:text-zinc-900 dark:hover:text-white"
-                      onClick={() => toggleSort("confidence")}
-                    >
-                      Match <SortIcon field="confidence" />
-                    </th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-zinc-100 dark:divide-slate-800">
-                  <For each={filteredMappings()}>
-                    {(mapping, idx) => (
-                      <tr
-                        class="hover:bg-zinc-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
-                        onClick={() => openMappingEditor(mapping, idx())}
-                      >
-                        <td class="px-4 py-3">
-                          <span class="inline-flex items-center justify-center w-8 h-6 bg-zinc-100 dark:bg-slate-800 rounded text-xs font-medium text-zinc-600 dark:text-slate-300">
-                            {mapping.usageCount}
-                          </span>
-                        </td>
-                        <td class="px-4 py-3">
-                          <StatusBadge status={mapping.status} />
-                        </td>
-                        <td class="px-4 py-3 max-w-xs">
-                          <div
-                            class="truncate text-zinc-900 dark:text-white font-mono text-xs"
-                            title={mapping.rawModel}
-                          >
-                            {mapping.rawModel}
-                          </div>
-                        </td>
-                        <td class="px-4 py-3 max-w-xs">
-                          <div
-                            class="truncate text-zinc-500 dark:text-slate-400 font-mono text-xs"
-                            title={mapping.normalizedModel ?? ""}
-                          >
-                            {mapping.normalizedModel ?? "—"}
-                          </div>
-                        </td>
-                        <td class="px-4 py-3">
-                          <Show
-                            when={mapping.deviceId}
-                            fallback={
-                              <span class="inline-flex px-2 py-0.5 bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 rounded text-xs">
-                                No match
-                              </span>
-                            }
-                          >
-                            <div class="flex items-center gap-2">
-                              <span
-                                class={`inline-flex px-2 py-0.5 rounded text-xs ${
-                                  (mapping.confidence ?? 0) >= 0.9
-                                    ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
-                                    : "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
-                                }`}
-                              >
-                                {Math.round((mapping.confidence ?? 0) * 100)}%
-                              </span>
-                              <span
-                                class="text-xs text-zinc-500 dark:text-slate-400 truncate max-w-[120px]"
-                                title={mapping.deviceId!}
-                              >
-                                {mapping.deviceId}
-                              </span>
-                            </div>
-                          </Show>
-                        </td>
-                      </tr>
-                    )}
-                  </For>
-                </tbody>
-              </table>
-            </div>
-
-            {/* Table footer */}
-            <div class="px-4 py-3 bg-zinc-50 dark:bg-slate-800/50 border-t border-zinc-200 dark:border-slate-800 text-sm text-zinc-500 dark:text-slate-400">
-              Showing {filteredMappings().length} of {total()} mappings
-            </div>
-          </div>
+          <MappingsTable
+            mappings={filteredMappings()}
+            sortField={sortField()}
+            sortDesc={sortDesc()}
+            onSortChange={toggleSort}
+            onRowClick={(mapping) => openMappingEditor(mapping)}
+            total={total()}
+          />
         </Show>
 
         {/* Mapping Review Modal */}
@@ -1823,27 +1602,6 @@ export default function WidgetDebug() {
           </div>
           </div>
         </Show>
-      </div>
-    </div>
-  );
-}
-
-function StatCard(props: { label: string; value: number; color?: "emerald" | "amber" | "rose" }) {
-  const colorClasses = {
-    emerald: "text-emerald-600 dark:text-emerald-400",
-    amber: "text-amber-600 dark:text-amber-400",
-    rose: "text-rose-600 dark:text-rose-400",
-  };
-
-  return (
-    <div class="bg-white dark:bg-slate-900 rounded-xl border border-zinc-200 dark:border-slate-800 p-4">
-      <div class="text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wide">
-        {props.label}
-      </div>
-      <div
-        class={`text-2xl font-bold mt-1 ${props.color ? colorClasses[props.color] : "text-zinc-900 dark:text-white"}`}
-      >
-        {props.value.toLocaleString()}
       </div>
     </div>
   );
