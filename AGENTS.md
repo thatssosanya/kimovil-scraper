@@ -21,7 +21,9 @@ ssh cod-prod 'cd ~/apps/cod && git pull && pm2 restart scraper'
 
 **Database sync (via rsync):**
 ```bash
-rsync -avz apps/scraper/scraper-cache.sqlite cod-prod:~/apps/cod/apps/scraper/
+# Sync SQLite database + journal files (WAL/SHM), then restart
+rsync -avz apps/scraper/scraper-cache.sqlite apps/scraper/scraper-cache.sqlite-wal apps/scraper/scraper-cache.sqlite-shm cod-prod:~/apps/cod/apps/scraper/
+ssh cod-prod 'cd ~/apps/cod && pm2 restart scraper'
 ```
 
 ## Running Locally
