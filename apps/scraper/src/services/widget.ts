@@ -225,8 +225,9 @@ export const WidgetServiceLive = Layer.effect(
 
           let html: string;
 
-          if (data === null) {
-            html = renderNotFoundWidget(params.slug);
+          if (data === null || data.prices.length === 0) {
+            // Return empty string if no data or no prices
+            html = "";
           } else {
             // Check if we need to backfill affiliate links (fire-and-forget)
             const hasYandexPrices = data.prices.some((p) => p.source === "yandex_market");
