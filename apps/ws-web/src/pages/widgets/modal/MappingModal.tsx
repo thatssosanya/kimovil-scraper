@@ -21,6 +21,7 @@ interface MappingModalProps {
   mapping: WidgetMapping | null;
   onClose: () => void;
   onMappingUpdated: () => void;
+  onNavigate: (direction: -1 | 1) => void;
 }
 
 export function MappingModal(props: MappingModalProps) {
@@ -56,6 +57,7 @@ export function MappingModal(props: MappingModalProps) {
   const [scrapeError, setScrapeError] = createSignal<string | null>(null);
   const [scrapeSuccess, setScrapeSuccess] = createSignal<string | null>(null);
   const [catalogueLinks, setCatalogueLinks] = createSignal<CatalogueLink[] | null>(null);
+  const [excludingQuote, setExcludingQuote] = createSignal<string | null>(null);
 
   let searchTimeout: ReturnType<typeof setTimeout>;
 
@@ -142,7 +144,6 @@ export function MappingModal(props: MappingModalProps) {
         status: "confirmed",
       });
       props.onMappingUpdated();
-      closeModal();
     } catch (e) {
       console.error("Failed to confirm:", e);
     } finally {
@@ -311,6 +312,32 @@ export function MappingModal(props: MappingModalProps) {
     setScrapeSuccess(null);
   };
 
+  const handleExcludeQuote = async (source: string, externalId: string) => {
+    const device = devicePreview();
+    if (!device) return;
+
+    const key = `${source}:${externalId}`;
+    setExcludingQuote(key);
+    clearScrapeMessages();
+
+    try {
+      const result = await api.excludePriceQuote(device.id, source, externalId, "wrong model");
+      if (result.success) {
+        setDetailedQuotes((quotes) => quotes.filter((q) => !(q.source === source && q.externalId === externalId)));
+        setScrapeSuccess("Quotes excluded");
+        await fetchPriceInfo(device.id);
+        setWidgetHtml(null);
+        fetchWidgetPreview(device.slug, true);
+      } else {
+        setScrapeError(result.error ?? "Failed to exclude");
+      }
+    } catch (e) {
+      setScrapeError(e instanceof Error ? e.message : "Network error");
+    } finally {
+      setExcludingQuote(null);
+    }
+  };
+
   const handleDeviceSearch = (query: string) => {
     setDeviceSearch(query);
     clearTimeout(searchTimeout);
@@ -453,6 +480,14 @@ export function MappingModal(props: MappingModalProps) {
           e.preventDefault();
           navigateSuggestions(1);
           break;
+        case "ArrowLeft":
+          e.preventDefault();
+          props.onNavigate(-1);
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          props.onNavigate(1);
+          break;
       }
     };
 
@@ -502,6 +537,8 @@ export function MappingModal(props: MappingModalProps) {
     handleScrapePriceRu,
     handleScrapeYandex,
     clearScrapeMessages,
+    handleExcludeQuote,
+    excludingQuote,
     actionLoading,
     modalLoading,
     handleConfirm,

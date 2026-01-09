@@ -6,6 +6,8 @@ import { JobQueueService, type JobType, type ScrapeMode } from "../services/job-
 import { EntityDataService } from "../services/entity-data";
 import { DeviceRegistryService } from "../services/device-registry";
 import { BulkJobManager } from "../services/bulk-job";
+import { PriceService } from "../services/price";
+import { WidgetService } from "../services/widget";
 import { LiveRuntime } from "../layers/live";
 
 export interface DeviceWithStats {
@@ -479,4 +481,101 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
 
       set.status = 201;
       return result;
+    })
+    .post("/prices/:deviceId/exclude", async ({ params, body, set }) => {
+      const { source, externalId, reason } = body as {
+        source?: string;
+        externalId?: string;
+        reason?: string;
+      };
+
+      if (!source || !externalId) {
+        set.status = 400;
+        return { success: false, error: "source and externalId are required" };
+      }
+
+      const program = Effect.gen(function* () {
+        const registry = yield* DeviceRegistryService;
+        const priceService = yield* PriceService;
+
+        const device = yield* registry.getDeviceById(params.deviceId);
+        if (!device) {
+          return { success: false, error: "Device not found" };
+        }
+
+        yield* priceService.excludeQuotes({
+          deviceId: device.id,
+          source,
+          externalId,
+          reason,
+        });
+
+        yield* priceService.updatePriceSummary(device.id);
+
+        const widgetService = yield* WidgetService;
+        yield* widgetService.invalidateSlug(device.slug);
+
+        return { success: true };
+      });
+
+      try {
+        const result = await LiveRuntime.runPromise(program);
+        if (!result.success && result.error === "Device not found") {
+          set.status = 404;
+        }
+        return result;
+      } catch (err) {
+        set.status = 500;
+        return { success: false, error: err instanceof Error ? err.message : "Internal error" };
+      }
+    })
+    .get("/prices/:deviceId/exclusions", async ({ params, set }) => {
+      const program = Effect.gen(function* () {
+        const registry = yield* DeviceRegistryService;
+        const priceService = yield* PriceService;
+
+        const device = yield* registry.getDeviceById(params.deviceId);
+        if (!device) {
+          return null;
+        }
+
+        return yield* priceService.getExclusions(device.id);
+      });
+
+      const result = await LiveRuntime.runPromise(program);
+      if (!result) {
+        set.status = 404;
+        return { error: "Device not found" };
+      }
+      return result;
+    })
+    .delete("/prices/:deviceId/exclusions/:source/:externalId", async ({ params, set }) => {
+      const program = Effect.gen(function* () {
+        const registry = yield* DeviceRegistryService;
+        const priceService = yield* PriceService;
+
+        const device = yield* registry.getDeviceById(params.deviceId);
+        if (!device) {
+          return { success: false, error: "Device not found" };
+        }
+
+        yield* priceService.removeExclusion({
+          deviceId: device.id,
+          source: params.source,
+          externalId: params.externalId,
+        });
+
+        return { success: true };
+      });
+
+      try {
+        const result = await LiveRuntime.runPromise(program);
+        if (!result.success && result.error === "Device not found") {
+          set.status = 404;
+        }
+        return result;
+      } catch (err) {
+        set.status = 500;
+        return { success: false, error: err instanceof Error ? err.message : "Internal error" };
+      }
     });

@@ -123,6 +123,20 @@ export default function WidgetDebug() {
     fetchMappings();
   };
 
+  const navigateMapping = (direction: -1 | 1) => {
+    const currentRawModel = selectedRawModel();
+    if (!currentRawModel) return;
+
+    const list = mappings();
+    const currentIdx = list.findIndex((m) => m.rawModel === currentRawModel);
+    if (currentIdx === -1) return;
+
+    const newIdx = currentIdx + direction;
+    if (newIdx >= 0 && newIdx < list.length) {
+      setSelectedRawModel(list[newIdx].rawModel);
+    }
+  };
+
   onMount(() => {
     const handlePopState = () => {
       const params = new URLSearchParams(window.location.search);
@@ -281,6 +295,7 @@ export default function WidgetDebug() {
           mapping={selectedMapping()}
           onClose={closeModal}
           onMappingUpdated={handleMappingUpdated}
+          onNavigate={navigateMapping}
         />
       </div>
     </div>

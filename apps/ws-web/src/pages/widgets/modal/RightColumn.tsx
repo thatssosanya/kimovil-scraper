@@ -521,21 +521,25 @@ function PricesPanel() {
           const yandexQuotes = quotes.filter(q => q.source === "yandex_market");
           const priceRuQuotes = quotes.filter(q => q.source === "price_ru");
           
-          const priceRuBySeller = new Map<string, typeof priceRuQuotes>();
+          // Group price.ru quotes by externalId (model_id) for delete functionality
+          const priceRuByModel = new Map<string, typeof priceRuQuotes>();
           for (const q of priceRuQuotes) {
-            const existing = priceRuBySeller.get(q.seller);
+            const key = q.externalId ?? "unknown";
+            const existing = priceRuByModel.get(key);
             if (existing) {
               existing.push(q);
             } else {
-              priceRuBySeller.set(q.seller, [q]);
+              priceRuByModel.set(key, [q]);
             }
           }
           
-          const sortedSellers = [...priceRuBySeller.entries()]
-            .map(([seller, quotes]) => ({
-              seller,
+          const sortedModels = [...priceRuByModel.entries()]
+            .map(([externalId, quotes]) => ({
+              externalId,
+              modelName: quotes[0]?.variantLabel ?? quotes[0]?.seller ?? "Unknown",
               quotes: quotes.sort((a, b) => a.price - b.price),
               minPrice: Math.min(...quotes.map(q => q.price)),
+              sellerCount: new Set(quotes.map(q => q.seller)).size,
             }))
             .sort((a, b) => a.minPrice - b.minPrice);
 
@@ -604,7 +608,7 @@ function PricesPanel() {
                 </div>
               </Show>
 
-              <Show when={sortedSellers.length > 0}>
+              <Show when={sortedModels.length > 0}>
                 <div class="bg-white dark:bg-slate-900 rounded-lg border border-zinc-200 dark:border-slate-800 overflow-hidden">
                   <div class="px-4 py-3 bg-cyan-50 dark:bg-cyan-900/20 border-b border-cyan-100 dark:border-cyan-900/30">
                     <div class="flex items-center justify-between">
@@ -615,71 +619,91 @@ function PricesPanel() {
                         <span class="text-sm font-semibold text-cyan-800 dark:text-cyan-300">Price.ru</span>
                       </div>
                       <span class="text-xs text-cyan-600 dark:text-cyan-400">
-                        {sortedSellers.length} {sortedSellers.length === 1 ? "магазин" : "магазинов"} · {priceRuQuotes.length} предложений
+                        {sortedModels.length} {sortedModels.length === 1 ? "модель" : "моделей"} · {priceRuQuotes.length} предложений
                       </span>
                     </div>
                   </div>
                   <div class="divide-y divide-zinc-100 dark:divide-slate-800">
-                    <For each={sortedSellers}>
-                      {(sellerGroup) => (
-                        <div class="px-4 py-3">
-                          <div class="flex items-center justify-between gap-3 mb-2">
-                            <span class="text-sm font-semibold text-zinc-900 dark:text-white">
-                              {sellerGroup.seller}
-                            </span>
-                            <span class="text-sm font-bold text-cyan-600 dark:text-cyan-400 tabular-nums">
-                              от {formatPriceRub(sellerGroup.minPrice)}
-                            </span>
-                          </div>
-                          <div class="space-y-1.5">
-                            <For each={sellerGroup.quotes.slice(0, 5)}>
-                              {(quote) => (
-                                <div class="flex items-center justify-between gap-2 pl-3 py-1 bg-zinc-50 dark:bg-slate-800/50 rounded text-xs">
-                                  <div class="flex items-center gap-2 min-w-0 flex-1">
-                                    <Show when={quote.variantLabel || quote.variantKey}>
-                                      <span class="text-zinc-600 dark:text-slate-400 truncate">
-                                        {quote.variantLabel || quote.variantKey}
-                                      </span>
-                                    </Show>
-                                    <Show when={!quote.variantLabel && !quote.variantKey}>
-                                      <span class="text-zinc-400 dark:text-slate-500 italic">
-                                        без варианта
-                                      </span>
-                                    </Show>
-                                    <Show when={!quote.isAvailable}>
-                                      <span class="px-1 py-0.5 text-[9px] font-medium bg-zinc-200 dark:bg-slate-700 text-zinc-500 dark:text-slate-400 rounded">
-                                        нет
-                                      </span>
-                                    </Show>
-                                  </div>
-                                  <div class="flex items-center gap-2 flex-shrink-0">
-                                    <span class="font-medium text-zinc-700 dark:text-slate-300 tabular-nums">
-                                      {formatPriceRub(quote.price)}
-                                    </span>
-                                    <Show when={quote.url}>
-                                      <a
-                                        href={quote.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        class="p-1 text-zinc-400 hover:text-indigo-500 transition-colors"
-                                      >
-                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                        </svg>
-                                      </a>
-                                    </Show>
-                                  </div>
-                                </div>
-                              )}
-                            </For>
-                            <Show when={sellerGroup.quotes.length > 5}>
-                              <div class="text-[10px] text-zinc-400 dark:text-slate-500 pl-3">
-                                + ещё {sellerGroup.quotes.length - 5} вариантов
+                    <For each={sortedModels}>
+                      {(modelGroup) => {
+                        const isExcluding = () => ctx.excludingQuote() === `price_ru:${modelGroup.externalId}`;
+                        const canExclude = () => modelGroup.externalId && modelGroup.externalId !== "unknown";
+                        return (
+                          <div class="px-4 py-3">
+                            <div class="flex items-center justify-between gap-3 mb-2">
+                              <div class="flex-1 min-w-0">
+                                <span class="text-sm font-semibold text-zinc-900 dark:text-white truncate block">
+                                  {modelGroup.modelName}
+                                </span>
+                                <span class="text-[10px] text-zinc-400 dark:text-slate-500">
+                                  {modelGroup.sellerCount} {modelGroup.sellerCount === 1 ? "магазин" : "магазинов"}
+                                </span>
                               </div>
-                            </Show>
+                              <div class="flex items-center gap-2 flex-shrink-0">
+                                <span class="text-sm font-bold text-cyan-600 dark:text-cyan-400 tabular-nums">
+                                  от {formatPriceRub(modelGroup.minPrice)}
+                                </span>
+                                <Show when={canExclude()}>
+                                  <button
+                                    onClick={() => ctx.handleExcludeQuote("price_ru", modelGroup.externalId)}
+                                    disabled={isExcluding()}
+                                    class="p-1.5 text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded transition-colors disabled:opacity-50"
+                                    title="Исключить (неверная модель)"
+                                  >
+                                    <Show when={isExcluding()} fallback={
+                                      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                    }>
+                                      <div class="w-4 h-4 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                                    </Show>
+                                  </button>
+                                </Show>
+                              </div>
+                            </div>
+                            <div class="space-y-1.5">
+                              <For each={modelGroup.quotes.slice(0, 3)}>
+                                {(quote) => (
+                                  <div class="flex items-center justify-between gap-2 pl-3 py-1 bg-zinc-50 dark:bg-slate-800/50 rounded text-xs">
+                                    <div class="flex items-center gap-2 min-w-0 flex-1">
+                                      <span class="text-zinc-600 dark:text-slate-400 truncate">
+                                        {quote.seller}
+                                      </span>
+                                      <Show when={!quote.isAvailable}>
+                                        <span class="px-1 py-0.5 text-[9px] font-medium bg-zinc-200 dark:bg-slate-700 text-zinc-500 dark:text-slate-400 rounded">
+                                          нет
+                                        </span>
+                                      </Show>
+                                    </div>
+                                    <div class="flex items-center gap-2 flex-shrink-0">
+                                      <span class="font-medium text-zinc-700 dark:text-slate-300 tabular-nums">
+                                        {formatPriceRub(quote.price)}
+                                      </span>
+                                      <Show when={quote.url}>
+                                        <a
+                                          href={quote.url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          class="p-1 text-zinc-400 hover:text-indigo-500 transition-colors"
+                                        >
+                                          <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                          </svg>
+                                        </a>
+                                      </Show>
+                                    </div>
+                                  </div>
+                                )}
+                              </For>
+                              <Show when={modelGroup.quotes.length > 3}>
+                                <div class="text-[10px] text-zinc-400 dark:text-slate-500 pl-3">
+                                  + ещё {modelGroup.quotes.length - 3} предложений
+                                </div>
+                              </Show>
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      }}
                     </For>
                   </div>
                 </div>

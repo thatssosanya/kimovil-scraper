@@ -65,6 +65,8 @@ export interface MappingModalContextValue {
   handleScrapePriceRu: () => Promise<void>;
   handleScrapeYandex: () => Promise<void>;
   clearScrapeMessages: () => void;
+  handleExcludeQuote: (source: string, externalId: string) => Promise<void>;
+  excludingQuote: Accessor<string | null>;
 
   // Actions
   actionLoading: Accessor<boolean>;

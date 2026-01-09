@@ -84,6 +84,34 @@ export interface PriceService {
     source: string;
     scrapedAt: number;
   }>, PriceServiceError>;
+
+  readonly excludeQuotes: (params: {
+    deviceId: string;
+    source: string;
+    externalId: string;
+    reason?: string;
+  }) => Effect.Effect<void, PriceServiceError>;
+
+  readonly isExcluded: (params: {
+    deviceId: string;
+    source: string;
+    externalId: string;
+  }) => Effect.Effect<boolean, PriceServiceError>;
+
+  readonly getExclusions: (
+    deviceId: string,
+  ) => Effect.Effect<Array<{
+    source: string;
+    externalId: string;
+    reason: string | null;
+    createdAt: number;
+  }>, PriceServiceError>;
+
+  readonly removeExclusion: (params: {
+    deviceId: string;
+    source: string;
+    externalId: string;
+  }) => Effect.Effect<void, PriceServiceError>;
 }
 
 export const PriceService = Context.GenericTag<PriceService>("PriceService");
@@ -135,6 +163,20 @@ export const PriceServiceLive = Layer.effect(
         sql.withTransaction(
           Effect.gen(function* () {
             const { deviceId, source, offers, scrapeId, externalId } = params;
+
+            // Check if this external_id is excluded for this device
+            if (externalId) {
+              const exclusionRows = yield* sql<{ cnt: number }>`
+                SELECT COUNT(*) as cnt FROM price_quote_exclusions
+                WHERE device_id = ${deviceId}
+                  AND source = ${source}
+                  AND external_id = ${externalId}
+              `;
+              if ((exclusionRows[0]?.cnt ?? 0) > 0) {
+                return 0;
+              }
+            }
+
             let count = 0;
 
             for (const offer of offers) {
@@ -446,6 +488,79 @@ export const PriceServiceLive = Layer.effect(
               Effect.annotateLogs({ ...params, error: e }),
             ),
           ),
+          Effect.mapError(wrapSqlError),
+        ),
+
+      excludeQuotes: (params) =>
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const { deviceId, source, externalId, reason } = params;
+
+            yield* sql`
+              INSERT INTO price_quote_exclusions (device_id, source, external_id, reason)
+              VALUES (${deviceId}, ${source}, ${externalId}, ${reason ?? null})
+              ON CONFLICT(device_id, source, external_id) DO NOTHING
+            `;
+
+            yield* sql`
+              DELETE FROM price_quotes
+              WHERE device_id = ${deviceId}
+                AND source = ${source}
+                AND external_id = ${externalId}
+            `;
+          }),
+        ).pipe(
+          Effect.tapError((e) =>
+            Effect.logWarning("PriceService.excludeQuotes failed").pipe(
+              Effect.annotateLogs({ ...params, error: e }),
+            ),
+          ),
+          Effect.asVoid,
+          Effect.mapError(wrapSqlError),
+        ),
+
+      isExcluded: (params) =>
+        sql<{ cnt: number }>`
+          SELECT COUNT(*) as cnt FROM price_quote_exclusions
+          WHERE device_id = ${params.deviceId}
+            AND source = ${params.source}
+            AND external_id = ${params.externalId}
+        `.pipe(
+          Effect.map((rows) => (rows[0]?.cnt ?? 0) > 0),
+          Effect.mapError(wrapSqlError),
+        ),
+
+      getExclusions: (deviceId) =>
+        sql<{
+          source: string;
+          external_id: string;
+          reason: string | null;
+          created_at: number;
+        }>`
+          SELECT source, external_id, reason, created_at
+          FROM price_quote_exclusions
+          WHERE device_id = ${deviceId}
+          ORDER BY created_at DESC
+        `.pipe(
+          Effect.map((rows) =>
+            rows.map((r) => ({
+              source: r.source,
+              externalId: r.external_id,
+              reason: r.reason,
+              createdAt: r.created_at,
+            })),
+          ),
+          Effect.mapError(wrapSqlError),
+        ),
+
+      removeExclusion: (params) =>
+        sql`
+          DELETE FROM price_quote_exclusions
+          WHERE device_id = ${params.deviceId}
+            AND source = ${params.source}
+            AND external_id = ${params.externalId}
+        `.pipe(
+          Effect.asVoid,
           Effect.mapError(wrapSqlError),
         ),
     });

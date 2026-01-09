@@ -171,3 +171,19 @@ export async function invalidateWidgetCache(slug: string): Promise<void> {
     method: "POST",
   }).catch(() => {});
 }
+
+export async function excludePriceQuote(
+  deviceId: string,
+  source: string,
+  externalId: string,
+  reason?: string
+): Promise<{ success: boolean; error?: string }> {
+  const res = await fetch(`${API_BASE}/api/v2/prices/${deviceId}/exclude`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source, externalId, reason }),
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}

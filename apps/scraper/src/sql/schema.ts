@@ -1010,6 +1010,19 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_entity_data_device ON entity_data(device_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_sources_device ON device_sources(device_id)`);
 
+    // Price quote exclusions - prevents wrong model matches from reappearing after deletion
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS price_quote_exclusions (
+        device_id TEXT NOT NULL REFERENCES devices(id),
+        source TEXT NOT NULL,
+        external_id TEXT NOT NULL,
+        reason TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        PRIMARY KEY (device_id, source, external_id)
+      )
+    `);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_pq_excl_device ON price_quote_exclusions(device_id, source)`);
+
     yield* sql.withTransaction(migrateKimovilDevices(sql));
     yield* sql.withTransaction(backfillJobQueueDeviceId(sql));
 
