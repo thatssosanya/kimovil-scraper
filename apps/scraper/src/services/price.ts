@@ -16,6 +16,7 @@ export interface PriceQuoteInput {
   url?: string;
   isAvailable: boolean;
   offerId?: string;
+  redirectType?: "to_merchant" | "to_price";
 }
 
 export interface PriceHistoryPoint {
@@ -140,13 +141,13 @@ export const PriceServiceLive = Layer.effect(
               yield* sql`
                 INSERT INTO price_quotes (
                   device_id, source, seller, seller_id, price_minor_units, currency,
-                  variant_key, variant_label, url, offer_id, external_id, scraped_at, scrape_id, is_available
+                  variant_key, variant_label, url, offer_id, external_id, scraped_at, scrape_id, is_available, redirect_type
                 ) VALUES (
                   ${deviceId}, ${source}, ${offer.seller}, ${offer.sellerId ?? null},
                   ${offer.priceMinorUnits}, ${offer.currency},
                   ${offer.variantKey ?? null}, ${offer.variantLabel ?? null},
                   ${offer.url ?? null}, ${offer.offerId ?? null}, ${externalId ?? null},
-                  unixepoch(), ${scrapeId ?? null}, ${offer.isAvailable ? 1 : 0}
+                  unixepoch(), ${scrapeId ?? null}, ${offer.isAvailable ? 1 : 0}, ${offer.redirectType ?? null}
                 )
               `;
               count++;

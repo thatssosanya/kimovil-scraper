@@ -1003,6 +1003,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* ensureColumn(sql, "price_quotes", "variant_label", "TEXT");
     yield* ensureColumn(sql, "price_quotes", "offer_id", "TEXT");
     yield* ensureColumn(sql, "price_quotes", "external_id", "TEXT");
+    yield* ensureColumn(sql, "price_quotes", "redirect_type", "TEXT");
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_price_quotes_variant ON price_quotes(device_id, variant_key, scraped_at)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_price_quotes_link ON price_quotes(device_id, source, external_id, scraped_at)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_entity_data_raw_device ON entity_data_raw(device_id)`);

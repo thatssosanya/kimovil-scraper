@@ -103,6 +103,7 @@ const scrapeHandler = (ctx: PipelineContext) =>
           variantLabel: modelId > 0 ? groupName : o.name,
           url: o.clickUrl ?? undefined,
           offerId: String(o.id),
+          redirectType: o.redirectTarget,
         })),
         scrapeId: ctx.scrapeId ?? undefined,
       });
