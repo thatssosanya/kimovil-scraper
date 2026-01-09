@@ -8,38 +8,42 @@ export function LeftColumn() {
     <div class="flex flex-col h-full overflow-hidden border-r border-zinc-200 dark:border-slate-800">
       <div class="flex-1 overflow-y-auto p-6 space-y-6">
         {/* Posts Section */}
-        <div>
-          <div class="flex items-center justify-between mb-3">
-            <div class="text-xs font-semibold text-zinc-500 dark:text-slate-400 uppercase tracking-wider">
+        <div class="flex flex-col">
+          <div class="flex items-baseline justify-between mb-4">
+            <h3 class="text-[11px] font-semibold text-zinc-400 dark:text-slate-500 uppercase tracking-[0.08em]">
               Posts with this widget
-            </div>
-            <span class="text-xs text-zinc-400 dark:text-slate-500">
-              {ctx.posts().length} posts
+            </h3>
+            <span class="text-[11px] font-medium text-zinc-300 dark:text-slate-600 tabular-nums">
+              {ctx.posts().length}
             </span>
           </div>
           <Show when={ctx.posts().length > 0} fallback={
-            <div class="text-sm text-zinc-400 dark:text-slate-500 italic py-2">
-              No posts found with this widget
+            <div class="flex items-center justify-center py-8 px-4">
+              <p class="text-sm text-zinc-400 dark:text-slate-500 italic">
+                No posts found
+              </p>
             </div>
           }>
-            <div class="space-y-1 max-h-48 overflow-y-auto">
+            <div class="space-y-1.5 max-h-64 overflow-y-auto posts-scrollbar pr-1">
               <For each={ctx.posts()}>
                 {(post) => (
                   <a
                     href={post.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    class="flex items-center justify-between px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors group"
+                    class="group relative flex items-center gap-3 px-3.5 py-2.5 rounded-lg bg-zinc-50/50 dark:bg-slate-800/40 border border-transparent hover:border-zinc-200 dark:hover:border-slate-700 hover:bg-white dark:hover:bg-slate-800/70 transition-all duration-150"
                   >
-                    <span class="text-sm text-zinc-700 dark:text-slate-300 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
-                      {post.title}
-                    </span>
-                    <div class="flex items-center gap-2 flex-shrink-0 ml-2">
-                      <span class="text-xs text-zinc-400 dark:text-slate-500">
-                        {new Date(post.dateGmt).toLocaleDateString()}
-                      </span>
-                      <svg class="w-3.5 h-3.5 text-zinc-400 group-hover:text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    <div class="flex-1 min-w-0">
+                      <p class="text-[13px] font-medium text-zinc-700 dark:text-slate-300 truncate leading-snug group-hover:text-zinc-900 dark:group-hover:text-white transition-colors">
+                        {post.title}
+                      </p>
+                      <time class="text-[11px] text-zinc-400 dark:text-slate-500 tabular-nums mt-0.5 block">
+                        {new Date(post.dateGmt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </time>
+                    </div>
+                    <div class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                      <svg class="w-4 h-4 text-zinc-400 dark:text-slate-500 group-hover:text-indigo-500 dark:group-hover:text-indigo-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
                       </svg>
                     </div>
                   </a>
