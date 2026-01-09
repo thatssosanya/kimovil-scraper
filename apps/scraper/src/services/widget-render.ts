@@ -34,6 +34,7 @@ export interface WidgetModel {
       seller: string;
       price: number;
       url?: string;
+      redirectType?: "to_merchant" | "to_price";
     }>;
   }>;
 }
@@ -74,10 +75,10 @@ function pluralOffers(count: number): string {
 
 const ARROW_VARIANT_CLASSES: Record<ArrowVariant, { main: string; currency: string }> = {
   neutral: { main: "text-neutral-900", currency: "text-neutral-400" },
-  up: { main: "text-[hsl(354,100%,64%)]", currency: "text-[hsl(354,100%,64%)]/70" },
-  down: { main: "text-[hsl(158,64%,42%)]", currency: "text-[hsl(158,64%,42%)]/70" },
-  hot: { main: "text-[hsl(25,95%,53%)]", currency: "text-[hsl(25,95%,53%)]/70" },
-  new: { main: "text-[hsl(45,93%,47%)]", currency: "text-[hsl(45,93%,47%)]/70" },
+  up: { main: "text-widget-up", currency: "text-widget-up/70" },
+  down: { main: "text-widget-down", currency: "text-widget-down/70" },
+  hot: { main: "text-widget-hot", currency: "text-widget-hot/70" },
+  new: { main: "text-widget-new", currency: "text-widget-new/70" },
 };
 
 const INDICATOR_TEXT: Record<ArrowVariant, { symbol: string | null; text: string } | null> = {
@@ -132,36 +133,42 @@ function renderPriceHighlight(minPrice: number, variant: ArrowVariant): string {
   `;
 }
 
-function renderShopRow(group: WidgetModel["prices"][0], rank: number): string {
-  const url = sanitizeUrl(group.topOffers[0]?.url || "#");
+interface ShopRowOptions {
+  source: string;
+  displayName: string;
+  price: number;
+  url: string;
+  rank: number;
+  offerCount?: number;
+}
+
+function renderShopRow(opts: ShopRowOptions): string {
+  const url = sanitizeUrl(opts.url);
+  const showOfferCount = opts.offerCount !== undefined && opts.offerCount > 1;
 
   return `
     <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="group flex items-center gap-4 px-6 py-3.5 hover:bg-neutral-50/80 transition-colors">
       <!-- Rank -->
       <div class="w-7 h-7 rounded-full bg-neutral-100 flex items-center justify-center flex-shrink-0">
-        <span class="text-[13px] font-semibold text-neutral-500">${rank}</span>
+        <span class="text-[13px] font-semibold text-neutral-500">${opts.rank}</span>
       </div>
 
       <!-- Shop info -->
       <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2">
-          <span class="font-medium text-[15px] text-neutral-900 truncate">${escapeHtml(group.sourceName)}</span>
-        </div>
-        <span class="text-[13px] text-neutral-400 mt-0.5 block">
-          ${group.offerCount} ${pluralOffers(group.offerCount)}
-        </span>
+        <span class="font-medium text-[15px] text-neutral-900 truncate block">${escapeHtml(opts.displayName)}</span>
+        ${showOfferCount ? `<span class="text-[13px] text-neutral-400 mt-0.5 block">${opts.offerCount} ${pluralOffers(opts.offerCount!)}</span>` : ""}
       </div>
 
       <!-- Price -->
       <div class="flex items-center gap-3 flex-shrink-0">
         <div class="text-right">
           <div class="text-[17px] font-semibold text-neutral-900 tabular-nums">
-            от ${formatPrice(group.minPrice)} <span class="text-neutral-400 font-normal">₽</span>
+            от ${formatPrice(opts.price)} <span class="text-neutral-400 font-normal">₽</span>
           </div>
         </div>
         
         <!-- Arrow -->
-        <svg class="w-5 h-5 text-neutral-300 group-hover:text-[hsl(354,100%,64%)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <svg class="w-5 h-5 text-neutral-300 group-hover:text-widget-up group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
         </svg>
       </div>
@@ -169,11 +176,57 @@ function renderShopRow(group: WidgetModel["prices"][0], rank: number): string {
   `;
 }
 
+function buildShopRows(prices: WidgetModel["prices"]): ShopRowOptions[] {
+  const rows: ShopRowOptions[] = [];
+  const seenSellers = new Set<string>();
+
+  for (const group of prices) {
+    if (group.source === "price_ru") {
+      const sortedOffers = [...group.topOffers].sort((a, b) => a.price - b.price);
+      for (const offer of sortedOffers) {
+        if (seenSellers.has(offer.seller)) continue;
+        seenSellers.add(offer.seller);
+        rows.push({
+          source: "price_ru",
+          displayName: offer.seller,
+          price: offer.price,
+          url: offer.url || "#",
+          rank: 0,
+        });
+      }
+    } else if (group.source === "yandex_market") {
+      if (group.topOffers.length > 0) {
+        const cheapest = group.topOffers.reduce((a, b) => (a.price < b.price ? a : b));
+        rows.push({
+          source: "yandex_market",
+          displayName: group.sourceName,
+          price: cheapest.price,
+          url: cheapest.url || "#",
+          rank: 0,
+        });
+      }
+    } else {
+      rows.push({
+        source: group.source,
+        displayName: group.sourceName,
+        price: group.minPrice,
+        url: group.topOffers[0]?.url || "#",
+        rank: 0,
+        offerCount: group.offerCount,
+      });
+    }
+  }
+
+  rows.sort((a, b) => a.price - b.price);
+
+  return rows.map((row, i) => ({ ...row, rank: i + 1 }));
+}
+
 export function renderPriceWidget(model: WidgetModel, options?: WidgetRenderOptions): string {
   const arrowVariant = options?.arrowVariant ?? "neutral";
   const totalOffers = model.prices.reduce((sum, p) => sum + p.offerCount, 0);
-  const minPrice = model.prices.length > 0 ? Math.min(...model.prices.map((p) => p.minPrice)) : null;
-  const sortedPrices = [...model.prices].sort((a, b) => a.minPrice - b.minPrice);
+  const shopRows = buildShopRows(model.prices);
+  const minPrice = shopRows.length > 0 ? Math.min(...shopRows.map((r) => r.price)) : null;
   const deviceName = model.device.brand ? `${model.device.brand} ${model.device.name}` : model.device.name;
 
   return `<div class="widget-price-container w-full max-w-[680px] font-['Inter',system-ui,-apple-system,sans-serif]">
@@ -220,7 +273,7 @@ export function renderPriceWidget(model: WidgetModel, options?: WidgetRenderOpti
 
     <!-- Shop rows -->
     <div class="py-2">
-      ${sortedPrices.map((group, i) => renderShopRow(group, i + 1)).join("\n")}
+      ${shopRows.map((row) => renderShopRow(row)).join("\n")}
     </div>
 
     <!-- Bottom bar -->
