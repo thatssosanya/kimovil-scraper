@@ -1,28 +1,31 @@
 @import "tailwindcss";
 
 /* Widget safelist - classes used in server-rendered widget HTML */
-@source inline("widget-price-container");
-@source inline("w-full max-w-[680px]");
-@source inline("font-['Inter',system-ui,-apple-system,sans-serif]");
+@source inline("widget-price-container w-full max-w-[680px] font-['Inter',system-ui,-apple-system,sans-serif]");
 @source inline("bg-white rounded-2xl border border-neutral-200/60 overflow-hidden");
-@source inline("p-6 pb-5 p-12 flex items-start items-center items-baseline items-end justify-center justify-between");
-@source inline("gap-5 gap-4 gap-3 gap-2 gap-1");
-@source inline("w-[100px] h-[120px] w-16 h-16 w-14 h-20 w-8 h-8 w-7 h-7 w-5 h-5");
-@source inline("bg-neutral-50 bg-neutral-100 bg-red-50 rounded-xl rounded-lg rounded-full flex-shrink-0");
+@source inline("p-4 pb-4 p-6 pb-5 p-12 sm:p-6 sm:pb-5");
+@source inline("flex items-start items-center items-baseline items-end justify-center justify-between");
+@source inline("gap-3 gap-2 gap-1 gap-1.5 sm:gap-5 sm:gap-4 sm:gap-2 sm:gap-3");
+@source inline("w-[60px] h-[72px] w-[100px] h-[120px] sm:w-[100px] sm:h-[120px]");
+@source inline("w-16 h-16 w-14 h-20 w-10 h-14 sm:w-14 sm:h-20");
+@source inline("w-8 h-8 w-7 h-7 w-6 h-6 sm:w-7 sm:h-7 w-5 h-5 w-4 h-4 sm:w-5 sm:h-5");
+@source inline("bg-neutral-50 bg-neutral-100 bg-red-50 rounded-xl rounded-lg sm:rounded-xl rounded-full flex-shrink-0");
 @source inline("max-w-full max-h-full object-contain");
-@source inline("flex-1 min-w-0 pt-1 flex-col flex-wrap");
-@source inline("text-[22px] text-[20px] text-[18px] text-[17px] text-[15px] text-[14px] text-[13px] text-[12px] text-[28px] text-lg text-sm");
-@source inline("font-semibold font-bold font-medium font-normal");
+@source inline("flex-1 min-w-0 pt-0 pt-1 sm:pt-1 flex-col flex-wrap");
+@source inline("text-[24px] text-[22px] text-[20px] text-[18px] text-[17px] text-[16px] text-[15px] text-[14px] text-[13px] text-[12px] text-[11px] text-[28px]");
+@source inline("sm:text-[28px] sm:text-[22px] sm:text-[20px] sm:text-[18px] sm:text-[17px] sm:text-[15px] sm:text-[14px] sm:text-[13px] sm:text-[12px]");
+@source inline("text-lg text-sm font-semibold font-bold font-medium font-normal");
 @source inline("text-neutral-900 text-neutral-500 text-neutral-400 text-neutral-300 text-red-500");
-@source inline("text-[hsl(354,100%,64%)] text-[hsl(354,100%,64%)]/70");
-@source inline("text-[hsl(158,64%,42%)] text-[hsl(158,64%,42%)]/70");
-@source inline("text-[hsl(25,95%,53%)] text-[hsl(25,95%,53%)]/70");
-@source inline("text-[hsl(45,93%,47%)] text-[hsl(45,93%,47%)]/70");
+@source inline("text-widget-up text-widget-up/70 text-widget-down text-widget-down/70");
+@source inline("text-widget-hot text-widget-hot/70 text-widget-new text-widget-new/70");
+@source inline("group-hover:text-widget-up");
 @source inline("leading-tight tracking-[-0.02em] tracking-wide uppercase truncate text-right text-center max-w-[140px]");
-@source inline("mt-4 mt-2 mt-0.5 ml-1 mb-4 mb-2 mx-6 mx-auto px-6 py-4 py-3.5 py-2");
-@source inline("h-px bg-neutral-100 bg-neutral-50/50 border-t border-neutral-100");
-@source inline("group {group-hover:,hover:}bg-neutral-50/80 transition-colors transition-all tabular-nums block");
-@source inline("{group-hover:}text-[hsl(354,100%,64%)] {group-hover:}translate-x-0.5 {group-hover:}-translate-y-0.5");
+@source inline("mt-3 mt-4 sm:mt-4 mt-1.5 mt-2 sm:mt-2 mt-0.5 ml-1 mb-4 mb-2");
+@source inline("mx-4 mx-6 sm:mx-6 mx-auto px-4 px-6 sm:px-6 py-3 py-4 sm:py-4 py-3.5 sm:py-3.5 py-2");
+@source inline("hidden sm:flex h-px bg-neutral-100");
+@source inline("bg-neutral-50/50 border-t border-neutral-100");
+@source inline("group hover:bg-neutral-50/80 transition-colors transition-all tabular-nums block");
+@source inline("group-hover:translate-x-0.5 group-hover:-translate-y-0.5");
 
 @font-face {
   font-family: "Instrument Serif";
@@ -47,6 +50,13 @@
   &:where(.dark, .dark *) {
     @slot;
   }
+}
+
+@theme {
+  --color-widget-up: hsl(354, 100%, 64%);
+  --color-widget-down: hsl(158, 64%, 42%);
+  --color-widget-hot: hsl(25, 95%, 53%);
+  --color-widget-new: hsl(45, 93%, 47%);
 }
 
 :root {

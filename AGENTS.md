@@ -8,6 +8,22 @@
 - **Format**: `npm run format` (Prettier on ts/tsx/md files)
 - **Test**: `cd apps/scraper && npm test` (single test: `npm test -- <file>`)
 
+## Production Deployment
+
+Production server: `cod-prod` (130.193.45.37, user: cod, SSH alias: cod-prod)
+API URL: https://api.click-or-die.ru
+
+**Code changes (via git):**
+```bash
+git add -A && git commit -m "description" && git push
+ssh cod-prod 'cd ~/apps/cod && git pull && pm2 restart scraper'
+```
+
+**Database sync (via rsync):**
+```bash
+rsync -avz apps/scraper/scraper-cache.sqlite cod-prod:~/apps/cod/apps/scraper/
+```
+
 ## Running Locally
 ```bash
 # Terminal 1 — Scraper backend (logs appear here)

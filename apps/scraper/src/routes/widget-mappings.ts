@@ -16,6 +16,9 @@ import { validateYandexMarketUrl, ALLOWED_HOSTS } from "../sources/yandex_market
 import { YandexBrowserError } from "../sources/yandex_market/errors";
 import { YandexAffiliateService } from "../services/yandex-affiliate";
 import { extractVariantKey } from "../sources/price_ru/variant-utils";
+import { LinkResolverService } from "../services/link-resolver";
+
+const SHORTENER_HOSTS = ["kik.cat", "ya.cc", "clck.ru"];
 
 const VALID_STATUSES = ["pending", "suggested", "auto_confirmed", "confirmed", "ignored", "needs_review"] as const;
 const MAX_LIMIT = 1000;
@@ -288,8 +291,18 @@ export const createWidgetMappingsRoutes = () =>
           return { success: false, error: "url is required" };
         }
 
+        let parsedHost: string;
+        try {
+          parsedHost = new URL(url).hostname;
+        } catch {
+          set.status = 400;
+          return { success: false, error: "Invalid URL format" };
+        }
+
+        const isShortenerUrl = SHORTENER_HOSTS.includes(parsedHost);
         const validation = validateYandexMarketUrl(url);
-        if (!validation.valid) {
+
+        if (!validation.valid && !isShortenerUrl) {
           set.status = 400;
           return { success: false, error: validation.error };
         }
@@ -305,8 +318,28 @@ export const createWidgetMappingsRoutes = () =>
             return { success: false, error: "Device not found" };
           }
 
-          const externalId = validation.externalId;
-          const cleanUrl = validation.cleanUrl;
+          let externalId: string;
+          let cleanUrl: string;
+
+          if (isShortenerUrl) {
+            const resolver = yield* LinkResolverService;
+            const resolved = yield* resolver.resolve(url);
+
+            if (!resolved.isYandexMarket || !resolved.resolvedUrl || !resolved.externalId) {
+              return {
+                success: false,
+                error: resolved.error ?? "Shortener link did not resolve to a valid Yandex Market URL",
+              };
+            }
+
+            externalId = resolved.externalId;
+            cleanUrl = resolved.resolvedUrl;
+          } else if (validation.valid) {
+            externalId = validation.externalId;
+            cleanUrl = validation.cleanUrl;
+          } else {
+            return { success: false, error: validation.error };
+          }
 
           // Scrape with browser
           const html = yield* browserService.withPersistentStealthPage((page) =>

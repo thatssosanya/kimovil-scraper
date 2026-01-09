@@ -225,8 +225,9 @@ export const WidgetServiceLive = Layer.effect(
 
           let html: string;
 
-          if (data === null || data.prices.length === 0) {
-            // Return empty string if no data or no prices
+          if (data === null) {
+            html = renderNotFoundWidget(params.slug);
+          } else if (data.prices.length === 0) {
             html = "";
           } else {
             // Check if we need to backfill affiliate links (fire-and-forget)
@@ -235,7 +236,7 @@ export const WidgetServiceLive = Layer.effect(
               yield* triggerAffiliateBackfill(
                 params.slug,
                 data.device.id,
-                data.device.brand
+                data.device.brand && !data.device.name.startsWith(data.device.brand)
                   ? `${data.device.brand} ${data.device.name}`
                   : data.device.name,
                 data.specs.image,

@@ -1,6 +1,5 @@
 import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
-import { apiFetch } from "../../../lib/api";
 import type {
   Device,
   SlugsResponse,
@@ -68,7 +67,7 @@ export function useSlugsApi() {
   ) => {
     setLoading(true);
     try {
-      let url = "/api/v2/devices";
+      let url = "http://localhost:1488/api/v2/devices";
       const params = new URLSearchParams();
       if (searchQuery) params.set("search", searchQuery);
       if (filterType !== "all") params.set("filter", filterType);
@@ -76,7 +75,7 @@ export function useSlugsApi() {
       params.set("includeStats", "true");
       if (params.toString()) url += `?${params.toString()}`;
 
-      const res = await apiFetch(url);
+      const res = await fetch(url);
       const data: SlugsResponse = await res.json();
       setDevices(data.devices);
       setTotal(data.total);
@@ -98,7 +97,7 @@ export function useSlugsApi() {
 
   const fetchStats = async () => {
     try {
-      const res = await apiFetch("/api/v2/devices/stats");
+      const res = await fetch("http://localhost:1488/api/v2/devices/stats");
       const data: Stats = await res.json();
       setStats(data);
     } catch (error) {
@@ -108,7 +107,7 @@ export function useSlugsApi() {
 
   const fetchQueueStatuses = async () => {
     try {
-      const res = await apiFetch("/api/scrape/queue");
+      const res = await fetch("http://localhost:1488/api/scrape/queue");
       const data = await res.json();
       const statusMap: Record<string, QueueItem> = {};
       for (const item of data.items || []) {
@@ -135,8 +134,8 @@ export function useSlugsApi() {
     try {
       const results = await Promise.all(
         batches.map(async (batch) => {
-          const res = await apiFetch(
-            `/api/v2/devices/bulk-status?slugs=${batch.join(",")}&source=kimovil`,
+          const res = await fetch(
+            `http://localhost:1488/api/v2/devices/bulk-status?slugs=${batch.join(",")}&source=kimovil`,
           );
           return res.json() as Promise<Record<string, ScrapeStatus>>;
         }),
@@ -151,7 +150,7 @@ export function useSlugsApi() {
   const queueScrape = async (slug: string, mode: "fast" | "complex") => {
     setQueueLoading((prev) => ({ ...prev, [slug]: true }));
     try {
-      const res = await apiFetch("/api/scrape/queue", {
+      const res = await fetch("http://localhost:1488/api/scrape/queue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slug, mode }),
@@ -178,7 +177,7 @@ export function useSlugsApi() {
 
     setVerifyLoading(true);
     try {
-      const res = await apiFetch("/api/scrape/verify", {
+      const res = await fetch("http://localhost:1488/api/scrape/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slugs: slugsToVerify }),
@@ -222,8 +221,8 @@ export function useSlugsApi() {
     if (!confirm(`Clear all scrape data for "${slug}"?`)) return;
 
     try {
-      await apiFetch(
-        `/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/html`,
+      await fetch(
+        `http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/html`,
         { method: "DELETE" },
       );
       setScrapeStatus((prev) => {
@@ -255,7 +254,7 @@ export function useSlugsApi() {
 
     setClearLoading(true);
     try {
-      const res = await apiFetch("/api/v2/jobs", {
+      const res = await fetch("http://localhost:1488/api/v2/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -294,8 +293,8 @@ export function useSlugsApi() {
     slug: string,
   ): Promise<{ html: string | null; error?: string }> => {
     try {
-      const res = await apiFetch(
-        `/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/html`,
+      const res = await fetch(
+        `http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/html`,
       );
       const data = await res.json();
       return { html: data.html || null };
@@ -309,8 +308,8 @@ export function useSlugsApi() {
     slug: string,
   ): Promise<PhoneDataRaw | null> => {
     try {
-      const res = await apiFetch(
-        `/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/raw-data/specs`,
+      const res = await fetch(
+        `http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/raw-data/specs`,
       );
       const data: PhoneDataResponse<PhoneDataRaw> = await res.json();
       return data.data;
@@ -324,8 +323,8 @@ export function useSlugsApi() {
     slug: string,
   ): Promise<PhoneDataAi | null> => {
     try {
-      const res = await apiFetch(
-        `/api/v2/devices/${encodeURIComponent(slug)}/data/specs`,
+      const res = await fetch(
+        `http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/data/specs`,
       );
       const data: PhoneDataResponse<PhoneDataAi> = await res.json();
       return data.data;
@@ -340,7 +339,7 @@ export function useSlugsApi() {
     slug: string,
   ): Promise<{ success: boolean; error?: string }> => {
     try {
-      const res = await apiFetch("/api/process/raw", {
+      const res = await fetch("http://localhost:1488/api/process/raw", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slug }),
@@ -366,7 +365,7 @@ export function useSlugsApi() {
     slug: string,
   ): Promise<{ success: boolean; error?: string }> => {
     try {
-      const res = await apiFetch("/api/process/ai", {
+      const res = await fetch("http://localhost:1488/api/process/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slug }),
@@ -389,8 +388,8 @@ export function useSlugsApi() {
 
   const clearRawData = async (slug: string): Promise<boolean> => {
     try {
-      const res = await apiFetch(
-        `/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/raw-data/specs`,
+      const res = await fetch(
+        `http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/sources/kimovil/raw-data/specs`,
         { method: "DELETE" },
       );
       const data = await res.json();
@@ -410,8 +409,8 @@ export function useSlugsApi() {
 
   const clearAiData = async (slug: string): Promise<boolean> => {
     try {
-      const res = await apiFetch(
-        `/api/v2/devices/${encodeURIComponent(slug)}/data/specs`,
+      const res = await fetch(
+        `http://localhost:1488/api/v2/devices/${encodeURIComponent(slug)}/data/specs`,
         { method: "DELETE" },
       );
       const data = await res.json();
@@ -437,7 +436,7 @@ export function useSlugsApi() {
 
     setClearRawLoading(true);
     try {
-      const res = await apiFetch("/api/v2/jobs", {
+      const res = await fetch("http://localhost:1488/api/v2/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -475,7 +474,7 @@ export function useSlugsApi() {
 
     setClearAiLoading(true);
     try {
-      const res = await apiFetch("/api/v2/jobs", {
+      const res = await fetch("http://localhost:1488/api/v2/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -507,8 +506,8 @@ export function useSlugsApi() {
 
   const fetchPrices = async (deviceId: string): Promise<PriceSummary | null> => {
     try {
-      const res = await apiFetch(
-        `/api/prices/${encodeURIComponent(deviceId)}`,
+      const res = await fetch(
+        `http://localhost:1488/api/prices/${encodeURIComponent(deviceId)}`,
       );
       if (!res.ok) return null;
       const data = await res.json();
@@ -524,8 +523,8 @@ export function useSlugsApi() {
     days: number = 30,
   ): Promise<PriceHistory | null> => {
     try {
-      const res = await apiFetch(
-        `/api/prices/${encodeURIComponent(deviceId)}/history?days=${days}`,
+      const res = await fetch(
+        `http://localhost:1488/api/prices/${encodeURIComponent(deviceId)}/history?days=${days}`,
       );
       if (!res.ok) return null;
       const data = await res.json();
@@ -545,8 +544,8 @@ export function useSlugsApi() {
       const params = new URLSearchParams();
       if (source) params.set("source", source);
       if (externalId) params.set("externalId", externalId);
-      const res = await apiFetch(
-        `/api/prices/${encodeURIComponent(slug)}/quotes?${params}`,
+      const res = await fetch(
+        `http://localhost:1488/api/prices/${encodeURIComponent(slug)}/quotes?${params}`,
       );
       if (!res.ok) return [];
       return await res.json();
@@ -561,10 +560,10 @@ export function useSlugsApi() {
     source?: string,
   ): Promise<DeviceSource[]> => {
     const url = source
-      ? `/api/device-sources/${encodeURIComponent(slug)}?source=${encodeURIComponent(source)}`
-      : `/api/device-sources/${encodeURIComponent(slug)}`;
+      ? `http://localhost:1488/api/device-sources/${encodeURIComponent(slug)}?source=${encodeURIComponent(source)}`
+      : `http://localhost:1488/api/device-sources/${encodeURIComponent(slug)}`;
     try {
-      const res = await apiFetch(url);
+      const res = await fetch(url);
       if (!res.ok) return [];
       return res.json();
     } catch (error) {

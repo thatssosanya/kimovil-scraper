@@ -116,6 +116,7 @@ export const LiveLayer = Layer.mergeAll(
   SqlLayer,
   PriceRuClientLive,
   CatalogueLinkLayer,
+  LinkResolverLayer,
   YandexAffiliateLayer,
 );
 

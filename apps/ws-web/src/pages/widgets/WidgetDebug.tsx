@@ -1,6 +1,5 @@
 import { createSignal, Show, For, onMount, createEffect, onCleanup } from "solid-js";
 import { Header } from "../../components/Header";
-import { apiFetch } from "../../lib/api";
 
 type MappingStatus = "pending" | "suggested" | "auto_confirmed" | "confirmed" | "ignored";
 
@@ -101,7 +100,7 @@ interface MappingContext {
 
 type SortField = "usageCount" | "rawModel" | "status" | "confidence";
 type StatusTab = "all" | "needs_review" | "auto_confirmed" | "confirmed" | "ignored";
-type PeriodOption = "all" | "7d" | "30d" | "90d" | "custom";
+type PeriodOption = "all" | "1d" | "7d" | "30d" | "90d" | "custom";
 type PreviewTab = "widget" | "device" | "prices";
 
 const STATUS_TABS: { id: StatusTab; label: string }[] = [
@@ -114,6 +113,7 @@ const STATUS_TABS: { id: StatusTab; label: string }[] = [
 
 const PERIOD_OPTIONS: { id: PeriodOption; label: string; days: number | null }[] = [
   { id: "all", label: "All time", days: null },
+  { id: "1d", label: "Last day", days: 1 },
   { id: "7d", label: "Last 7 days", days: 7 },
   { id: "30d", label: "Last 30 days", days: 30 },
   { id: "90d", label: "Last 90 days", days: 90 },
@@ -129,16 +129,18 @@ const getPeriodTimestamps = (period: PeriodOption): { seenAfter?: number; seenBe
 };
 
 const fetchMappingContext = async (rawModel: string): Promise<MappingContext> => {
-  const res = await apiFetch(
-    `/api/widget-mappings/${encodeURIComponent(rawModel)}`
+  const res = await fetch(
+    `http://localhost:1488/api/widget-mappings/${encodeURIComponent(rawModel)}`,
+    { credentials: "include" }
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 };
 
 const searchDevices = async (query: string) => {
-  const res = await apiFetch(
-    `/api/widget-mappings/devices/search?q=${encodeURIComponent(query)}&limit=10`
+  const res = await fetch(
+    `http://localhost:1488/api/widget-mappings/devices/search?q=${encodeURIComponent(query)}&limit=10`,
+    { credentials: "include" }
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<DeviceSearchResult[]>;
@@ -148,12 +150,13 @@ const updateMapping = async (
   rawModel: string,
   update: { deviceId?: string | null; status?: MappingStatus }
 ) => {
-  const res = await apiFetch(
-    `/api/widget-mappings/${encodeURIComponent(rawModel)}`,
+  const res = await fetch(
+    `http://localhost:1488/api/widget-mappings/${encodeURIComponent(rawModel)}`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(update),
+      credentials: "include",
     }
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -196,7 +199,9 @@ export default function WidgetDebug() {
   // Preview tab state
   const [previewTab, setPreviewTab] = createSignal<PreviewTab>("widget");
   const [widgetHtml, setWidgetHtml] = createSignal<string | null>(null);
+  const [widgetFetched, setWidgetFetched] = createSignal(false); // Track if we've attempted fetch
   const [widgetLoading, setWidgetLoading] = createSignal(false);
+  const [mobilePreview, setMobilePreview] = createSignal(false);
 
   // Price scraping state
   const [priceInfo, setPriceInfo] = createSignal<PriceInfo | null>(null);
@@ -246,7 +251,7 @@ export default function WidgetDebug() {
         periodTs.seenAfter ? `&seenAfter=${periodTs.seenAfter}` : "",
         periodTs.seenBefore ? `&seenBefore=${periodTs.seenBefore}` : "",
       ].join("");
-      const res = await apiFetch(`/api/widget-mappings?limit=1000${statusParam}${periodParams}`);
+      const res = await fetch(`http://localhost:1488/api/widget-mappings?limit=1000${statusParam}${periodParams}`, { credentials: "include" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: MappingsResponse = await res.json();
       setMappings(json.mappings);
@@ -260,7 +265,7 @@ export default function WidgetDebug() {
 
   const fetchSyncStatus = async () => {
     try {
-      const res = await apiFetch("/api/widget-debug/sync-status");
+      const res = await fetch("http://localhost:1488/api/widget-debug/sync-status", { credentials: "include" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setSyncStatus(json);
@@ -272,7 +277,7 @@ export default function WidgetDebug() {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const res = await apiFetch("/api/widget-debug/refresh", { method: "POST" });
+      const res = await fetch("http://localhost:1488/api/widget-debug/refresh", { method: "POST", credentials: "include" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await fetchSyncStatus();
       await fetchMappings();
@@ -413,6 +418,7 @@ export default function WidgetDebug() {
       brand: null,
     });
     setWidgetHtml(null); // Clear cached widget on selection change
+    setWidgetFetched(false);
   };
 
   const selectSearchResult = (result: DeviceSearchResult) => {
@@ -427,6 +433,7 @@ export default function WidgetDebug() {
     setSearchResults([]);
     setDeviceSearch("");
     setWidgetHtml(null); // Clear cached widget on selection change
+    setWidgetFetched(false);
   };
 
   const clearSelection = () => {
@@ -434,20 +441,26 @@ export default function WidgetDebug() {
     setSelectedDeviceName(null);
     setDevicePreview(null);
     setWidgetHtml(null);
+    setWidgetFetched(false);
     setPreviewTab("widget");
   };
 
   const fetchWidgetPreview = async (slug: string, bustCache = false) => {
     setWidgetLoading(true);
+    setWidgetFetched(false);
     try {
+      // Invalidate server-side cache if busting
+      if (bustCache) {
+        await fetch(`http://localhost:1488/widget/v1/invalidate/${encodeURIComponent(slug)}`, { method: "POST" }).catch(() => {});
+      }
       const cacheBuster = bustCache ? `&_t=${Date.now()}` : "";
-      const res = await apiFetch(
-        `/widget/v1/price/${encodeURIComponent(slug)}?theme=dark${cacheBuster}`,
+      const res = await fetch(
+        `http://localhost:1488/widget/v1/price/${encodeURIComponent(slug)}?theme=dark${cacheBuster}`,
         bustCache ? { cache: "no-store" } : undefined
       );
       if (res.ok) {
         const html = await res.text();
-        setWidgetHtml(html);
+        setWidgetHtml(html || null);
       } else {
         setWidgetHtml(null);
       }
@@ -455,6 +468,7 @@ export default function WidgetDebug() {
       setWidgetHtml(null);
     } finally {
       setWidgetLoading(false);
+      setWidgetFetched(true);
     }
   };
 
@@ -462,7 +476,7 @@ export default function WidgetDebug() {
   createEffect(() => {
     const tab = previewTab();
     const device = devicePreview();
-    if (tab === "widget" && device && !widgetHtml() && !widgetLoading()) {
+    if (tab === "widget" && device && !widgetHtml() && !widgetLoading() && !widgetFetched()) {
       fetchWidgetPreview(device.slug);
     }
   });
@@ -481,10 +495,11 @@ export default function WidgetDebug() {
     setCreateError(null);
 
     try {
-      const res = await apiFetch("/api/widget-mappings/devices", {
+      const res = await fetch("http://localhost:1488/api/widget-mappings/devices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slug, name, brand }),
+        credentials: "include",
       });
 
       if (!res.ok) {
@@ -514,7 +529,7 @@ export default function WidgetDebug() {
   const fetchPriceInfo = async (deviceId: string) => {
     setPriceLoading(true);
     try {
-      const res = await apiFetch(`/api/widget-mappings/prices/${deviceId}`);
+      const res = await fetch(`http://localhost:1488/api/widget-mappings/prices/${deviceId}`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
         setPriceInfo(data);
@@ -544,8 +559,9 @@ export default function WidgetDebug() {
     setScrapeSuccess(null);
 
     try {
-      const res = await apiFetch(`/api/widget-mappings/scrape/price-ru/${device.id}`, {
+      const res = await fetch(`http://localhost:1488/api/widget-mappings/scrape/price-ru/${device.id}`, {
         method: "POST",
+        credentials: "include",
       });
       const data: ScrapeResult = await res.json();
 
@@ -560,9 +576,7 @@ export default function WidgetDebug() {
         // Refresh price info and widget with cache bust
         await fetchPriceInfo(device.id);
         setWidgetHtml(null);
-        if (previewTab() === "widget") {
-          fetchWidgetPreview(device.slug, true);
-        }
+        fetchWidgetPreview(device.slug, true);
       }
     } catch (e) {
       setScrapeError(e instanceof Error ? e.message : "Network error");
@@ -581,10 +595,11 @@ export default function WidgetDebug() {
     setScrapeSuccess(null);
 
     try {
-      const res = await apiFetch(`/api/widget-mappings/scrape/yandex/${device.id}`, {
+      const res = await fetch(`http://localhost:1488/api/widget-mappings/scrape/yandex/${device.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
+        credentials: "include",
       });
       const data: ScrapeResult = await res.json();
 
@@ -599,9 +614,7 @@ export default function WidgetDebug() {
         // Refresh price info and widget with cache bust
         await fetchPriceInfo(device.id);
         setWidgetHtml(null);
-        if (previewTab() === "widget") {
-          fetchWidgetPreview(device.slug, true);
-        }
+        fetchWidgetPreview(device.slug, true);
       }
     } catch (e) {
       setScrapeError(e instanceof Error ? e.message : "Network error");
@@ -632,7 +645,7 @@ export default function WidgetDebug() {
   const fetchCatalogueLinks = async (slug: string) => {
     setCatalogueLoading(true);
     try {
-      const res = await apiFetch(`/api/widget-mappings/catalogue-links/${encodeURIComponent(slug)}`);
+      const res = await fetch(`http://localhost:1488/api/widget-mappings/catalogue-links/${encodeURIComponent(slug)}`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
         setCatalogueLinks(data.links);
@@ -1658,7 +1671,7 @@ export default function WidgetDebug() {
                                         </Show>
                                         <input
                                           type="text"
-                                          placeholder="market.yandex.ru/product/..."
+                                          placeholder="market.yandex.ru or kik.cat link..."
                                           value={yandexUrl()}
                                           onInput={(e) => setYandexUrl(e.currentTarget.value)}
                                           onClick={(e) => e.stopPropagation()}
@@ -1675,13 +1688,27 @@ export default function WidgetDebug() {
                                     </div>
                                   </div>
 
-                                  {/* Right side: price summary + refresh */}
+                                  {/* Right side: price summary + mobile toggle + refresh */}
                                   <div class="flex items-center gap-2">
                                     <Show when={priceInfo()?.summary}>
                                       <span class="text-xs font-medium text-zinc-600 dark:text-slate-300">
                                         {formatPrice(priceInfo()!.summary!.minPrice / 100)}
                                       </span>
                                     </Show>
+                                    {/* Mobile/Desktop toggle */}
+                                    <button
+                                      onClick={() => setMobilePreview(!mobilePreview())}
+                                      title={mobilePreview() ? "Switch to desktop view" : "Switch to mobile view"}
+                                      class={`p-1.5 rounded-md transition-colors ${
+                                        mobilePreview()
+                                          ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30"
+                                          : "text-zinc-400 dark:text-slate-500 hover:text-zinc-600 dark:hover:text-slate-300 hover:bg-zinc-100 dark:hover:bg-slate-800"
+                                      }`}
+                                    >
+                                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                      </svg>
+                                    </button>
                                     <button
                                       onClick={() => {
                                         const device = devicePreview();
@@ -1738,22 +1765,46 @@ export default function WidgetDebug() {
                                 </Show>
 
                                 <Show when={!widgetLoading() && widgetHtml()}>
-                                  <div class="bg-slate-900 rounded-lg p-3 border border-slate-800">
+                                  <div class={`bg-slate-900 rounded-lg p-3 border border-slate-800 transition-all ${mobilePreview() ? "flex justify-center" : ""}`}>
                                     <div 
                                       class="widget-preview"
+                                      style={mobilePreview() ? { width: "320px", "max-width": "100%" } : undefined}
                                       innerHTML={widgetHtml()!}
                                     />
                                   </div>
                                 </Show>
 
                                 <Show when={!widgetLoading() && !widgetHtml()}>
-                                  <div class="flex flex-col items-center justify-center py-12 bg-zinc-50 dark:bg-slate-900 rounded-lg border border-zinc-200 dark:border-slate-800">
-                                    <svg class="w-8 h-8 text-zinc-300 dark:text-slate-700 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                    </svg>
-                                    <p class="text-xs text-zinc-400 dark:text-slate-500">
-                                      No price data available
+                                  <div class="flex flex-col items-center justify-center py-10 bg-gradient-to-b from-zinc-50 to-zinc-100 dark:from-slate-900 dark:to-slate-950 rounded-xl border border-zinc-200 dark:border-slate-800">
+                                    <div class="w-14 h-14 rounded-2xl bg-zinc-200 dark:bg-slate-800 flex items-center justify-center mb-4">
+                                      <svg class="w-7 h-7 text-zinc-400 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                      </svg>
+                                    </div>
+                                    <p class="text-sm font-medium text-zinc-600 dark:text-slate-400 mb-1">
+                                      No price data yet
                                     </p>
+                                    <p class="text-xs text-zinc-400 dark:text-slate-500 mb-4">
+                                      Use Price.ru or Yandex to add prices
+                                    </p>
+                                    <button
+                                      onClick={() => {
+                                        const device = devicePreview();
+                                        if (device) {
+                                          setWidgetHtml(null);
+                                          setWidgetFetched(false);
+                                          fetchWidgetPreview(device.slug, true);
+                                          fetchPriceInfo(device.id);
+                                        }
+                                      }}
+                                      disabled={widgetLoading() || priceLoading()}
+                                      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-50 transition-colors"
+                                    >
+                                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                      </svg>
+                                      Refresh
+                                    </button>
                                   </div>
                                 </Show>
                               </div>

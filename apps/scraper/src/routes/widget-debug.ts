@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { LiveRuntime } from "../layers/live";
 import { SqlClient } from "@effect/sql";
 import { WordPressSyncService } from "../services/wordpress-sync";
+import { WidgetMappingService } from "../services/widget-mapping";
 
 interface WidgetModel {
   raw: string;
@@ -401,14 +402,23 @@ export const createWidgetDebugRoutes = () =>
     .post("/refresh", async () => {
       const program = Effect.gen(function* () {
         const syncService = yield* WordPressSyncService;
-        const result = yield* syncService.syncPosts();
+        const mappingService = yield* WidgetMappingService;
+        
+        // Sync posts from WordPress
+        const syncResult = yield* syncService.syncPosts();
+        
+        // Sync mappings to update last_seen_at timestamps
+        const mappingResult = yield* mappingService.syncMappings();
+        
         return {
           success: true,
-          postsProcessed: result.postsProcessed,
-          postsInserted: result.postsInserted,
-          postsUpdated: result.postsUpdated,
-          postsSkipped: result.postsSkipped,
-          widgetsInserted: result.widgetsInserted,
+          postsProcessed: syncResult.postsProcessed,
+          postsInserted: syncResult.postsInserted,
+          postsUpdated: syncResult.postsUpdated,
+          postsSkipped: syncResult.postsSkipped,
+          widgetsInserted: syncResult.widgetsInserted,
+          mappingsCreated: mappingResult.created,
+          mappingsUpdated: mappingResult.updated,
         };
       });
 

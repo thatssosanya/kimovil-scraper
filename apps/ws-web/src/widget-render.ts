@@ -1,0 +1,1 @@
+../../../scraper/src/services/widget-render.ts

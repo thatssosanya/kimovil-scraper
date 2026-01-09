@@ -7,8 +7,5 @@
     "incremental": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"],
-  "references": [
-    { "path": "../scraper-domain" }
-  ]
+  "exclude": ["node_modules", "dist"]
 }
