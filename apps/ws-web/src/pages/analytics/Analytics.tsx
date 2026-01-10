@@ -146,6 +146,7 @@ export default function Analytics() {
     setSelectedDevice(null);
     setPostBreakdown([]);
     fetchStats();
+    fetchTimeseries();
   };
 
   const fetchStats = async () => {
@@ -213,8 +214,12 @@ export default function Analytics() {
   };
 
   onMount(() => {
+    // Effects will trigger fetchStats and fetchTimeseries on mount
+  });
+
+  createEffect(() => {
+    period();
     fetchStats();
-    fetchTimeseries();
   });
 
   createEffect(() => {
@@ -288,7 +293,6 @@ export default function Analytics() {
     setPeriod(newPeriod);
     setSelectedDevice(null);
     setPostBreakdown([]);
-    fetchStats();
   };
 
   const fetchPostBreakdown = async (deviceSlug: string) => {
