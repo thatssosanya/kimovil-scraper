@@ -48,9 +48,7 @@ const main = Effect.gen(function* () {
   const app = new Elysia({ adapter: node() })
     .use(
       cors({
-        origin: config.server.allowedOrigins.includes("*")
-          ? true
-          : config.server.allowedOrigins,
+        origin: true,
         methods: ["GET", "POST", "OPTIONS"],
         allowedHeaders: ["Content-Type", "X-Source", "X-Site-Id", "User-Agent", "Authorization", "X-Api-Key"],
         credentials: true,
