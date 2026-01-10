@@ -94,8 +94,8 @@ export interface IngestResult {
 }
 
 export interface WidgetStats {
-  mapping_id: number;
-  post_id: number;
+  mapping_id: number | null;
+  post_id: number | null;
   device_slug: string | null;
   impressions: number;
   clicks: number;

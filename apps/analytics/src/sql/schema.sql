@@ -75,8 +75,8 @@ CREATE TABLE IF NOT EXISTS daily_widget_stats (
     date Date,
     source LowCardinality(String),
     site_id LowCardinality(String),
-    mapping_id Nullable(Int64),
-    post_id Nullable(Int64),
+    mapping_id Int64 DEFAULT 0,
+    post_id Int64 DEFAULT 0,
     device_slug String,
     
     impressions UInt64,
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS daily_widget_stats (
 )
 ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMM(date)
-ORDER BY (date, source, site_id, coalesce(mapping_id, 0), coalesce(post_id, 0))
+ORDER BY (date, source, site_id, mapping_id, post_id, device_slug)
 TTL date + INTERVAL 2 YEAR;
 
 -- Materialized view to populate daily_widget_stats
@@ -95,8 +95,8 @@ SELECT
     toDate(occurred_at) AS date,
     source,
     site_id,
-    prop_mapping_id AS mapping_id,
-    prop_post_id AS post_id,
+    coalesce(prop_mapping_id, 0) AS mapping_id,
+    coalesce(prop_post_id, 0) AS post_id,
     coalesce(prop_device_slug, '') AS device_slug,
     countIf(event_type = 'widget_impression') AS impressions,
     countIf(event_type = 'widget_click') AS clicks,

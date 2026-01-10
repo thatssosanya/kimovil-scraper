@@ -109,8 +109,8 @@ export const EventQueryServiceLive = Layer.effect(
         );
 
         return rows.map((row) => ({
-          mapping_id: parseInt(row.mapping_id, 10),
-          post_id: parseInt(row.post_id, 10),
+          mapping_id: parseInt(row.mapping_id, 10) || null,
+          post_id: parseInt(row.post_id, 10) || null,
           device_slug: row.device_slug || null,
           impressions: parseInt(row.impressions, 10),
           clicks: parseInt(row.clicks, 10),
