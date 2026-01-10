@@ -406,6 +406,7 @@ export default function Analytics() {
             data={ctrChartData()}
             loading={timeseriesLoading()}
             trend={calculateTrend(ctrChartData())}
+            formatValue={(v) => `${v.toFixed(2)}%`}
           />
           <StatCard label="Unmapped" value={emptyCount()} color="amber" />
         </div>
