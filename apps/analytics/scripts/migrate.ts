@@ -9,6 +9,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 async function migrate() {
   const client = createClient({
     url: process.env.CLICKHOUSE_URL ?? "http://localhost:8123",
+    database: "analytics",
     username: process.env.CLICKHOUSE_USERNAME ?? "default",
     password: process.env.CLICKHOUSE_PASSWORD ?? "",
   });
@@ -19,10 +20,16 @@ async function migrate() {
     const schemaPath = join(__dirname, "../src/sql/schema.sql");
     const schema = readFileSync(schemaPath, "utf-8");
 
-    const statements = schema
+    // Remove comment-only lines, then split by semicolon
+    const cleanedSchema = schema
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("--"))
+      .join("\n");
+    
+    const statements = cleanedSchema
       .split(";")
       .map((s) => s.trim())
-      .filter((s) => s.length > 0 && !s.startsWith("--"));
+      .filter((s) => s.length > 0);
 
     for (const statement of statements) {
       if (statement.startsWith("--")) continue;

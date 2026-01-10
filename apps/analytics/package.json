@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "build": "tsc",
+    "build": "npm run build:analytics && tsc",
+    "build:analytics": "esbuild public/analytics.js --bundle --minify --drop:console --outfile=public/analytics.min.js",
     "check-types": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@effect/vitest": "^0.27.0",
     "@types/node": "^22.10.2",
+    "esbuild": "^0.25.0",
     "tsx": "^4.19.2",
     "vitest": "^2.1.8"
   }

@@ -37,9 +37,16 @@ export function LeftColumn() {
                       <p class="text-[13px] font-medium text-zinc-700 dark:text-slate-300 truncate leading-snug group-hover:text-zinc-900 dark:group-hover:text-white transition-colors">
                         {post.title}
                       </p>
-                      <time class="text-[11px] text-zinc-400 dark:text-slate-500 tabular-nums mt-0.5 block">
-                        {new Date(post.dateGmt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                      </time>
+                      <div class="flex items-center gap-2 mt-0.5">
+                        <time class="text-[11px] text-zinc-400 dark:text-slate-500 tabular-nums">
+                          {new Date(post.dateGmt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        </time>
+                        <Show when={post.impressions != null}>
+                          <span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 tabular-nums">
+                            {post.impressions!.toLocaleString()} views
+                          </span>
+                        </Show>
+                      </div>
                     </div>
                     <div class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                       <svg class="w-4 h-4 text-zinc-400 dark:text-slate-500 group-hover:text-indigo-500 dark:group-hover:text-indigo-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">

@@ -12,6 +12,7 @@ import type {
   CatalogueLink,
 } from "../WidgetDebug.types";
 import * as api from "../../../api/widgetMappings";
+import * as analyticsApi from "../../../api/analytics";
 import { MappingModalContext, type MappingModalContextValue } from "./MappingModalContext";
 import { MappingModalHeader } from "./MappingModalHeader";
 import { LeftColumn } from "./LeftColumn";
@@ -103,9 +104,23 @@ export function MappingModal(props: MappingModalProps) {
     try {
       const data = await api.getMappingContext(mapping.rawModel);
       setSuggestions(data.suggestions);
-      setPosts(data.posts);
       setDevicePreview(data.devicePreview);
       setNewDeviceDefaults(data.newDeviceDefaults ?? null);
+
+      // Fetch analytics for posts
+      const postIds = data.posts.map((p) => p.postId);
+      const postAnalytics = await analyticsApi.getPostStats(postIds);
+      const postAnalyticsMap = new Map(postAnalytics.map((a) => [a.postId, a]));
+      
+      const postsWithAnalytics = data.posts.map((p) => {
+        const stats = postAnalyticsMap.get(p.postId);
+        return {
+          ...p,
+          impressions: stats?.impressions,
+          clicks: stats?.clicks,
+        };
+      });
+      setPosts(postsWithAnalytics);
 
       if (data.newDeviceDefaults) {
         setNewDeviceBrand(data.newDeviceDefaults.brand ?? "");

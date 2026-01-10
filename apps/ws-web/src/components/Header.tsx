@@ -3,7 +3,7 @@ import { theme, toggleTheme } from "../stores/theme";
 import { UserMenu } from "./UserMenu";
 
 interface HeaderProps {
-  currentPage: "scraper" | "database" | "widgets" | "widget-debug";
+  currentPage: "scraper" | "database" | "widgets" | "widget-debug" | "analytics";
   status?: string;
   onHealthCheck?: () => void;
 }
@@ -64,6 +64,7 @@ export function Header(props: HeaderProps) {
     { id: "database", label: "Database", href: "/slugs", icon: "database" },
     { id: "widgets", label: "Widgets", href: "/widgets", icon: "widgets" },
     { id: "widget-debug", label: "WP Debug", href: "/widgets/debug", icon: "debug" },
+    { id: "analytics", label: "Analytics", href: "/analytics", icon: "chart" },
   ];
 
   return (

@@ -23,6 +23,9 @@ export function MappingsTable(props: {
               >
                 Count <SortIcon field="usageCount" currentField={props.sortField} desc={props.sortDesc} />
               </th>
+              <th class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400">
+                Impressions
+              </th>
               <th
                 class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400 cursor-pointer hover:text-zinc-900 dark:hover:text-white"
                 onClick={() => props.onSortChange("status")}
@@ -57,6 +60,22 @@ export function MappingsTable(props: {
                     <span class="inline-flex items-center justify-center w-8 h-6 bg-zinc-100 dark:bg-slate-800 rounded text-xs font-medium text-zinc-600 dark:text-slate-300">
                       {mapping.usageCount}
                     </span>
+                  </td>
+                  <td class="px-4 py-3">
+                    <Show when={mapping.impressions != null} fallback={
+                      <span class="text-xs text-zinc-300 dark:text-slate-600">—</span>
+                    }>
+                      <div class="flex items-center gap-1.5">
+                        <span class="text-xs font-medium text-zinc-700 dark:text-slate-300 tabular-nums">
+                          {mapping.impressions!.toLocaleString()}
+                        </span>
+                        <Show when={mapping.clicks}>
+                          <span class="text-[10px] text-zinc-400 dark:text-slate-500">
+                            ({mapping.clicks} clicks)
+                          </span>
+                        </Show>
+                      </div>
+                    </Show>
                   </td>
                   <td class="px-4 py-3">
                     <StatusBadge status={mapping.status} />

@@ -26,6 +26,40 @@ rsync -avz apps/scraper/scraper-cache.sqlite apps/scraper/scraper-cache.sqlite-w
 ssh cod-prod 'cd ~/apps/cod && pm2 restart scraper'
 ```
 
+### Analytics Deployment
+
+Analytics URL: https://analytics.click-or-die.ru (port 1489 internally)
+
+**First-time setup:**
+```bash
+ssh cod-prod 'cd ~/apps/cod && ./scripts/setup-analytics-prod.sh'
+```
+
+**Code changes:**
+```bash
+git add -A && git commit -m "description" && git push
+ssh cod-prod 'cd ~/apps/cod && git pull && cd apps/analytics && npm run build:analytics && pm2 restart analytics'
+```
+
+**Components:**
+- ClickHouse: Podman container on 127.0.0.1:8123 (never exposed publicly)
+- Analytics service: PM2 managed, port 1489
+- Nginx: Reverse proxy with rate limiting (10 req/s on /v1/events)
+
+**Useful commands:**
+```bash
+# Check ClickHouse
+ssh cod-prod 'curl http://localhost:8123/ping'
+ssh cod-prod 'podman logs clickhouse'
+
+# Check analytics service
+ssh cod-prod 'pm2 logs analytics'
+ssh cod-prod 'curl http://localhost:1489/health'
+
+# Test with API key
+curl -H 'Authorization: Bearer YOUR_API_KEY' 'https://analytics.click-or-die.ru/v1/stats/total?from=2025-01-01&to=2025-01-31'
+```
+
 ## Running Locally
 ```bash
 # Terminal 1 — Scraper backend (logs appear here)

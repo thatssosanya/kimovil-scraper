@@ -202,11 +202,58 @@
     }
   }
 
+  // Extract common widget properties
+  function getWidgetProperties(widget, viewportPercent) {
+    var mappingId = parseInt(widget.dataset.mappingId, 10);
+    var postId = parseInt(widget.dataset.postId, 10);
+    var priceCount = parseInt(widget.dataset.priceCount, 10);
+    var minPrice = parseInt(widget.dataset.minPrice, 10);
+
+    return {
+      mapping_id: isNaN(mappingId) ? null : mappingId,
+      post_id: isNaN(postId) ? null : postId,
+      device_slug: widget.dataset.deviceSlug || null,
+      raw_model: widget.dataset.rawModel || null,
+      widget_status: widget.dataset.widgetStatus || 'loaded',
+      price_count: isNaN(priceCount) ? 0 : priceCount,
+      min_price: isNaN(minPrice) ? null : minPrice,
+      viewport_percent: viewportPercent
+    };
+  }
+
+  // Track a single widget impression
+  function trackWidgetImpression(widget, viewportPercent) {
+    if (widget.dataset.codTracked) return;
+    widget.dataset.codTracked = 'true';
+
+    var props = getWidgetProperties(widget, viewportPercent);
+    
+    // We track even without mapping_id for analytics on unmapped widgets
+    trackEvent('widget_impression', props);
+    log('Tracked impression:', props.widget_status, props.device_slug);
+  }
+
   // Widget tracking with IntersectionObserver
   function observeWidgets() {
+    var widgets = document.querySelectorAll('[data-widget-tracking]');
+    log('Found', widgets.length, 'widgets to track');
+
+    // Immediately track empty/not_found widgets (they have no visible content)
+    widgets.forEach(function(widget) {
+      var status = widget.dataset.widgetStatus;
+      if (status === 'empty' || status === 'not_found') {
+        trackWidgetImpression(widget, 0);
+      }
+    });
+
+    // Use IntersectionObserver for loaded widgets
     if (!('IntersectionObserver' in window)) {
       log('IntersectionObserver not supported, tracking all widgets immediately');
-      trackAllWidgetsImmediate();
+      widgets.forEach(function(widget) {
+        if (widget.dataset.widgetStatus === 'loaded') {
+          trackWidgetImpression(widget, 100);
+        }
+      });
       return;
     }
 
@@ -214,37 +261,17 @@
       entries.forEach(function(entry) {
         if (entry.isIntersecting && entry.intersectionRatio >= CONFIG.visibilityThreshold) {
           var widget = entry.target;
-          
-          if (widget.dataset.codTracked) return;
-          widget.dataset.codTracked = 'true';
-
-          var mappingId = parseInt(widget.dataset.mappingId, 10);
-          var postId = parseInt(widget.dataset.postId, 10);
-
-          if (isNaN(mappingId) || isNaN(postId)) {
-            log('Invalid widget data attributes, skipping');
-            return;
-          }
-
-          trackEvent('widget_impression', {
-            mapping_id: mappingId,
-            post_id: postId,
-            widget_index: parseInt(widget.dataset.widgetIndex, 10) || 0,
-            device_slug: widget.dataset.deviceSlug || null,
-            raw_model: widget.dataset.rawModel || null,
-            viewport_percent: Math.round(entry.intersectionRatio * 100)
-          });
-
+          trackWidgetImpression(widget, Math.round(entry.intersectionRatio * 100));
           observer.unobserve(widget);
         }
       });
     }, { threshold: [0, 0.5, 1.0] });
 
-    var widgets = document.querySelectorAll('[data-widget-tracking]');
-    log('Found', widgets.length, 'widgets to track');
-    
+    // Only observe loaded widgets (empty/not_found already tracked)
     widgets.forEach(function(widget) {
-      observer.observe(widget);
+      if (widget.dataset.widgetStatus === 'loaded' && !widget.dataset.codTracked) {
+        observer.observe(widget);
+      }
     });
 
     // Also observe dynamically added widgets
@@ -253,12 +280,25 @@
         mutations.forEach(function(mutation) {
           mutation.addedNodes.forEach(function(node) {
             if (node.nodeType === 1) {
+              var widgetsToProcess = [];
+              
               if (node.hasAttribute && node.hasAttribute('data-widget-tracking')) {
-                observer.observe(node);
+                widgetsToProcess.push(node);
               }
-              var nestedWidgets = node.querySelectorAll ? node.querySelectorAll('[data-widget-tracking]') : [];
-              nestedWidgets.forEach(function(w) {
-                observer.observe(w);
+              if (node.querySelectorAll) {
+                var nested = node.querySelectorAll('[data-widget-tracking]');
+                for (var i = 0; i < nested.length; i++) {
+                  widgetsToProcess.push(nested[i]);
+                }
+              }
+
+              widgetsToProcess.forEach(function(w) {
+                var status = w.dataset.widgetStatus;
+                if (status === 'empty' || status === 'not_found') {
+                  trackWidgetImpression(w, 0);
+                } else if (status === 'loaded' && !w.dataset.codTracked) {
+                  observer.observe(w);
+                }
               });
             }
           });
@@ -269,26 +309,16 @@
     }
   }
 
-  function trackAllWidgetsImmediate() {
-    var widgets = document.querySelectorAll('[data-widget-tracking]');
-    widgets.forEach(function(widget) {
-      if (widget.dataset.codTracked) return;
-      widget.dataset.codTracked = 'true';
-
-      var mappingId = parseInt(widget.dataset.mappingId, 10);
-      var postId = parseInt(widget.dataset.postId, 10);
-
-      if (isNaN(mappingId) || isNaN(postId)) return;
-
-      trackEvent('widget_impression', {
-        mapping_id: mappingId,
-        post_id: postId,
-        widget_index: parseInt(widget.dataset.widgetIndex, 10) || 0,
-        device_slug: widget.dataset.deviceSlug || null,
-        raw_model: widget.dataset.rawModel || null,
-        viewport_percent: 100
-      });
-    });
+  // Find the parent widget container for a click target
+  function findWidgetContainer(element) {
+    var current = element;
+    while (current && current !== document.body) {
+      if (current.hasAttribute && current.hasAttribute('data-widget-tracking')) {
+        return current;
+      }
+      current = current.parentNode;
+    }
+    return null;
   }
 
   // Click tracking for widget links
@@ -296,21 +326,40 @@
     document.addEventListener('click', function(e) {
       var target = e.target;
       
-      // Walk up the DOM to find a trackable element
+      // Walk up the DOM to find a trackable click element
       while (target && target !== document.body) {
         if (target.hasAttribute && target.hasAttribute('data-widget-click')) {
-          var mappingId = parseInt(target.dataset.mappingId, 10);
-          var postId = parseInt(target.dataset.postId, 10);
+          // Get widget context from parent container
+          var widgetContainer = findWidgetContainer(target);
+          var mappingId = null;
+          var postId = null;
+          var deviceSlug = null;
 
-          if (!isNaN(mappingId) && !isNaN(postId)) {
-            trackEvent('widget_click', {
-              mapping_id: mappingId,
-              post_id: postId,
-              device_slug: target.dataset.deviceSlug || null,
-              click_target: target.dataset.clickTarget || 'link',
-              destination_url: target.href || null
-            });
+          if (widgetContainer) {
+            mappingId = parseInt(widgetContainer.dataset.mappingId, 10);
+            postId = parseInt(widgetContainer.dataset.postId, 10);
+            deviceSlug = widgetContainer.dataset.deviceSlug || null;
           }
+
+          // Get click-specific data from the link itself
+          var shopSource = target.dataset.shopSource || null;
+          var shopName = target.dataset.shopName || null;
+          var price = parseInt(target.dataset.price, 10);
+          var position = parseInt(target.dataset.position, 10);
+
+          trackEvent('widget_click', {
+            mapping_id: isNaN(mappingId) ? null : mappingId,
+            post_id: isNaN(postId) ? null : postId,
+            device_slug: deviceSlug,
+            click_target: target.dataset.clickTarget || 'shop_link',
+            shop_source: shopSource,
+            shop_name: shopName,
+            price: isNaN(price) ? null : price,
+            position: isNaN(position) ? null : position,
+            destination_url: target.href || null
+          });
+
+          log('Tracked click:', shopSource, shopName, price);
           break;
         }
         target = target.parentNode;
@@ -338,6 +387,12 @@
     // Flush on page unload
     window.addEventListener('pagehide', flush);
     window.addEventListener('beforeunload', flush);
+
+    // Listen for HTMX events to re-scan for widgets after dynamic content loads
+    document.body.addEventListener('htmx:afterSettle', function() {
+      log('HTMX content settled, re-scanning widgets');
+      observeWidgets();
+    });
 
     // Start observing widgets
     if (document.readyState === 'loading') {

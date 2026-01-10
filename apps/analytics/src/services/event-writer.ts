@@ -94,23 +94,8 @@ export const EventWriterServiceLive = Layer.scoped(
       );
     });
 
-    const writerFiber = yield* Effect.acquireRelease(
-      Effect.fork(backgroundWriter),
-      (fiber) =>
-        Effect.gen(function* () {
-          yield* Effect.logInfo("Shutting down event writer, flushing remaining events");
-          let hasMore = true;
-          while (hasMore) {
-            const size = yield* Queue.size(eventQueue);
-            if (size > 0) {
-              yield* flushBatch;
-            } else {
-              hasMore = false;
-            }
-          }
-          yield* Fiber.interrupt(fiber);
-        })
-    );
+    // Fork the background writer as a daemon (won't block runtime)
+    yield* Effect.forkDaemon(backgroundWriter);
 
     const enqueue: EventWriterService["enqueue"] = (events) =>
       Effect.gen(function* () {

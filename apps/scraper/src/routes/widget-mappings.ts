@@ -564,4 +564,45 @@ export const createWidgetMappingsRoutes = () =>
         return { error: "Device not found" };
       }
       return result;
-    });
+    })
+    .get(
+      "/posts/by-ids",
+      async ({ query, set }) => {
+        const idsParam = query.ids;
+        if (!idsParam) {
+          set.status = 400;
+          return { error: "ids parameter required" };
+        }
+        
+        const ids = idsParam.split(",").map((s) => parseInt(s, 10)).filter((n) => !isNaN(n) && n > 0);
+        if (ids.length === 0) {
+          return { posts: [] };
+        }
+        if (ids.length > 100) {
+          set.status = 400;
+          return { error: "Maximum 100 ids allowed" };
+        }
+
+        const program = Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const placeholders = ids.map(() => "?").join(",");
+          const rows = yield* sql.unsafe<{ post_id: number; title: string; slug: string }>(
+            `SELECT post_id, title, slug FROM wp_posts_cache WHERE post_id IN (${placeholders})`,
+            ids
+          );
+          return rows.map((r) => ({
+            postId: r.post_id,
+            title: r.title,
+            url: `https://click-or-die.ru/${r.slug}/`,
+          }));
+        });
+
+        const posts = await LiveRuntime.runPromise(program);
+        return { posts };
+      },
+      {
+        query: t.Object({
+          ids: t.Optional(t.String()),
+        }),
+      }
+    );

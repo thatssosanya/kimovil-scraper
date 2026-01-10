@@ -13,6 +13,8 @@ export interface WidgetMapping {
   lastSeenAt: number | null;
   createdAt: number;
   updatedAt: number;
+  impressions?: number;
+  clicks?: number;
 }
 
 export interface MappingsResponse {
@@ -46,6 +48,8 @@ export interface PostInfo {
   title: string;
   url: string;
   dateGmt: string;
+  impressions?: number;
+  clicks?: number;
 }
 
 export interface DevicePreview {

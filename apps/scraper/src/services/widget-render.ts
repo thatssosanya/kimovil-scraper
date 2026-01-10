@@ -8,9 +8,18 @@
 
 export type ArrowVariant = "neutral" | "up" | "down" | "hot" | "new";
 
+export type WidgetStatus = "loaded" | "empty" | "not_found";
+
+export interface WidgetTrackingContext {
+  mappingId?: number;
+  postId?: number;
+  rawModel?: string;
+}
+
 export interface WidgetRenderOptions {
   arrowVariant?: ArrowVariant;
   theme?: "light" | "dark";
+  tracking?: WidgetTrackingContext;
 }
 
 export interface WidgetModel {
@@ -142,12 +151,46 @@ interface ShopRowOptions {
   offerCount?: number;
 }
 
+function buildTrackingAttrs(
+  tracking: WidgetTrackingContext | undefined,
+  deviceSlug: string,
+  status: WidgetStatus,
+  priceCount: number,
+  minPrice?: number,
+): string {
+  const attrs: string[] = ["data-widget-tracking"];
+  
+  if (tracking?.mappingId) {
+    attrs.push(`data-mapping-id="${tracking.mappingId}"`);
+  }
+  if (tracking?.postId) {
+    attrs.push(`data-post-id="${tracking.postId}"`);
+  }
+  attrs.push(`data-device-slug="${escapeHtml(deviceSlug)}"`);
+  if (tracking?.rawModel) {
+    attrs.push(`data-raw-model="${escapeHtml(tracking.rawModel)}"`);
+  }
+  attrs.push(`data-widget-status="${status}"`);
+  attrs.push(`data-price-count="${priceCount}"`);
+  if (minPrice !== undefined) {
+    attrs.push(`data-min-price="${minPrice}"`);
+  }
+  
+  return attrs.join("\n     ");
+}
+
 function renderShopRow(opts: ShopRowOptions): string {
   const url = sanitizeUrl(opts.url);
   const showOfferCount = opts.offerCount !== undefined && opts.offerCount > 1;
 
   return `
-    <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="group flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-3 sm:py-3.5 hover:bg-neutral-50/80 transition-colors">
+    <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="group flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-3 sm:py-3.5 hover:bg-neutral-50/80 transition-colors"
+       data-widget-click
+       data-click-target="shop_link"
+       data-shop-source="${escapeHtml(opts.source)}"
+       data-shop-name="${escapeHtml(opts.displayName)}"
+       data-price="${opts.price}"
+       data-position="${opts.rank}">
       <!-- Rank -->
       <div class="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-neutral-100 flex items-center justify-center flex-shrink-0">
         <span class="text-[12px] sm:text-[13px] font-semibold text-neutral-500">${opts.rank}</span>
@@ -232,7 +275,16 @@ export function renderPriceWidget(model: WidgetModel, options?: WidgetRenderOpti
       ? `${model.device.brand} ${model.device.name}`
       : model.device.name;
 
-  return `<div class="widget-price-container w-full max-w-[680px] font-['Inter',system-ui,-apple-system,sans-serif]">
+  const trackingAttrs = buildTrackingAttrs(
+    options?.tracking,
+    model.device.slug,
+    "loaded",
+    shopRows.length,
+    minPrice ?? undefined,
+  );
+
+  return `<div class="widget-price-container w-full max-w-[680px] font-['Inter',system-ui,-apple-system,sans-serif]"
+     ${trackingAttrs}>
   <!-- Widget container -->
   <div class="bg-white rounded-2xl border border-neutral-200/60 overflow-hidden">
     
@@ -288,8 +340,36 @@ export function renderPriceWidget(model: WidgetModel, options?: WidgetRenderOpti
 </div>`;
 }
 
-export function renderNotFoundWidget(slug: string): string {
-  return `<div class="widget-price-container w-full max-w-[680px] font-['Inter',system-ui,-apple-system,sans-serif]">
+export function renderEmptyWidget(
+  deviceSlug: string,
+  options?: WidgetRenderOptions,
+): string {
+  const trackingAttrs = buildTrackingAttrs(
+    options?.tracking,
+    deviceSlug,
+    "empty",
+    0,
+    undefined,
+  );
+
+  return `<div ${trackingAttrs}
+     style="visibility:hidden;height:0;overflow:hidden"></div>`;
+}
+
+export function renderNotFoundWidget(
+  slug: string,
+  options?: WidgetRenderOptions,
+): string {
+  const trackingAttrs = buildTrackingAttrs(
+    options?.tracking,
+    slug,
+    "not_found",
+    0,
+    undefined,
+  );
+
+  return `<div class="widget-price-container w-full max-w-[680px] font-['Inter',system-ui,-apple-system,sans-serif]"
+     ${trackingAttrs}>
   <div class="bg-white rounded-2xl border border-neutral-200/60 overflow-hidden">
     <div class="p-12 text-center">
       <div class="w-16 h-16 mx-auto mb-4 bg-neutral-50 rounded-full flex items-center justify-center">

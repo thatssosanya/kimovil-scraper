@@ -3,9 +3,11 @@ import { SqlClient } from "@effect/sql";
 import { WidgetDataService } from "./widget-data";
 import {
   renderPriceWidget,
+  renderEmptyWidget,
   renderNotFoundWidget,
   renderErrorWidget,
   ArrowVariant,
+  WidgetTrackingContext,
 } from "./widget-render";
 import { YandexAffiliateService } from "./yandex-affiliate";
 import { ALLOWED_HOSTS } from "../sources/yandex_market/url-utils";
@@ -19,6 +21,7 @@ export interface WidgetParams {
   slug: string;
   arrowVariant?: ArrowVariant;
   theme?: "light" | "dark";
+  tracking?: WidgetTrackingContext;
 }
 
 interface CacheEntry {
@@ -39,6 +42,7 @@ export interface WidgetService {
 
 export const WidgetService = Context.GenericTag<WidgetService>("WidgetService");
 
+// Cache key excludes tracking context (tracking is per-request, not cached)
 function makeCacheKey(params: WidgetParams): string {
   const arrowVariant = params.arrowVariant ?? "neutral";
   const theme = params.theme ?? "light";
@@ -199,15 +203,18 @@ export const WidgetServiceLive = Layer.effect(
     return WidgetService.of({
       getWidgetHtml: (params) =>
         Effect.gen(function* () {
+          const hasTracking = params.tracking?.mappingId || params.tracking?.postId;
           const cacheKey = makeCacheKey(params);
 
-          const cached = cache.get(cacheKey);
-          if (cached && !isExpired(cached)) {
-            return cached.html;
-          }
-
-          if (cached) {
-            cache.delete(cacheKey);
+          // Skip cache when tracking context is present (tracking attrs are per-request)
+          if (!hasTracking) {
+            const cached = cache.get(cacheKey);
+            if (cached && !isExpired(cached)) {
+              return cached.html;
+            }
+            if (cached) {
+              cache.delete(cacheKey);
+            }
           }
 
           const data = yield* widgetDataService
@@ -224,11 +231,17 @@ export const WidgetServiceLive = Layer.effect(
             );
 
           let html: string;
+          const renderOptions = {
+            arrowVariant: params.arrowVariant,
+            theme: params.theme,
+            tracking: params.tracking,
+          };
 
           if (data === null) {
-            html = renderNotFoundWidget(params.slug);
+            html = renderNotFoundWidget(params.slug, renderOptions);
           } else if (data.prices.length === 0) {
-            html = "";
+            // Return tracking-only hidden div for empty widgets
+            html = renderEmptyWidget(data.device.slug, renderOptions);
           } else {
             // Check if we need to backfill affiliate links (fire-and-forget)
             const hasYandexPrices = data.prices.some((p) => p.source === "yandex_market");
@@ -243,14 +256,14 @@ export const WidgetServiceLive = Layer.effect(
               );
             }
 
-            html = renderPriceWidget(data, {
-              arrowVariant: params.arrowVariant,
-              theme: params.theme,
-            });
+            html = renderPriceWidget(data, renderOptions);
           }
 
-          evictOldestIfNeeded();
-          cache.set(cacheKey, { html, createdAt: Date.now() });
+          // Only cache if no tracking context (tracking attrs would vary per request)
+          if (!hasTracking) {
+            evictOldestIfNeeded();
+            cache.set(cacheKey, { html, createdAt: Date.now() });
+          }
 
           return html;
         }),

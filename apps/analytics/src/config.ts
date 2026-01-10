@@ -19,6 +19,7 @@ export interface AnalyticsConfig {
   readonly server: {
     readonly port: number;
     readonly allowedOrigins: string[];
+    readonly statsApiKey: string | null;
   };
 }
 
@@ -70,6 +71,11 @@ export const ConfigServiceLive = Layer.effect(
       ? ["*"] 
       : allowedOriginsStr.split(",").map(s => s.trim());
 
+    const statsApiKeyRaw = yield* Config.string("ANALYTICS_STATS_API_KEY").pipe(
+      Config.withDefault("")
+    );
+    const statsApiKey = statsApiKeyRaw.trim() || null;
+
     return {
       clickhouse: {
         url: clickhouseUrl,
@@ -89,6 +95,7 @@ export const ConfigServiceLive = Layer.effect(
       server: {
         port,
         allowedOrigins,
+        statsApiKey,
       },
     };
   })

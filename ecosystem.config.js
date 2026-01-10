@@ -18,6 +18,19 @@ module.exports = {
       time: true,
     },
     {
+      name: "analytics",
+      cwd: "./apps/analytics",
+      script: "npx",
+      args: "tsx src/index.ts",
+      env: {
+        NODE_ENV: "production",
+      },
+      max_memory_restart: "512M",
+      exp_backoff_restart_delay: 100,
+      merge_logs: true,
+      time: true,
+    },
+    {
       name: "web",
       cwd: "./apps/ws-web",
       script: "npx",

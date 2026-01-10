@@ -59,43 +59,57 @@ function extractDeviceSlug(properties: Record<string, unknown>): string | null {
   return typeof val === "string" ? val : null;
 }
 
-function transformEvent(
-  raw: RawEventInput,
-  context: IngestContext
-): AnalyticsEvent {
-  const now = new Date();
-  const occurredAt = new Date(raw.occurred_at);
-  
-  if (isNaN(occurredAt.getTime())) {
-    throw new Error(`Invalid occurred_at: ${raw.occurred_at}`);
-  }
-
-  const pageUrl = raw.page_url ?? "";
-  const pagePath = raw.page_path ?? (pageUrl ? new URL(pageUrl).pathname : "");
-
-  return {
-    event_id: ulid(),
-    event_type: raw.event_type,
-    event_version: 1,
-    occurred_at: occurredAt,
-    received_at: now,
-    source: raw.source ?? context.source ?? "wordpress",
-    site_id: raw.site_id ?? context.siteId ?? "default",
-    session_id: raw.session_id,
-    visitor_id: raw.visitor_id,
-    page_url: pageUrl,
-    page_path: pagePath,
-    referrer_domain: raw.referrer_domain ?? "",
-    user_agent: context.userAgent,
-    device_type: parseDeviceType(context.userAgent),
-    country_code: "",
-    region: "",
-    properties: JSON.stringify(raw.properties),
-    prop_mapping_id: extractMappingId(raw.properties),
-    prop_post_id: extractPostId(raw.properties),
-    prop_device_slug: extractDeviceSlug(raw.properties),
-  };
+class TransformError {
+  readonly _tag = "TransformError";
+  constructor(
+    readonly index: number,
+    readonly message: string
+  ) {}
 }
+
+const transformEvent = (
+  raw: RawEventInput,
+  context: IngestContext,
+  index: number
+): Effect.Effect<AnalyticsEvent, TransformError> =>
+  Effect.try({
+    try: () => {
+      const now = new Date();
+      const occurredAt = new Date(raw.occurred_at);
+
+      if (isNaN(occurredAt.getTime())) {
+        throw new Error(`Invalid occurred_at: ${raw.occurred_at}`);
+      }
+
+      const pageUrl = raw.page_url ?? "";
+      const pagePath = raw.page_path ?? (pageUrl ? new URL(pageUrl).pathname : "");
+
+      return {
+        event_id: ulid(),
+        event_type: raw.event_type,
+        event_version: 1,
+        occurred_at: occurredAt,
+        received_at: now,
+        source: raw.source ?? context.source ?? "wordpress",
+        site_id: raw.site_id ?? context.siteId ?? "default",
+        session_id: raw.session_id,
+        visitor_id: raw.visitor_id,
+        page_url: pageUrl,
+        page_path: pagePath,
+        referrer_domain: raw.referrer_domain ?? "",
+        user_agent: context.userAgent,
+        device_type: parseDeviceType(context.userAgent),
+        country_code: "",
+        region: "",
+        properties: JSON.stringify(raw.properties),
+        prop_mapping_id: extractMappingId(raw.properties),
+        prop_post_id: extractPostId(raw.properties),
+        prop_device_slug: extractDeviceSlug(raw.properties),
+      };
+    },
+    catch: (e) =>
+      new TransformError(index, e instanceof Error ? e.message : String(e)),
+  });
 
 export const EventIngestionServiceLive = Layer.effect(
   EventIngestionServiceTag,
@@ -117,17 +131,29 @@ export const EventIngestionServiceLive = Layer.effect(
         }
 
         const payload = parseResult.right;
-        const transformedEvents: AnalyticsEvent[] = [];
-        const errors: string[] = [];
 
-        for (let i = 0; i < payload.events.length; i++) {
-          const raw = payload.events[i];
-          try {
-            transformedEvents.push(transformEvent(raw, context));
-          } catch (e) {
-            errors.push(`Event ${i}: ${e instanceof Error ? e.message : String(e)}`);
-          }
-        }
+        const transformResults = yield* Effect.forEach(
+          payload.events,
+          (raw, index) =>
+            transformEvent(raw, context, index).pipe(
+              Effect.map((event) => ({ ok: true as const, event })),
+              Effect.catchAll((err) =>
+                Effect.succeed({
+                  ok: false as const,
+                  error: `Event ${err.index}: ${err.message}`,
+                })
+              )
+            ),
+          { concurrency: "unbounded" }
+        );
+
+        const transformedEvents = transformResults
+          .filter((r): r is { ok: true; event: AnalyticsEvent } => r.ok)
+          .map((r) => r.event);
+
+        const errors = transformResults
+          .filter((r): r is { ok: false; error: string } => !r.ok)
+          .map((r) => r.error);
 
         if (transformedEvents.length > 0) {
           yield* writer.enqueue(transformedEvents);

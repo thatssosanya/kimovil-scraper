@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS events (
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(occurred_at)
 ORDER BY (event_type, source, site_id, occurred_at, event_id)
-TTL occurred_at + INTERVAL 90 DAY
+TTL toDateTime(occurred_at) + INTERVAL 90 DAY
 SETTINGS index_granularity = 8192;
 
 -- Secondary indices for common lookups
@@ -75,8 +75,8 @@ CREATE TABLE IF NOT EXISTS daily_widget_stats (
     date Date,
     source LowCardinality(String),
     site_id LowCardinality(String),
-    mapping_id Int64,
-    post_id Int64,
+    mapping_id Nullable(Int64),
+    post_id Nullable(Int64),
     device_slug String,
     
     impressions UInt64,
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS daily_widget_stats (
 )
 ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMM(date)
-ORDER BY (date, source, site_id, mapping_id, post_id)
+ORDER BY (date, source, site_id, coalesce(mapping_id, 0), coalesce(post_id, 0))
 TTL date + INTERVAL 2 YEAR;
 
 -- Materialized view to populate daily_widget_stats
@@ -104,8 +104,6 @@ SELECT
     uniqState(session_id) AS unique_sessions
 FROM events
 WHERE event_type IN ('widget_impression', 'widget_click')
-  AND prop_mapping_id IS NOT NULL
-  AND prop_post_id IS NOT NULL
 GROUP BY date, source, site_id, mapping_id, post_id, device_slug;
 
 

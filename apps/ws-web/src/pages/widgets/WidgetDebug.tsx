@@ -9,6 +9,7 @@ import {
   PERIOD_OPTIONS,
 } from "./WidgetDebug.types";
 import * as api from "../../api/widgetMappings";
+import * as analyticsApi from "../../api/analytics";
 import { SyncStatusCard } from "./components/SyncStatusCard";
 import { StatsRow } from "./components/StatsRow";
 import { FiltersBar } from "./components/FiltersBar";
@@ -80,7 +81,26 @@ export default function WidgetDebug() {
         seenAfter: periodTs.seenAfter,
         seenBefore: periodTs.seenBefore,
       });
-      setMappings(json.mappings);
+      
+      // Fetch analytics data for mappings
+      const mappingIds = json.mappings
+        .map((m) => m.id)
+        .filter((id): id is number => id != null);
+      
+      const analyticsData = await analyticsApi.getMappingStats(mappingIds);
+      const analyticsMap = new Map(analyticsData.map((a) => [a.mappingId, a]));
+      
+      // Merge analytics into mappings
+      const mappingsWithAnalytics = json.mappings.map((m) => {
+        const stats = analyticsMap.get(m.id);
+        return {
+          ...m,
+          impressions: stats?.impressions,
+          clicks: stats?.clicks,
+        };
+      });
+      
+      setMappings(mappingsWithAnalytics);
       setTotal(json.total);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to fetch");
