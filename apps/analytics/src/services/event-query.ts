@@ -52,6 +52,10 @@ function formatDate(d: Date): string {
   return d.toISOString().split("T")[0];
 }
 
+function formatDateTime(d: Date): string {
+  return d.toISOString().replace("T", " ").replace("Z", "");
+}
+
 function escapeString(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
@@ -189,8 +193,8 @@ export const EventQueryServiceLive = Layer.effect(
         }[params.interval];
 
         const conditions: string[] = [
-          `occurred_at >= '${params.from.toISOString()}'`,
-          `occurred_at <= '${params.to.toISOString()}'`,
+          `occurred_at >= '${formatDateTime(params.from)}'`,
+          `occurred_at <= '${formatDateTime(params.to)}'`,
         ];
         
         if (params.eventType) conditions.push(`event_type = '${escapeString(params.eventType)}'`);
@@ -238,8 +242,8 @@ export const EventQueryServiceLive = Layer.effect(
             uniq(visitor_id) AS unique_visitors,
             uniq(session_id) AS unique_sessions
           FROM events
-          WHERE occurred_at >= '${from.toISOString()}'
-            AND occurred_at <= '${to.toISOString()}'
+          WHERE occurred_at >= '${formatDateTime(from)}'
+            AND occurred_at <= '${formatDateTime(to)}'
         `;
 
         interface RawTotalStats {
