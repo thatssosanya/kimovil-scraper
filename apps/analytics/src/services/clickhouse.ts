@@ -34,10 +34,7 @@ export const ClickHouseServiceLive = Layer.scoped(
           database: config.clickhouse.database,
           username: config.clickhouse.username,
           password: config.clickhouse.password,
-          clickhouse_settings: {
-            async_insert: 1,
-            wait_for_async_insert: 0,
-          },
+
         })
       ),
       (client) => Effect.promise(() => client.close())

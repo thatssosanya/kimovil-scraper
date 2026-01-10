@@ -45,6 +45,42 @@ interface WidgetStat {
   unique_sessions: number;
 }
 
+interface AggregatedWidgetStat {
+  device_slug: string | null;
+  mapping_id: number | null;
+  impressions: number;
+  clicks: number;
+  unique_visitors: number;
+  unique_sessions: number;
+}
+
+function aggregateByDeviceSlug(stats: WidgetStat[]): AggregatedWidgetStat[] {
+  const bySlug = new Map<string, AggregatedWidgetStat>();
+  
+  for (const stat of stats) {
+    const key = stat.device_slug ?? "__empty__";
+    const existing = bySlug.get(key);
+    
+    if (existing) {
+      existing.impressions += stat.impressions;
+      existing.clicks += stat.clicks;
+      existing.unique_visitors += stat.unique_visitors;
+      existing.unique_sessions += stat.unique_sessions;
+    } else {
+      bySlug.set(key, {
+        device_slug: stat.device_slug,
+        mapping_id: stat.mapping_id,
+        impressions: stat.impressions,
+        clicks: stat.clicks,
+        unique_visitors: stat.unique_visitors,
+        unique_sessions: stat.unique_sessions,
+      });
+    }
+  }
+  
+  return Array.from(bySlug.values());
+}
+
 type PeriodOption = "1d" | "7d" | "30d" | "90d";
 type TabOption = "top" | "empty";
 
@@ -128,18 +164,26 @@ export default function Analytics() {
     fetchStats();
   });
 
-  const filteredStats = createMemo(() => {
+  const aggregatedStats = createMemo(() => {
     const all = stats();
     if (tab() === "empty") {
-      return all.filter((s) => s.mapping_id == null).sort((a, b) => b.impressions - a.impressions);
+      const filtered = all.filter((s) => s.mapping_id == null);
+      return aggregateByDeviceSlug(filtered).sort((a, b) => b.impressions - a.impressions);
     }
-    return all.filter((s) => s.mapping_id != null).sort((a, b) => b.impressions - a.impressions);
+    const filtered = all.filter((s) => s.mapping_id != null);
+    return aggregateByDeviceSlug(filtered).sort((a, b) => b.impressions - a.impressions);
   });
 
-  const totalImpressions = createMemo(() => stats().reduce((sum, s) => sum + s.impressions, 0));
-  const totalClicks = createMemo(() => stats().reduce((sum, s) => sum + s.clicks, 0));
-  const emptyCount = createMemo(() => stats().filter((s) => s.mapping_id == null).length);
-  const mappedCount = createMemo(() => stats().filter((s) => s.mapping_id != null).length);
+  const totalImpressions = createMemo(() => aggregatedStats().reduce((sum, s) => sum + s.impressions, 0));
+  const totalClicks = createMemo(() => aggregatedStats().reduce((sum, s) => sum + s.clicks, 0));
+  const emptyCount = createMemo(() => {
+    const filtered = stats().filter((s) => s.mapping_id == null);
+    return aggregateByDeviceSlug(filtered).length;
+  });
+  const mappedCount = createMemo(() => {
+    const filtered = stats().filter((s) => s.mapping_id != null);
+    return aggregateByDeviceSlug(filtered).length;
+  });
   const ctr = createMemo(() =>
     totalImpressions() > 0 ? ((totalClicks() / totalImpressions()) * 100).toFixed(1) + "%" : "0%"
   );
@@ -218,7 +262,7 @@ export default function Analytics() {
     }
   };
 
-  const handleRowClick = (stat: WidgetStat) => {
+  const handleRowClick = (stat: AggregatedWidgetStat) => {
     const slug = stat.device_slug;
     if (!slug) return;
 
@@ -375,7 +419,7 @@ export default function Analytics() {
                 </thead>
                 <tbody class="divide-y divide-zinc-100 dark:divide-slate-800">
                   <For
-                    each={filteredStats()}
+                    each={aggregatedStats()}
                     fallback={
                       <tr>
                         <td colspan="6" class="px-4 py-12 text-center text-zinc-400 dark:text-slate-500">
@@ -560,7 +604,7 @@ export default function Analytics() {
 
             {/* Footer */}
             <div class="px-4 py-3 bg-zinc-50 dark:bg-slate-800/50 border-t border-zinc-200 dark:border-slate-800 text-sm text-zinc-500 dark:text-slate-400">
-              Showing {filteredStats().length} widgets
+              Showing {aggregatedStats().length} widgets
             </div>
           </div>
         </Show>
