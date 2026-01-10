@@ -52,7 +52,7 @@ const main = Effect.gen(function* () {
           ? true
           : config.server.allowedOrigins,
         methods: ["GET", "POST", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "X-Source", "X-Site-Id", "User-Agent"],
+        allowedHeaders: ["Content-Type", "X-Source", "X-Site-Id", "User-Agent", "Authorization", "X-Api-Key"],
         credentials: true,
       })
     )
