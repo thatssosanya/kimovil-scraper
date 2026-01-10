@@ -178,6 +178,7 @@ export default function Analytics() {
       const to = new Date().toISOString();
       
       const interval = days <= 1 ? "fifteen_minutes" : days <= 7 ? "hour" : "day";
+      const mappedParam = tab() === "top" ? "&mapped=true" : "&mapped=false";
 
       const env = analyticsEnv();
       const baseUrl = getAnalyticsBase(env);
@@ -185,11 +186,11 @@ export default function Analytics() {
 
       const [impressionsRes, clicksRes] = await Promise.all([
         fetch(
-          `${baseUrl}/v1/stats/timeseries?from=${from}&to=${to}&interval=${interval}&event_type=widget_impression`,
+          `${baseUrl}/v1/stats/timeseries?from=${from}&to=${to}&interval=${interval}&event_type=widget_impression${mappedParam}`,
           { headers }
         ),
         fetch(
-          `${baseUrl}/v1/stats/timeseries?from=${from}&to=${to}&interval=${interval}&event_type=widget_click`,
+          `${baseUrl}/v1/stats/timeseries?from=${from}&to=${to}&interval=${interval}&event_type=widget_click${mappedParam}`,
           { headers }
         ),
       ]);
@@ -217,6 +218,7 @@ export default function Analytics() {
 
   createEffect(() => {
     period();
+    tab();
     fetchTimeseries();
   });
 

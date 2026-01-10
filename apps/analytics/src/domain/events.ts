@@ -144,4 +144,5 @@ export interface TimeseriesParams {
   siteId?: string;
   mappingId?: number;
   postId?: number;
+  mapped?: boolean;
 }

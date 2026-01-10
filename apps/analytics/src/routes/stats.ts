@@ -176,6 +176,7 @@ export const createStatsRoutes = () =>
             siteId: query.site_id,
             mappingId: query.mapping_id ? parseInt(query.mapping_id, 10) : undefined,
             postId: query.post_id ? parseInt(query.post_id, 10) : undefined,
+            mapped: query.mapped === "true" ? true : query.mapped === "false" ? false : undefined,
           });
         }).pipe(
           Effect.map((data) => ({ ok: true as const, data })),
@@ -205,6 +206,7 @@ export const createStatsRoutes = () =>
           site_id: t.Optional(t.String()),
           mapping_id: t.Optional(t.String()),
           post_id: t.Optional(t.String()),
+          mapped: t.Optional(t.String()),
         }),
       }
     )

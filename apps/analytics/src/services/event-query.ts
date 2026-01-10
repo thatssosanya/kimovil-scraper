@@ -201,6 +201,8 @@ export const EventQueryServiceLive = Layer.effect(
         if (params.siteId) conditions.push(`site_id = '${escapeString(params.siteId)}'`);
         if (params.mappingId) conditions.push(`prop_mapping_id = ${params.mappingId}`);
         if (params.postId) conditions.push(`prop_post_id = ${params.postId}`);
+        if (params.mapped === true) conditions.push(`prop_mapping_id IS NOT NULL`);
+        if (params.mapped === false) conditions.push(`prop_mapping_id IS NULL`);
 
         const whereClause = conditions.join(" AND ");
 
