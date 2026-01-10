@@ -152,9 +152,8 @@ describe("WidgetService", () => {
       }),
     );
 
-    expect(html).toContain("widget-price-container");
-    expect(html).toContain("Устройство не найдено");
-    expect(html).toContain("nonexistent-device");
+    expect(html).toContain("data-widget-status=\"not_found\"");
+    expect(html).toContain("visibility:hidden");
   });
 
   it("cache returns same content on second call", async () => {

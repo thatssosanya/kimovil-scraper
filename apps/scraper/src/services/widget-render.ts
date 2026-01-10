@@ -368,21 +368,8 @@ export function renderNotFoundWidget(
     undefined,
   );
 
-  return `<div class="widget-price-container w-full max-w-[680px] font-['Inter',system-ui,-apple-system,sans-serif]"
-     ${trackingAttrs}>
-  <div class="bg-white rounded-2xl border border-neutral-200/60 overflow-hidden">
-    <div class="p-12 text-center">
-      <div class="w-16 h-16 mx-auto mb-4 bg-neutral-50 rounded-full flex items-center justify-center">
-        <svg class="w-8 h-8 text-neutral-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"></circle>
-          <path d="M21 21l-4.35-4.35"></path>
-        </svg>
-      </div>
-      <h2 class="text-lg font-semibold text-neutral-900 mb-2">Устройство не найдено</h2>
-      <p class="text-sm text-neutral-500">Не удалось найти «${escapeHtml(slug)}»</p>
-    </div>
-  </div>
-</div>`;
+  return `<div ${trackingAttrs}
+     style="visibility:hidden;height:0;overflow:hidden"></div>`;
 }
 
 export function renderErrorWidget(): string {
