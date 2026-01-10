@@ -88,14 +88,15 @@ function aggregateByDeviceSlug(stats: WidgetStat[]): AggregatedWidgetStat[] {
   return Array.from(bySlug.values());
 }
 
-type PeriodOption = "1d" | "7d" | "30d" | "90d";
+type PeriodOption = "1h" | "1d" | "7d" | "30d" | "90d";
 type TabOption = "top" | "empty";
 
-const PERIODS: { id: PeriodOption; label: string; days: number }[] = [
-  { id: "1d", label: "24h", days: 1 },
-  { id: "7d", label: "7d", days: 7 },
-  { id: "30d", label: "30d", days: 30 },
-  { id: "90d", label: "90d", days: 90 },
+const PERIODS: { id: PeriodOption; label: string; hours: number }[] = [
+  { id: "1h", label: "1h", hours: 1 },
+  { id: "1d", label: "24h", hours: 24 },
+  { id: "7d", label: "7d", hours: 24 * 7 },
+  { id: "30d", label: "30d", hours: 24 * 30 },
+  { id: "90d", label: "90d", hours: 24 * 90 },
 ];
 
 const TABS: { id: TabOption; label: string }[] = [
@@ -129,7 +130,7 @@ export default function Analytics() {
   const [stats, setStats] = createSignal<WidgetStat[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
-  const [period, setPeriod] = createSignal<PeriodOption>("7d");
+  const [period, setPeriod] = createSignal<PeriodOption>("1d");
   const [tab, setTab] = createSignal<TabOption>("top");
   const [selectedDevice, setSelectedDevice] = createSignal<string | null>(null);
   const [postBreakdown, setPostBreakdown] = createSignal<PostBreakdown[]>([]);
@@ -151,8 +152,8 @@ export default function Analytics() {
     setLoading(true);
     setError(null);
     try {
-      const days = PERIODS.find((p) => p.id === period())?.days ?? 7;
-      const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const hours = PERIODS.find((p) => p.id === period())?.hours ?? 24;
+      const from = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
       const to = new Date().toISOString();
 
       const env = analyticsEnv();
@@ -173,11 +174,11 @@ export default function Analytics() {
   const fetchTimeseries = async () => {
     setTimeseriesLoading(true);
     try {
-      const days = PERIODS.find((p) => p.id === period())?.days ?? 7;
-      const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const hours = PERIODS.find((p) => p.id === period())?.hours ?? 24;
+      const from = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
       const to = new Date().toISOString();
       
-      const interval = days <= 1 ? "fifteen_minutes" : days <= 7 ? "hour" : "day";
+      const interval = hours <= 1 ? "fifteen_minutes" : hours <= 24 ? "fifteen_minutes" : hours <= 24 * 7 ? "hour" : "day";
       const mappedParam = tab() === "top" ? "&mapped=true" : "&mapped=false";
 
       const env = analyticsEnv();
@@ -293,8 +294,8 @@ export default function Analytics() {
   const fetchPostBreakdown = async (deviceSlug: string) => {
     setBreakdownLoading(true);
     try {
-      const days = PERIODS.find((p) => p.id === period())?.days ?? 7;
-      const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const hours = PERIODS.find((p) => p.id === period())?.hours ?? 24;
+      const from = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
       const to = new Date().toISOString();
 
       const env = analyticsEnv();
