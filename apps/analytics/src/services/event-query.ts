@@ -67,45 +67,9 @@ export const EventQueryServiceLive = Layer.effect(
 
     const getWidgetStats: EventQueryService["getWidgetStats"] = (params) =>
       Effect.gen(function* () {
-        const conditions: string[] = [
-          `date >= '${formatDate(params.from)}'`,
-          `date <= '${formatDate(params.to)}'`,
-        ];
-        
-        if (params.siteId) conditions.push(`site_id = '${escapeString(params.siteId)}'`);
-        if (params.mappingId) conditions.push(`mapping_id = ${params.mappingId}`);
-        if (params.postId) conditions.push(`post_id = ${params.postId}`);
-        if (params.deviceSlug) conditions.push(`device_slug = '${escapeString(params.deviceSlug)}'`);
-
-        const whereClause = conditions.join(" AND ");
         const limit = params.limit ?? 100;
-
-        const sql = `
-          SELECT
-            mapping_id,
-            post_id,
-            device_slug,
-            impressions,
-            clicks,
-            unique_visitors,
-            unique_sessions,
-            if(impressions > 0, clicks / impressions, 0) AS ctr
-          FROM (
-            SELECT
-              mapping_id,
-              post_id,
-              device_slug,
-              sumMerge(impressions) AS impressions,
-              sumMerge(clicks) AS clicks,
-              uniqMerge(unique_visitors) AS unique_visitors,
-              uniqMerge(unique_sessions) AS unique_sessions
-            FROM daily_widget_stats
-            WHERE ${whereClause}
-            GROUP BY mapping_id, post_id, device_slug
-          )
-          ORDER BY impressions DESC
-          LIMIT ${limit}
-        `;
+        const hoursDiff = (params.to.getTime() - params.from.getTime()) / (1000 * 60 * 60);
+        const useRawEvents = hoursDiff < 24;
 
         interface RawWidgetStats {
           mapping_id: string;
@@ -116,6 +80,79 @@ export const EventQueryServiceLive = Layer.effect(
           unique_visitors: string;
           unique_sessions: string;
           ctr: string;
+        }
+
+        let sql: string;
+
+        if (useRawEvents) {
+          const conditions: string[] = [
+            `occurred_at >= '${formatDateTime(params.from)}'`,
+            `occurred_at <= '${formatDateTime(params.to)}'`,
+            `event_type IN ('widget_impression', 'widget_click')`,
+          ];
+          
+          if (params.siteId) conditions.push(`site_id = '${escapeString(params.siteId)}'`);
+          if (params.mappingId) conditions.push(`prop_mapping_id = ${params.mappingId}`);
+          if (params.postId) conditions.push(`prop_post_id = ${params.postId}`);
+          if (params.deviceSlug) conditions.push(`prop_device_slug = '${escapeString(params.deviceSlug)}'`);
+
+          const whereClause = conditions.join(" AND ");
+
+          sql = `
+            SELECT
+              coalesce(prop_mapping_id, 0) AS mapping_id,
+              coalesce(prop_post_id, 0) AS post_id,
+              coalesce(prop_device_slug, '') AS device_slug,
+              countIf(event_type = 'widget_impression') AS impressions,
+              countIf(event_type = 'widget_click') AS clicks,
+              uniq(visitor_id) AS unique_visitors,
+              uniq(session_id) AS unique_sessions,
+              if(impressions > 0, clicks / impressions, 0) AS ctr
+            FROM events
+            WHERE ${whereClause}
+            GROUP BY mapping_id, post_id, device_slug
+            ORDER BY impressions DESC
+            LIMIT ${limit}
+          `;
+        } else {
+          const conditions: string[] = [
+            `date >= '${formatDate(params.from)}'`,
+            `date <= '${formatDate(params.to)}'`,
+          ];
+          
+          if (params.siteId) conditions.push(`site_id = '${escapeString(params.siteId)}'`);
+          if (params.mappingId) conditions.push(`mapping_id = ${params.mappingId}`);
+          if (params.postId) conditions.push(`post_id = ${params.postId}`);
+          if (params.deviceSlug) conditions.push(`device_slug = '${escapeString(params.deviceSlug)}'`);
+
+          const whereClause = conditions.join(" AND ");
+
+          sql = `
+            SELECT
+              mapping_id,
+              post_id,
+              device_slug,
+              impressions,
+              clicks,
+              unique_visitors,
+              unique_sessions,
+              if(impressions > 0, clicks / impressions, 0) AS ctr
+            FROM (
+              SELECT
+                mapping_id,
+                post_id,
+                device_slug,
+                sumMerge(impressions) AS impressions,
+                sumMerge(clicks) AS clicks,
+                uniqMerge(unique_visitors) AS unique_visitors,
+                uniqMerge(unique_sessions) AS unique_sessions
+              FROM daily_widget_stats
+              WHERE ${whereClause}
+              GROUP BY mapping_id, post_id, device_slug
+            )
+            ORDER BY impressions DESC
+            LIMIT ${limit}
+          `;
         }
 
         const rows = yield* clickhouse.query<RawWidgetStats>(sql).pipe(
