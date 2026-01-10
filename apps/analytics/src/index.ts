@@ -53,6 +53,7 @@ const main = Effect.gen(function* () {
           : config.server.allowedOrigins,
         methods: ["GET", "POST", "OPTIONS"],
         allowedHeaders: ["Content-Type", "X-Source", "X-Site-Id", "User-Agent"],
+        credentials: true,
       })
     )
     .get("/health", () => ({ status: "ok", service: "analytics" }))
