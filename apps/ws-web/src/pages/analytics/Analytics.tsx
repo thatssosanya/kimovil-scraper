@@ -1,10 +1,11 @@
-import { createSignal, createMemo, Show, For, onMount } from "solid-js";
+import { createSignal, createMemo, Show, For, onMount, createEffect } from "solid-js";
 import { Header } from "../../components/Header";
 import {
   type AnalyticsEnv,
   getAnalyticsEnv,
   setAnalyticsEnv,
 } from "../../api/analytics";
+import { MiniStatCard, type SparklinePoint } from "../../components/SparklineChart";
 
 const ANALYTICS_LOCAL = import.meta.env.VITE_ANALYTICS_URL ?? "http://localhost:1489";
 const ANALYTICS_PROD = import.meta.env.VITE_ANALYTICS_PROD_URL ?? "https://api.click-or-die.ru";
@@ -52,6 +53,12 @@ interface AggregatedWidgetStat {
   clicks: number;
   unique_visitors: number;
   unique_sessions: number;
+}
+
+interface TimeseriesPoint {
+  bucket: string;
+  count: number;
+  unique_visitors: number;
 }
 
 function aggregateByDeviceSlug(stats: WidgetStat[]): AggregatedWidgetStat[] {
@@ -128,6 +135,9 @@ export default function Analytics() {
   const [postBreakdown, setPostBreakdown] = createSignal<PostBreakdown[]>([]);
   const [breakdownLoading, setBreakdownLoading] = createSignal(false);
   const [analyticsEnv, setAnalyticsEnvState] = createSignal<AnalyticsEnv>(getAnalyticsEnv());
+  const [impressionsTimeseries, setImpressionsTimeseries] = createSignal<TimeseriesPoint[]>([]);
+  const [clicksTimeseries, setClicksTimeseries] = createSignal<TimeseriesPoint[]>([]);
+  const [timeseriesLoading, setTimeseriesLoading] = createSignal(false);
 
   const handleEnvChange = (env: AnalyticsEnv) => {
     setAnalyticsEnv(env);
@@ -160,8 +170,54 @@ export default function Analytics() {
     }
   };
 
+  const fetchTimeseries = async () => {
+    setTimeseriesLoading(true);
+    try {
+      const days = PERIODS.find((p) => p.id === period())?.days ?? 7;
+      const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const to = new Date().toISOString();
+      
+      const interval = days <= 1 ? "fifteen_minutes" : days <= 7 ? "hour" : "day";
+
+      const env = analyticsEnv();
+      const baseUrl = getAnalyticsBase(env);
+      const headers = getAnalyticsHeaders(env);
+
+      const [impressionsRes, clicksRes] = await Promise.all([
+        fetch(
+          `${baseUrl}/v1/stats/timeseries?from=${from}&to=${to}&interval=${interval}&event_type=widget_impression`,
+          { headers }
+        ),
+        fetch(
+          `${baseUrl}/v1/stats/timeseries?from=${from}&to=${to}&interval=${interval}&event_type=widget_click`,
+          { headers }
+        ),
+      ]);
+
+      if (impressionsRes.ok) {
+        const json = await impressionsRes.json();
+        setImpressionsTimeseries(json.data ?? []);
+      }
+
+      if (clicksRes.ok) {
+        const json = await clicksRes.json();
+        setClicksTimeseries(json.data ?? []);
+      }
+    } catch (e) {
+      console.error("Failed to fetch timeseries:", e);
+    } finally {
+      setTimeseriesLoading(false);
+    }
+  };
+
   onMount(() => {
     fetchStats();
+    fetchTimeseries();
+  });
+
+  createEffect(() => {
+    period();
+    fetchTimeseries();
   });
 
   const aggregatedStats = createMemo(() => {
@@ -187,6 +243,43 @@ export default function Analytics() {
   const ctr = createMemo(() =>
     totalImpressions() > 0 ? ((totalClicks() / totalImpressions()) * 100).toFixed(1) + "%" : "0%"
   );
+
+  const impressionsChartData = createMemo((): SparklinePoint[] =>
+    impressionsTimeseries().map((p) => ({ bucket: p.bucket, value: p.count }))
+  );
+
+  const clicksChartData = createMemo((): SparklinePoint[] =>
+    clicksTimeseries().map((p) => ({ bucket: p.bucket, value: p.count }))
+  );
+
+  const ctrChartData = createMemo((): SparklinePoint[] => {
+    const imps = impressionsTimeseries();
+    const clicks = clicksTimeseries();
+    
+    const clicksByBucket = new Map(clicks.map((c) => [c.bucket, c.count]));
+    
+    return imps.map((imp) => {
+      const clickCount = clicksByBucket.get(imp.bucket) ?? 0;
+      const ctrValue = imp.count > 0 ? (clickCount / imp.count) * 100 : 0;
+      return { bucket: imp.bucket, value: ctrValue };
+    });
+  });
+
+  const calculateTrend = (data: SparklinePoint[]): { value: number; label: string } | undefined => {
+    if (data.length < 2) return undefined;
+    
+    const mid = Math.floor(data.length / 2);
+    const firstHalf = data.slice(0, mid);
+    const secondHalf = data.slice(mid);
+    
+    const firstAvg = firstHalf.reduce((s, p) => s + p.value, 0) / firstHalf.length;
+    const secondAvg = secondHalf.reduce((s, p) => s + p.value, 0) / secondHalf.length;
+    
+    if (firstAvg === 0) return undefined;
+    
+    const change = ((secondAvg - firstAvg) / firstAvg) * 100;
+    return { value: change, label: "vs previous period" };
+  };
 
   const handlePeriodChange = (newPeriod: PeriodOption) => {
     setPeriod(newPeriod);
@@ -288,11 +381,32 @@ export default function Analytics() {
           </p>
         </div>
 
-        {/* Stats Row */}
+        {/* Stats Row with Charts */}
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <StatCard label="Impressions" value={totalImpressions()} color="indigo" />
-          <StatCard label="Clicks" value={totalClicks()} color="cyan" />
-          <StatCard label="CTR" value={ctr()} color="emerald" />
+          <MiniStatCard
+            label="Impressions"
+            value={totalImpressions()}
+            color="indigo"
+            data={impressionsChartData()}
+            loading={timeseriesLoading()}
+            trend={calculateTrend(impressionsChartData())}
+          />
+          <MiniStatCard
+            label="Clicks"
+            value={totalClicks()}
+            color="cyan"
+            data={clicksChartData()}
+            loading={timeseriesLoading()}
+            trend={calculateTrend(clicksChartData())}
+          />
+          <MiniStatCard
+            label="CTR"
+            value={ctr()}
+            color="emerald"
+            data={ctrChartData()}
+            loading={timeseriesLoading()}
+            trend={calculateTrend(ctrChartData())}
+          />
           <StatCard label="Unmapped" value={emptyCount()} color="amber" />
         </div>
 

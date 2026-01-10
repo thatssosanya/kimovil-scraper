@@ -139,7 +139,7 @@ export interface PostStatsParams {
 export interface TimeseriesParams {
   from: Date;
   to: Date;
-  interval: "hour" | "day" | "week" | "month";
+  interval: "fifteen_minutes" | "hour" | "day" | "week" | "month";
   eventType?: EventType;
   siteId?: string;
   mappingId?: number;

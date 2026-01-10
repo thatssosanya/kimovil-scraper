@@ -4,7 +4,7 @@ const ANALYTICS_API_KEY = import.meta.env.VITE_ANALYTICS_API_KEY ?? "";
 
 export type AnalyticsEnv = "local" | "prod";
 
-let currentEnv: AnalyticsEnv = "local";
+let currentEnv: AnalyticsEnv = "prod";
 
 export const setAnalyticsEnv = (env: AnalyticsEnv) => {
   currentEnv = env;

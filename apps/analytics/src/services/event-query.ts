@@ -181,6 +181,7 @@ export const EventQueryServiceLive = Layer.effect(
     const getTimeseries: EventQueryService["getTimeseries"] = (params) =>
       Effect.gen(function* () {
         const intervalFunc = {
+          fifteen_minutes: "toStartOfFifteenMinutes(occurred_at)",
           hour: "toStartOfHour(occurred_at)",
           day: "toDate(occurred_at)",
           week: "toStartOfWeek(occurred_at)",

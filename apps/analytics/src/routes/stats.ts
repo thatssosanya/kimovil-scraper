@@ -159,11 +159,11 @@ export const createStatsRoutes = () =>
         const program = Effect.gen(function* () {
           const from = yield* parseDate(query.from);
           const to = yield* parseDate(query.to);
-          const interval = query.interval as "hour" | "day" | "week" | "month";
+          const interval = query.interval as "fifteen_minutes" | "hour" | "day" | "week" | "month";
 
-          if (!["hour", "day", "week", "month"].includes(interval)) {
+          if (!["fifteen_minutes", "hour", "day", "week", "month"].includes(interval)) {
             return yield* Effect.fail(
-              new DateParseError("Invalid interval, must be: hour, day, week, month")
+              new DateParseError("Invalid interval, must be: fifteen_minutes, hour, day, week, month")
             );
           }
 
