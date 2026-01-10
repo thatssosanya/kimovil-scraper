@@ -79,8 +79,8 @@ CREATE TABLE IF NOT EXISTS daily_widget_stats (
     post_id Int64 DEFAULT 0,
     device_slug String,
     
-    impressions UInt64,
-    clicks UInt64,
+    impressions AggregateFunction(sum, UInt64),
+    clicks AggregateFunction(sum, UInt64),
     unique_visitors AggregateFunction(uniq, String),
     unique_sessions AggregateFunction(uniq, String)
 )
@@ -90,6 +90,7 @@ ORDER BY (date, source, site_id, mapping_id, post_id, device_slug)
 TTL date + INTERVAL 2 YEAR;
 
 -- Materialized view to populate daily_widget_stats
+-- Uses sumState for counts to properly merge duplicates
 CREATE MATERIALIZED VIEW IF NOT EXISTS daily_widget_stats_mv TO daily_widget_stats AS
 SELECT
     toDate(occurred_at) AS date,
@@ -98,8 +99,8 @@ SELECT
     coalesce(prop_mapping_id, 0) AS mapping_id,
     coalesce(prop_post_id, 0) AS post_id,
     coalesce(prop_device_slug, '') AS device_slug,
-    countIf(event_type = 'widget_impression') AS impressions,
-    countIf(event_type = 'widget_click') AS clicks,
+    sumState(toUInt64(event_type = 'widget_impression')) AS impressions,
+    sumState(toUInt64(event_type = 'widget_click')) AS clicks,
     uniqState(visitor_id) AS unique_visitors,
     uniqState(session_id) AS unique_sessions
 FROM events
@@ -118,8 +119,8 @@ CREATE TABLE IF NOT EXISTS daily_post_stats (
     site_id LowCardinality(String),
     post_id Int64,
     
-    widget_impressions UInt64,
-    widget_clicks UInt64,
+    widget_impressions AggregateFunction(sum, UInt64),
+    widget_clicks AggregateFunction(sum, UInt64),
     unique_visitors AggregateFunction(uniq, String),
     unique_sessions AggregateFunction(uniq, String)
 )
@@ -129,14 +130,15 @@ ORDER BY (date, source, site_id, post_id)
 TTL date + INTERVAL 2 YEAR;
 
 -- Materialized view to populate daily_post_stats
+-- Uses sumState for counts to properly merge duplicates
 CREATE MATERIALIZED VIEW IF NOT EXISTS daily_post_stats_mv TO daily_post_stats AS
 SELECT
     toDate(occurred_at) AS date,
     source,
     site_id,
     prop_post_id AS post_id,
-    countIf(event_type = 'widget_impression') AS widget_impressions,
-    countIf(event_type = 'widget_click') AS widget_clicks,
+    sumState(toUInt64(event_type = 'widget_impression')) AS widget_impressions,
+    sumState(toUInt64(event_type = 'widget_click')) AS widget_clicks,
     uniqState(visitor_id) AS unique_visitors,
     uniqState(session_id) AS unique_sessions
 FROM events

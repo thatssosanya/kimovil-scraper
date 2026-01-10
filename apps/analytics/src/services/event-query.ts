@@ -81,12 +81,12 @@ export const EventQueryServiceLive = Layer.effect(
             mapping_id,
             post_id,
             device_slug,
-            sum(impressions) AS impressions,
-            sum(clicks) AS clicks,
+            sumMerge(impressions) AS impressions,
+            sumMerge(clicks) AS clicks,
             uniqMerge(unique_visitors) AS unique_visitors,
             uniqMerge(unique_sessions) AS unique_sessions,
-            if(impressions > 0, clicks / impressions, 0) AS ctr
-          FROM daily_widget_stats FINAL
+            if(sumMerge(impressions) > 0, sumMerge(clicks) / sumMerge(impressions), 0) AS ctr
+          FROM daily_widget_stats
           WHERE ${whereClause}
           GROUP BY mapping_id, post_id, device_slug
           ORDER BY impressions DESC
@@ -136,11 +136,11 @@ export const EventQueryServiceLive = Layer.effect(
         const sql = `
           SELECT
             post_id,
-            sum(widget_impressions) AS widget_impressions,
-            sum(widget_clicks) AS widget_clicks,
+            sumMerge(widget_impressions) AS widget_impressions,
+            sumMerge(widget_clicks) AS widget_clicks,
             uniqMerge(unique_visitors) AS unique_visitors,
             uniqMerge(unique_sessions) AS unique_sessions
-          FROM daily_post_stats FINAL
+          FROM daily_post_stats
           WHERE ${whereClause}
           GROUP BY post_id
           ORDER BY widget_impressions DESC
