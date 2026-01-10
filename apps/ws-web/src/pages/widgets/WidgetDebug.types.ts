@@ -6,6 +6,7 @@ export interface WidgetMapping {
   rawModel: string;
   normalizedModel: string | null;
   deviceId: string | null;
+  deviceSlug: string | null;
   confidence: number | null;
   status: MappingStatus;
   usageCount: number;
@@ -15,6 +16,7 @@ export interface WidgetMapping {
   updatedAt: number;
   impressions?: number;
   clicks?: number;
+  priceCount?: number;
 }
 
 export interface MappingsResponse {

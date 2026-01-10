@@ -243,6 +243,7 @@ export interface WidgetMapping {
   rawModel: string;
   normalizedModel: string | null;
   deviceId: string | null;
+  deviceSlug: string | null;
   confidence: number | null;
   status: MappingStatus;
   usageCount: number;
@@ -336,6 +337,7 @@ interface MappingRow {
   raw_model: string;
   normalized_model: string | null;
   device_id: string | null;
+  device_slug: string | null;
   confidence: number | null;
   status: string;
   usage_count: number;
@@ -376,6 +378,7 @@ function rowToMapping(row: MappingRow): WidgetMapping {
     rawModel: row.raw_model,
     normalizedModel: row.normalized_model,
     deviceId: row.device_id,
+    deviceSlug: row.device_slug,
     confidence: row.confidence,
     status: row.status as MappingStatus,
     usageCount: row.usage_count,
@@ -501,8 +504,9 @@ export const WidgetMappingServiceLive = Layer.effect(
     const getMapping: WidgetMappingService["getMapping"] = (rawModel) =>
       Effect.gen(function* () {
         const rows = yield* sql<MappingRow>`
-          SELECT * FROM widget_model_mappings
-          WHERE source = 'wordpress' AND raw_model = ${rawModel}
+          SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+          LEFT JOIN devices d ON wm.device_id = d.id
+          WHERE wm.source = 'wordpress' AND wm.raw_model = ${rawModel}
         `;
 
         const mapping = rows.length > 0 ? rowToMapping(rows[0]) : null;
@@ -601,8 +605,9 @@ export const WidgetMappingServiceLive = Layer.effect(
 
         if (sets.length === 0) {
           const existing = yield* sql<MappingRow>`
-            SELECT * FROM widget_model_mappings
-            WHERE source = 'wordpress' AND raw_model = ${rawModel}
+            SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+            LEFT JOIN devices d ON wm.device_id = d.id
+            WHERE wm.source = 'wordpress' AND wm.raw_model = ${rawModel}
           `;
           if (existing.length === 0) {
             return yield* Effect.fail(new WidgetMappingError({ message: `Mapping not found: ${rawModel}` }));
@@ -631,8 +636,9 @@ export const WidgetMappingServiceLive = Layer.effect(
         }
 
         const updated = yield* sql<MappingRow>`
-          SELECT * FROM widget_model_mappings
-          WHERE source = 'wordpress' AND raw_model = ${rawModel}
+          SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+          LEFT JOIN devices d ON wm.device_id = d.id
+          WHERE wm.source = 'wordpress' AND wm.raw_model = ${rawModel}
         `;
 
         if (updated.length === 0) {
@@ -657,9 +663,10 @@ export const WidgetMappingServiceLive = Layer.effect(
         if (options.status === "needs_review") {
           if (seenAfter !== null && seenBefore !== null) {
             const rows = yield* sql<MappingRow>`
-              SELECT * FROM widget_model_mappings
-              WHERE status IN ('pending', 'suggested')
-                AND last_seen_at >= ${seenAfter} AND last_seen_at <= ${seenBefore}
+              SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+              LEFT JOIN devices d ON wm.device_id = d.id
+              WHERE wm.status IN ('pending', 'suggested')
+                AND wm.last_seen_at >= ${seenAfter} AND wm.last_seen_at <= ${seenBefore}
               ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
               LIMIT ${limit} OFFSET ${offset}
             `;
@@ -672,9 +679,10 @@ export const WidgetMappingServiceLive = Layer.effect(
             total = countRows[0].count;
           } else if (seenAfter !== null) {
             const rows = yield* sql<MappingRow>`
-              SELECT * FROM widget_model_mappings
-              WHERE status IN ('pending', 'suggested')
-                AND last_seen_at >= ${seenAfter}
+              SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+              LEFT JOIN devices d ON wm.device_id = d.id
+              WHERE wm.status IN ('pending', 'suggested')
+                AND wm.last_seen_at >= ${seenAfter}
               ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
               LIMIT ${limit} OFFSET ${offset}
             `;
@@ -687,9 +695,10 @@ export const WidgetMappingServiceLive = Layer.effect(
             total = countRows[0].count;
           } else if (seenBefore !== null) {
             const rows = yield* sql<MappingRow>`
-              SELECT * FROM widget_model_mappings
-              WHERE status IN ('pending', 'suggested')
-                AND last_seen_at <= ${seenBefore}
+              SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+              LEFT JOIN devices d ON wm.device_id = d.id
+              WHERE wm.status IN ('pending', 'suggested')
+                AND wm.last_seen_at <= ${seenBefore}
               ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
               LIMIT ${limit} OFFSET ${offset}
             `;
@@ -702,9 +711,10 @@ export const WidgetMappingServiceLive = Layer.effect(
             total = countRows[0].count;
           } else {
             const rows = yield* sql<MappingRow>`
-              SELECT * FROM widget_model_mappings
-              WHERE status IN ('pending', 'suggested')
-              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+              LEFT JOIN devices d ON wm.device_id = d.id
+              WHERE wm.status IN ('pending', 'suggested')
+              ORDER BY wm.usage_count DESC, confidence IS NULL, confidence ASC
               LIMIT ${limit} OFFSET ${offset}
             `;
             mappings = rows.map(rowToMapping);
@@ -718,9 +728,10 @@ export const WidgetMappingServiceLive = Layer.effect(
           const status = options.status;
           if (seenAfter !== null && seenBefore !== null) {
             const rows = yield* sql<MappingRow>`
-              SELECT * FROM widget_model_mappings
-              WHERE status = ${status}
-                AND last_seen_at >= ${seenAfter} AND last_seen_at <= ${seenBefore}
+              SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+              LEFT JOIN devices d ON wm.device_id = d.id
+              WHERE wm.status = ${status}
+                AND wm.last_seen_at >= ${seenAfter} AND wm.last_seen_at <= ${seenBefore}
               ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
               LIMIT ${limit} OFFSET ${offset}
             `;
@@ -733,9 +744,10 @@ export const WidgetMappingServiceLive = Layer.effect(
             total = countRows[0].count;
           } else if (seenAfter !== null) {
             const rows = yield* sql<MappingRow>`
-              SELECT * FROM widget_model_mappings
-              WHERE status = ${status}
-                AND last_seen_at >= ${seenAfter}
+              SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+              LEFT JOIN devices d ON wm.device_id = d.id
+              WHERE wm.status = ${status}
+                AND wm.last_seen_at >= ${seenAfter}
               ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
               LIMIT ${limit} OFFSET ${offset}
             `;
@@ -748,9 +760,10 @@ export const WidgetMappingServiceLive = Layer.effect(
             total = countRows[0].count;
           } else if (seenBefore !== null) {
             const rows = yield* sql<MappingRow>`
-              SELECT * FROM widget_model_mappings
-              WHERE status = ${status}
-                AND last_seen_at <= ${seenBefore}
+              SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+              LEFT JOIN devices d ON wm.device_id = d.id
+              WHERE wm.status = ${status}
+                AND wm.last_seen_at <= ${seenBefore}
               ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
               LIMIT ${limit} OFFSET ${offset}
             `;
@@ -763,9 +776,10 @@ export const WidgetMappingServiceLive = Layer.effect(
             total = countRows[0].count;
           } else {
             const rows = yield* sql<MappingRow>`
-              SELECT * FROM widget_model_mappings
-              WHERE status = ${status}
-              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+              LEFT JOIN devices d ON wm.device_id = d.id
+              WHERE wm.status = ${status}
+              ORDER BY wm.usage_count DESC, confidence IS NULL, confidence ASC
               LIMIT ${limit} OFFSET ${offset}
             `;
             mappings = rows.map(rowToMapping);
@@ -778,8 +792,9 @@ export const WidgetMappingServiceLive = Layer.effect(
         } else {
           if (seenAfter !== null && seenBefore !== null) {
             const rows = yield* sql<MappingRow>`
-              SELECT * FROM widget_model_mappings
-              WHERE last_seen_at >= ${seenAfter} AND last_seen_at <= ${seenBefore}
+              SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+              LEFT JOIN devices d ON wm.device_id = d.id
+              WHERE wm.last_seen_at >= ${seenAfter} AND wm.last_seen_at <= ${seenBefore}
               ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
               LIMIT ${limit} OFFSET ${offset}
             `;
@@ -791,9 +806,10 @@ export const WidgetMappingServiceLive = Layer.effect(
             total = countRows[0].count;
           } else if (seenAfter !== null) {
             const rows = yield* sql<MappingRow>`
-              SELECT * FROM widget_model_mappings
-              WHERE last_seen_at >= ${seenAfter}
-              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+              LEFT JOIN devices d ON wm.device_id = d.id
+              WHERE wm.last_seen_at >= ${seenAfter}
+              ORDER BY wm.usage_count DESC, confidence IS NULL, confidence ASC
               LIMIT ${limit} OFFSET ${offset}
             `;
             mappings = rows.map(rowToMapping);
@@ -804,9 +820,10 @@ export const WidgetMappingServiceLive = Layer.effect(
             total = countRows[0].count;
           } else if (seenBefore !== null) {
             const rows = yield* sql<MappingRow>`
-              SELECT * FROM widget_model_mappings
-              WHERE last_seen_at <= ${seenBefore}
-              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+              LEFT JOIN devices d ON wm.device_id = d.id
+              WHERE wm.last_seen_at <= ${seenBefore}
+              ORDER BY wm.usage_count DESC, confidence IS NULL, confidence ASC
               LIMIT ${limit} OFFSET ${offset}
             `;
             mappings = rows.map(rowToMapping);
@@ -817,8 +834,9 @@ export const WidgetMappingServiceLive = Layer.effect(
             total = countRows[0].count;
           } else {
             const rows = yield* sql<MappingRow>`
-              SELECT * FROM widget_model_mappings
-              ORDER BY usage_count DESC, confidence IS NULL, confidence ASC
+              SELECT wm.*, d.slug as device_slug FROM widget_model_mappings wm
+              LEFT JOIN devices d ON wm.device_id = d.id
+              ORDER BY wm.usage_count DESC, wm.confidence IS NULL, wm.confidence ASC
               LIMIT ${limit} OFFSET ${offset}
             `;
             mappings = rows.map(rowToMapping);

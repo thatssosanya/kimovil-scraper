@@ -187,3 +187,28 @@ export async function excludePriceQuote(
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
+export interface BulkDeviceStatus {
+  hasHtml: boolean;
+  hasRawData: boolean;
+  hasAiData: boolean;
+  isCorrupted: boolean | null;
+  corruptionReason: string | null;
+  priceSourceCount: number;
+  hasPrices: boolean;
+  hasPriceRuLink: boolean;
+  priceCount: number;
+}
+
+export async function getBulkDeviceStatus(
+  slugs: string[],
+  source = "kimovil"
+): Promise<Record<string, BulkDeviceStatus>> {
+  if (slugs.length === 0) return {};
+  const res = await fetch(
+    `${API_BASE}/api/v2/devices/bulk-status?slugs=${slugs.join(",")}&source=${source}`,
+    { credentials: "include" }
+  );
+  if (!res.ok) return {};
+  return res.json();
+}

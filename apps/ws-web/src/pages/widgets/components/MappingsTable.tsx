@@ -26,6 +26,9 @@ export function MappingsTable(props: {
               <th class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400">
                 Impressions
               </th>
+              <th class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400">
+                Prices
+              </th>
               <th
                 class="px-4 py-3 text-left font-medium text-zinc-500 dark:text-slate-400 cursor-pointer hover:text-zinc-900 dark:hover:text-white"
                 onClick={() => props.onSortChange("status")}
@@ -75,6 +78,19 @@ export function MappingsTable(props: {
                           </span>
                         </Show>
                       </div>
+                    </Show>
+                  </td>
+                  <td class="px-4 py-3">
+                    <Show when={mapping.priceCount != null} fallback={
+                      <span class="text-xs text-zinc-300 dark:text-slate-600">—</span>
+                    }>
+                      <span class={`text-xs font-medium tabular-nums ${
+                        mapping.priceCount! > 0
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-zinc-400 dark:text-slate-500"
+                      }`}>
+                        {mapping.priceCount!.toLocaleString()}
+                      </span>
                     </Show>
                   </td>
                   <td class="px-4 py-3">

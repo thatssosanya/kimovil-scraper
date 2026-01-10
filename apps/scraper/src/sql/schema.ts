@@ -1010,6 +1010,18 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_entity_data_device ON entity_data(device_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_sources_device ON device_sources(device_id)`);
 
+    // Add offer_count to price_summary for pre-computed price counts
+    yield* ensureColumn(sql, "price_summary", "offer_count", "INTEGER DEFAULT 0");
+
+    // Backfill offer_count for existing price_summary records
+    yield* sql.unsafe(`
+      UPDATE price_summary
+      SET offer_count = (
+        SELECT COUNT(*) FROM price_quotes WHERE price_quotes.device_id = price_summary.device_id
+      )
+      WHERE offer_count IS NULL OR offer_count = 0
+    `);
+
     // Price quote exclusions - prevents wrong model matches from reappearing after deletion
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS price_quote_exclusions (
@@ -1247,6 +1259,43 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* ensureColumn(sql, "price_quotes", "affiliate_url", "TEXT");
     yield* ensureColumn(sql, "price_quotes", "affiliate_url_created_at", "TEXT");
     yield* ensureColumn(sql, "price_quotes", "affiliate_error", "TEXT");
+
+    // Device images - normalized storage for CDN-hosted images
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS device_images (
+        device_id    TEXT NOT NULL REFERENCES devices(id),
+        source       TEXT NOT NULL,
+        kind         TEXT NOT NULL,
+        image_index  INTEGER NOT NULL DEFAULT 0,
+        variant      TEXT NOT NULL DEFAULT 'optimized',
+        storage_key  TEXT NOT NULL,
+        cdn_url      TEXT NOT NULL,
+        original_url TEXT,
+        width        INTEGER,
+        height       INTEGER,
+        format       TEXT,
+        status       TEXT NOT NULL DEFAULT 'uploaded'
+                     CHECK (status IN ('pending', 'uploaded', 'error')),
+        last_error   TEXT,
+        created_at   INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at   INTEGER NOT NULL DEFAULT (unixepoch()),
+        PRIMARY KEY (device_id, source, kind, image_index, variant)
+      )
+    `);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_images_device ON device_images(device_id)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_images_status ON device_images(status)`);
+
+    // Backup table for entity_data_raw URLs before migration
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS entity_data_raw_backup (
+        device_id    TEXT NOT NULL,
+        source       TEXT NOT NULL,
+        data_kind    TEXT NOT NULL,
+        data         TEXT NOT NULL,
+        backed_up_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        PRIMARY KEY (device_id, source, data_kind)
+      )
+    `);
 
     yield* Effect.logInfo("Schema initialized");
   });

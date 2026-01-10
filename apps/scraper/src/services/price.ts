@@ -112,6 +112,10 @@ export interface PriceService {
     source: string;
     externalId: string;
   }) => Effect.Effect<void, PriceServiceError>;
+
+  readonly getOfferCountsByDeviceIds: (
+    deviceIds: string[],
+  ) => Effect.Effect<Record<string, number>, PriceServiceError>;
 }
 
 export const PriceService = Context.GenericTag<PriceService>("PriceService");
@@ -140,6 +144,7 @@ type PriceSummaryRow = {
   max_price_minor_units: number | null;
   currency: string | null;
   updated_at: number | null;
+  offer_count: number | null;
 };
 
 type PriceHistoryRow = {
@@ -253,9 +258,14 @@ export const PriceServiceLive = Layer.effect(
             return;
           }
 
+          const countRows = yield* sql<{ offer_count: number }>`
+            SELECT COUNT(*) as offer_count FROM price_quotes WHERE device_id = ${deviceId}
+          `;
+          const offerCount = countRows[0]?.offer_count ?? 0;
+
           yield* sql`
-            INSERT OR REPLACE INTO price_summary (device_id, min_price_minor_units, max_price_minor_units, currency, updated_at)
-            VALUES (${deviceId}, ${row.min_price}, ${row.max_price}, ${row.currency}, unixepoch())
+            INSERT OR REPLACE INTO price_summary (device_id, min_price_minor_units, max_price_minor_units, currency, updated_at, offer_count)
+            VALUES (${deviceId}, ${row.min_price}, ${row.max_price}, ${row.currency}, unixepoch(), ${offerCount})
           `;
         }).pipe(
           Effect.tapError((e) =>
@@ -563,6 +573,27 @@ export const PriceServiceLive = Layer.effect(
           Effect.asVoid,
           Effect.mapError(wrapSqlError),
         ),
+
+      getOfferCountsByDeviceIds: (deviceIds) => {
+        if (deviceIds.length === 0) {
+          return Effect.succeed({});
+        }
+
+        return sql<{ device_id: string; offer_count: number }>`
+          SELECT device_id, COALESCE(offer_count, 0) as offer_count
+          FROM price_summary
+          WHERE device_id IN ${sql.in(deviceIds)}
+        `.pipe(
+          Effect.map((rows) => {
+            const result: Record<string, number> = {};
+            for (const row of rows) {
+              result[row.device_id] = row.offer_count;
+            }
+            return result;
+          }),
+          Effect.mapError(wrapSqlError),
+        );
+      },
     });
   }),
 );

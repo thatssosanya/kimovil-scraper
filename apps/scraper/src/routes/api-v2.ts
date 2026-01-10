@@ -314,6 +314,8 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
         const htmlCache = yield* HtmlCacheService;
         const deviceRegistry = yield* DeviceRegistryService;
         const entityData = yield* EntityDataService;
+        const priceService = yield* PriceService;
+        const sql = yield* SqlClient.SqlClient;
 
         const results: Record<
           string,
@@ -326,10 +328,49 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
             priceSourceCount: number;
             hasPrices: boolean;
             hasPriceRuLink: boolean;
+            priceCount: number;
           }
         > = {};
 
-        const sql = yield* SqlClient.SqlClient;
+        // Resolve all slugs to devices first
+        const devicesBySlug = new Map<string, { id: string }>();
+        for (const slug of slugs) {
+          const device = yield* deviceRegistry.getDeviceBySlug(slug).pipe(
+            Effect.catchAll(() => Effect.succeed(null)),
+          );
+          if (device) {
+            devicesBySlug.set(slug, device);
+          }
+        }
+
+        // Bulk fetch offer counts from price_summary
+        const deviceIds = Array.from(devicesBySlug.values()).map((d) => d.id);
+        const offerCounts = yield* priceService.getOfferCountsByDeviceIds(deviceIds).pipe(
+          Effect.catchAll(() => Effect.succeed({} as Record<string, number>)),
+        );
+
+        // Bulk fetch price source counts
+        const priceSourceCountsByDevice = new Map<string, number>();
+        const priceRuLinkByDevice = new Map<string, boolean>();
+        if (deviceIds.length > 0) {
+          const priceSourceRows = yield* sql<{ device_id: string; count: number }>`
+            SELECT device_id, COUNT(*) as count FROM device_sources
+            WHERE device_id IN ${sql.in(deviceIds)} AND source IN ('yandex_market', 'price_ru') AND status = 'active'
+            GROUP BY device_id
+          `.pipe(Effect.catchAll(() => Effect.succeed([])));
+          for (const row of priceSourceRows) {
+            priceSourceCountsByDevice.set(row.device_id, row.count);
+          }
+
+          const priceRuRows = yield* sql<{ device_id: string; count: number }>`
+            SELECT device_id, COUNT(*) as count FROM device_sources
+            WHERE device_id IN ${sql.in(deviceIds)} AND source = 'price_ru' AND status = 'active'
+            GROUP BY device_id
+          `.pipe(Effect.catchAll(() => Effect.succeed([])));
+          for (const row of priceRuRows) {
+            priceRuLinkByDevice.set(row.device_id, row.count > 0);
+          }
+        }
 
         for (const slug of slugs) {
           const hasHtml = yield* htmlCache.hasHtmlForSlug(slug, source, "specs").pipe(
@@ -339,15 +380,14 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
             Effect.catchAll(() => Effect.succeed(null)),
           );
 
-          const device = yield* deviceRegistry.getDeviceBySlug(slug).pipe(
-            Effect.catchAll(() => Effect.succeed(null)),
-          );
+          const device = devicesBySlug.get(slug) ?? null;
 
           let hasRawData = false;
           let hasAiData = false;
           let priceSourceCount = 0;
           let hasPrices = false;
           let hasPriceRuLink = false;
+          let priceCount = 0;
 
           if (device) {
             const entityRaw = yield* entityData.getRawData(device.id, source, "specs").pipe(
@@ -359,22 +399,10 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
             hasRawData = entityRaw !== null;
             hasAiData = entityFinal !== null;
 
-            const priceSourceRows = yield* sql<{ count: number }>`
-              SELECT COUNT(*) as count FROM device_sources
-              WHERE device_id = ${device.id} AND source IN ('yandex_market', 'price_ru') AND status = 'active'
-            `.pipe(Effect.catchAll(() => Effect.succeed([])));
-            priceSourceCount = priceSourceRows[0]?.count ?? 0;
-
-            const priceRuLinkRows = yield* sql<{ count: number }>`
-              SELECT COUNT(*) as count FROM device_sources
-              WHERE device_id = ${device.id} AND source = 'price_ru' AND status = 'active'
-            `.pipe(Effect.catchAll(() => Effect.succeed([])));
-            hasPriceRuLink = (priceRuLinkRows[0]?.count ?? 0) > 0;
-
-            const priceRows = yield* sql<{ count: number }>`
-              SELECT COUNT(*) as count FROM price_quotes WHERE device_id = ${device.id} LIMIT 1
-            `.pipe(Effect.catchAll(() => Effect.succeed([])));
-            hasPrices = (priceRows[0]?.count ?? 0) > 0;
+            priceSourceCount = priceSourceCountsByDevice.get(device.id) ?? 0;
+            hasPriceRuLink = priceRuLinkByDevice.get(device.id) ?? false;
+            priceCount = offerCounts[device.id] ?? 0;
+            hasPrices = priceCount > 0;
           }
 
           results[slug] = {
@@ -386,6 +414,7 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
             priceSourceCount,
             hasPrices,
             hasPriceRuLink,
+            priceCount,
           };
         }
 

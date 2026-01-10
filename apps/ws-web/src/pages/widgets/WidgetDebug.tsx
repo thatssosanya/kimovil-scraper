@@ -90,17 +90,29 @@ export default function WidgetDebug() {
       const analyticsData = await analyticsApi.getMappingStats(mappingIds);
       const analyticsMap = new Map(analyticsData.map((a) => [a.mappingId, a]));
       
-      // Merge analytics into mappings
-      const mappingsWithAnalytics = json.mappings.map((m) => {
+      // Fetch price counts for mapped devices (use deviceSlug, not deviceId)
+      const deviceSlugs = Array.from(
+        new Set(
+          json.mappings
+            .map((m) => m.deviceSlug)
+            .filter((slug): slug is string => !!slug)
+        )
+      );
+      const bulkStatus = await api.getBulkDeviceStatus(deviceSlugs);
+      
+      // Merge analytics and price counts into mappings
+      const mappingsWithData = json.mappings.map((m) => {
         const stats = analyticsMap.get(m.id);
+        const deviceStatus = m.deviceSlug ? bulkStatus[m.deviceSlug] : undefined;
         return {
           ...m,
           impressions: stats?.impressions,
           clicks: stats?.clicks,
+          priceCount: deviceStatus?.priceCount,
         };
       });
       
-      setMappings(mappingsWithAnalytics);
+      setMappings(mappingsWithData);
       setTotal(json.total);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to fetch");

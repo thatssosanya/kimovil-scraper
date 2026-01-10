@@ -59,6 +59,9 @@ type DeviceWithSpecsRow = {
   device_name: string;
   device_brand: string | null;
   specs_data: string | null;
+  cdn_image_mini: string | null;
+  cdn_image_hq: string | null;
+  cdn_image_original: string | null;
 };
 
 type PriceGroupRow = {
@@ -102,12 +105,30 @@ export const WidgetDataServiceLive = Layer.effect(
               d.slug as device_slug,
               d.name as device_name,
               d.brand as device_brand,
-              edr.data as specs_data
+              edr.data as specs_data,
+              di_mini.cdn_url as cdn_image_mini,
+              di_hq.cdn_url as cdn_image_hq,
+              di_orig.cdn_url as cdn_image_original
             FROM devices d
             LEFT JOIN entity_data_raw edr 
               ON edr.device_id = d.id 
               AND edr.source = 'kimovil' 
               AND edr.data_kind = 'specs'
+            LEFT JOIN device_images di_mini
+              ON di_mini.device_id = d.id
+              AND di_mini.kind = 'primary'
+              AND di_mini.variant = 'mini'
+              AND di_mini.status = 'uploaded'
+            LEFT JOIN device_images di_hq
+              ON di_hq.device_id = d.id
+              AND di_hq.kind = 'primary'
+              AND di_hq.variant = 'hq'
+              AND di_hq.status = 'uploaded'
+            LEFT JOIN device_images di_orig
+              ON di_orig.device_id = d.id
+              AND di_orig.kind = 'primary'
+              AND di_orig.variant = 'original'
+              AND di_orig.status = 'uploaded'
             WHERE d.slug = ${slug}
           `;
 
@@ -193,11 +214,19 @@ export const WidgetDataServiceLive = Layer.effect(
           if (deviceRow.specs_data) {
             const rawSpecs = safeParseJson(deviceRow.specs_data) as RawSpecs | null;
             if (rawSpecs) {
+              // Image priority: CDN mini → CDN hq → CDN original → Kimovil fallback
+              const image =
+                deviceRow.cdn_image_mini ??
+                deviceRow.cdn_image_hq ??
+                deviceRow.cdn_image_original ??
+                rawSpecs.images?.[0] ??
+                null;
+
               specs = {
                 screenSize: rawSpecs.size_in ?? null,
                 cpu: rawSpecs.cpu ?? null,
                 battery: rawSpecs.batteryCapacity_mah ?? null,
-                image: rawSpecs.images?.[0] ?? null,
+                image,
               };
             }
           }

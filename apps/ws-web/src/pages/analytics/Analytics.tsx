@@ -139,6 +139,7 @@ export default function Analytics() {
   const [impressionsTimeseries, setImpressionsTimeseries] = createSignal<TimeseriesPoint[]>([]);
   const [clicksTimeseries, setClicksTimeseries] = createSignal<TimeseriesPoint[]>([]);
   const [timeseriesLoading, setTimeseriesLoading] = createSignal(false);
+  const [priceCounts, setPriceCounts] = createSignal<Record<string, number>>({});
 
   const handleEnvChange = (env: AnalyticsEnv) => {
     setAnalyticsEnv(env);
@@ -147,6 +148,35 @@ export default function Analytics() {
     setPostBreakdown([]);
     fetchStats();
     fetchTimeseries();
+  };
+
+  const fetchPriceCounts = async (slugs: string[]) => {
+    if (slugs.length === 0) {
+      setPriceCounts({});
+      return;
+    }
+
+    try {
+      const map: Record<string, number> = {};
+      const BATCH_SIZE = 50;
+      
+      for (let i = 0; i < slugs.length; i += BATCH_SIZE) {
+        const batch = slugs.slice(i, i + BATCH_SIZE);
+        const res = await fetch(`${SCRAPER_BASE}/api/v2/devices/bulk-status?slugs=${batch.join(",")}&source=kimovil`, {
+          credentials: "include",
+        });
+        if (!res.ok) continue;
+
+        const json = (await res.json()) as Record<string, { priceCount?: number }>;
+        for (const [slug, data] of Object.entries(json)) {
+          if (data.priceCount != null) map[slug] = data.priceCount;
+        }
+      }
+      
+      setPriceCounts(map);
+    } catch (e) {
+      console.error("Failed to fetch price counts:", e);
+    }
   };
 
   const fetchStats = async () => {
@@ -158,13 +188,24 @@ export default function Analytics() {
       const to = new Date().toISOString();
 
       const env = analyticsEnv();
-      const res = await fetch(`${getAnalyticsBase(env)}/v1/stats/widgets?from=${from}&to=${to}&limit=100`, {
+      const res = await fetch(`${getAnalyticsBase(env)}/v1/stats/widgets?from=${from}&to=${to}&limit=1000`, {
         headers: getAnalyticsHeaders(env),
       });
       if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
 
       const json = await res.json();
-      setStats(json.data ?? []);
+      const data = json.data ?? [];
+      setStats(data);
+
+      // Fetch price counts for unique device slugs
+      const slugs: string[] = Array.from(
+        new Set(
+          data
+            .map((s: WidgetStat) => s.device_slug)
+            .filter((slug: string | null): slug is string => !!slug)
+        )
+      );
+      void fetchPriceCounts(slugs);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to fetch analytics");
     } finally {
@@ -537,6 +578,7 @@ export default function Analytics() {
                     <th class="px-4 py-3 text-right font-medium text-zinc-500 dark:text-slate-400">Clicks</th>
                     <th class="px-4 py-3 text-right font-medium text-zinc-500 dark:text-slate-400">CTR</th>
                     <th class="px-4 py-3 text-right font-medium text-zinc-500 dark:text-slate-400">Visitors</th>
+                    <th class="px-4 py-3 text-right font-medium text-zinc-500 dark:text-slate-400">Prices</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-zinc-100 dark:divide-slate-800">
@@ -544,7 +586,7 @@ export default function Analytics() {
                     each={aggregatedStats()}
                     fallback={
                       <tr>
-                        <td colspan="6" class="px-4 py-12 text-center text-zinc-400 dark:text-slate-500">
+                        <td colspan="7" class="px-4 py-12 text-center text-zinc-400 dark:text-slate-500">
                           No data for this period
                         </td>
                       </tr>
@@ -633,12 +675,21 @@ export default function Analytics() {
                               {stat.unique_visitors.toLocaleString()}
                             </span>
                           </td>
+                          <td class="px-4 py-3 text-right">
+                            <span class={`tabular-nums ${
+                              stat.device_slug && (priceCounts()[stat.device_slug] ?? 0) > 0
+                                ? "text-emerald-600 dark:text-emerald-400 font-medium"
+                                : "text-zinc-300 dark:text-slate-600"
+                            }`}>
+                              {stat.device_slug ? (priceCounts()[stat.device_slug] ?? 0).toLocaleString() : "—"}
+                            </span>
+                          </td>
                         </tr>
 
                         {/* Expanded breakdown */}
                         <Show when={selectedDevice() === stat.device_slug}>
                           <tr class="bg-zinc-50 dark:bg-slate-800/30">
-                            <td colspan="6" class="px-4 py-4">
+                            <td colspan="7" class="px-4 py-4">
                               <div class="pl-8">
                                 <Show when={breakdownLoading()}>
                                   <div class="flex items-center gap-2 py-2 text-sm text-zinc-500 dark:text-slate-400">
