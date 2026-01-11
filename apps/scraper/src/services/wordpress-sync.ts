@@ -98,16 +98,33 @@ export const WordPressSyncServiceLive = Layer.effect(
     const sql = yield* SqlClient.SqlClient;
 
     const extractWidgets = (content: string): ExtractedWidget[] => {
-      const regex = /searchText:\s*"([^"]+)"/g;
       const widgets: ExtractedWidget[] = [];
-      let match;
+      const seen = new Set<string>();
       let index = 0;
 
-      while ((match = regex.exec(content)) !== null) {
-        widgets.push({
-          searchText: match[1],
-          occurrenceIndex: index++,
-        });
+      // Pattern 1: Original Yandex widget format (searchText: "...")
+      const searchTextRegex = /searchText:\s*"([^"]+)"/g;
+      let match;
+      while ((match = searchTextRegex.exec(content)) !== null) {
+        const text = match[1].trim();
+        if (!seen.has(text)) {
+          seen.add(text);
+          widgets.push({ searchText: text, occurrenceIndex: index++ });
+        }
+      }
+
+      // Pattern 2: COD price widget format (hx-get="...?model=...")
+      const hxGetRegex = /hx-get="[^"]*\/widget\/v1\/price\?model=([^"&]+)"/g;
+      while ((match = hxGetRegex.exec(content)) !== null) {
+        try {
+          const text = decodeURIComponent(match[1].replace(/\+/g, ' ')).trim();
+          if (!seen.has(text)) {
+            seen.add(text);
+            widgets.push({ searchText: text, occurrenceIndex: index++ });
+          }
+        } catch {
+          // Skip malformed URL encoding
+        }
       }
 
       return widgets;

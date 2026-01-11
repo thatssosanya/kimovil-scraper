@@ -177,6 +177,7 @@ export default function Analytics() {
   const [clicksTimeseries, setClicksTimeseries] = createSignal<TimeseriesPoint[]>([]);
   const [timeseriesLoading, setTimeseriesLoading] = createSignal(false);
   const [priceCounts, setPriceCounts] = createSignal<Record<string, number>>({});
+  const [mappingSlugs, setMappingSlugs] = createSignal<Record<string, string | null>>({});
   const [selectedMapping, setSelectedMapping] = createSignal<WidgetMapping | null>(null);
   const [mappingLoading, setMappingLoading] = createSignal(false);
 
@@ -236,11 +237,38 @@ export default function Analytics() {
       const data = json.data ?? [];
       setStats(data);
 
-      // Fetch price counts for unique device slugs
+      // Fetch current mappings to get up-to-date device_slugs
+      const rawModels: string[] = Array.from(
+        new Set(
+          data
+            .map((s: WidgetStat) => s.raw_model)
+            .filter((rm: string | null): rm is string => !!rm)
+        )
+      );
+      
+      let mappingSlugsMap: Record<string, string | null> = {};
+      if (rawModels.length > 0) {
+        try {
+          const mappingRes = await fetch(`${SCRAPER_BASE}/api/widget-mappings/bulk-by-raw-model`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ raw_models: rawModels }),
+            credentials: "include",
+          });
+          if (mappingRes.ok) {
+            mappingSlugsMap = await mappingRes.json();
+            setMappingSlugs(mappingSlugsMap);
+          }
+        } catch {
+          // Fall back to ClickHouse device_slug if mapping lookup fails
+        }
+      }
+
+      // Use mapping slugs if available, otherwise fall back to ClickHouse device_slug
       const slugs: string[] = Array.from(
         new Set(
           data
-            .map((s: WidgetStat) => s.device_slug)
+            .map((s: WidgetStat) => mappingSlugsMap[s.raw_model ?? ""] ?? s.device_slug)
             .filter((slug: string | null): slug is string => !!slug)
         )
       );
@@ -787,13 +815,19 @@ export default function Analytics() {
                             </span>
                           </td>
                           <td class="px-4 py-3 text-right">
-                            <span class={`tabular-nums ${
-                              stat.device_slug && (priceCounts()[stat.device_slug] ?? 0) > 0
-                                ? "text-emerald-600 dark:text-emerald-400 font-medium"
-                                : "text-zinc-300 dark:text-slate-600"
-                            }`}>
-                              {stat.device_slug ? (priceCounts()[stat.device_slug] ?? 0).toLocaleString() : "—"}
-                            </span>
+                            {(() => {
+                              const slug = mappingSlugs()[stat.raw_model ?? ""] ?? stat.device_slug;
+                              const count = slug ? (priceCounts()[slug] ?? 0) : 0;
+                              return (
+                                <span class={`tabular-nums ${
+                                  count > 0
+                                    ? "text-emerald-600 dark:text-emerald-400 font-medium"
+                                    : "text-zinc-300 dark:text-slate-600"
+                                }`}>
+                                  {slug ? count.toLocaleString() : "—"}
+                                </span>
+                              );
+                            })()}
                           </td>
                         </tr>
 

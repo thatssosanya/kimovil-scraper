@@ -202,6 +202,41 @@ export const createWidgetMappingsRoutes = () =>
         source: t.Optional(t.String()),
       }),
     })
+    .post("/bulk-by-raw-model", async ({ body, set }) => {
+      const rawModels = body.raw_models;
+      const source = body.source ?? "wordpress";
+      
+      if (!rawModels || !Array.isArray(rawModels) || rawModels.length === 0) {
+        set.status = 400;
+        return { error: "raw_models array required" };
+      }
+
+      const program = Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const rows = yield* sql<{
+          raw_model: string;
+          device_slug: string | null;
+        }>`
+          SELECT wm.raw_model, d.slug as device_slug 
+          FROM widget_model_mappings wm
+          LEFT JOIN devices d ON wm.device_id = d.id
+          WHERE wm.source = ${source} AND wm.raw_model IN ${sql.in(rawModels)}
+        `;
+
+        const result: Record<string, string | null> = {};
+        for (const row of rows) {
+          result[row.raw_model] = row.device_slug;
+        }
+        return result;
+      });
+
+      return await LiveRuntime.runPromise(program);
+    }, {
+      body: t.Object({
+        raw_models: t.Array(t.String()),
+        source: t.Optional(t.String()),
+      }),
+    })
     .get("/:rawModel", async ({ params }) => {
       const rawModel = decodeURIComponent(params.rawModel);
       const program = Effect.gen(function* () {
