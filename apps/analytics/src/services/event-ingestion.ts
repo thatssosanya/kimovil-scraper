@@ -59,6 +59,11 @@ function extractDeviceSlug(properties: Record<string, unknown>): string | null {
   return typeof val === "string" ? val : null;
 }
 
+function extractRawModel(properties: Record<string, unknown>): string | null {
+  const val = properties.raw_model;
+  return typeof val === "string" ? val : null;
+}
+
 class TransformError {
   readonly _tag = "TransformError";
   constructor(
@@ -105,6 +110,7 @@ const transformEvent = (
         prop_mapping_id: extractMappingId(raw.properties),
         prop_post_id: extractPostId(raw.properties),
         prop_device_slug: extractDeviceSlug(raw.properties),
+        prop_raw_model: extractRawModel(raw.properties),
       };
     },
     catch: (e) =>

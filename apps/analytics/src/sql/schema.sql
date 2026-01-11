@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS events (
     -- Extracted fields for indexing (from properties)
     prop_mapping_id Nullable(Int64),
     prop_post_id Nullable(Int64),
-    prop_device_slug Nullable(String)
+    prop_device_slug Nullable(String),
+    prop_raw_model Nullable(String)
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(occurred_at)

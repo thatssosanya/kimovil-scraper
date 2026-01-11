@@ -85,6 +85,7 @@ export interface AnalyticsEvent {
   prop_mapping_id: number | null;
   prop_post_id: number | null;
   prop_device_slug: string | null;
+  prop_raw_model: string | null;
 }
 
 export interface IngestResult {

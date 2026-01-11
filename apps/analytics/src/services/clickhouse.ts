@@ -68,6 +68,7 @@ export const ClickHouseServiceLive = Layer.scoped(
               prop_mapping_id: e.prop_mapping_id,
               prop_post_id: e.prop_post_id,
               prop_device_slug: e.prop_device_slug,
+              prop_raw_model: e.prop_raw_model,
             })),
             format: "JSONEachRow",
           });
