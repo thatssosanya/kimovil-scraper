@@ -1275,6 +1275,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
       )
     `);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_images_device ON device_images(device_id)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_images_device_source ON device_images(device_id, source, position)`);
 
     // Backup table for entity_data_raw URLs before migration
     yield* sql.unsafe(`
