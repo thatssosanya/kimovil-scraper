@@ -7,6 +7,38 @@ import { parseYandexSpecs, parseYandexImages, parseYandexProduct } from "./extra
 import { HtmlCacheService } from "../../services/html-cache";
 import { EntityDataService } from "../../services/entity-data";
 import { DeviceImageService } from "../../services/device-image";
+import { StorageService } from "../../services/storage";
+
+const uploadSingleImage = (
+  deviceId: string,
+  url: string,
+  index: number,
+) =>
+  Effect.gen(function* () {
+    const storage = yield* StorageService;
+
+    const response = yield* Effect.tryPromise({
+      try: () => fetch(url),
+      catch: (e) => new Error(`Failed to fetch image: ${e}`),
+    });
+
+    if (!response.ok) {
+      yield* Effect.fail(new Error(`HTTP ${response.status} for ${url}`));
+    }
+
+    const buffer = Buffer.from(yield* Effect.tryPromise({
+      try: () => response.arrayBuffer(),
+      catch: (e) => new Error(`Failed to read image buffer: ${e}`),
+    }));
+
+    const contentType = response.headers.get("content-type") ?? "image/jpeg";
+    const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+    const key = `yandex/${deviceId}/${index}.${ext}`;
+
+    yield* storage.putObject({ key, contentType, body: buffer });
+
+    return storage.publicUrl(key);
+  });
 
 /**
  * Yandex specs scraping is user-driven via the WebSocket handler,
@@ -36,6 +68,7 @@ const processRawHandler = (ctx: PipelineContext) =>
       );
       return;
     }
+    const deviceId = ctx.deviceId;
 
     const html = yield* htmlCache.getHtmlBySlug(ctx.externalId, "yandex_market", "specs").pipe(
       Effect.catchAll(() => Effect.succeed(null))
@@ -52,11 +85,11 @@ const processRawHandler = (ctx: PipelineContext) =>
     const product = parseYandexProduct(html);
 
     yield* Effect.logInfo(`Extracted ${specs.length} specs, ${images.galleryImageUrls.length} images`).pipe(
-      Effect.annotateLogs({ deviceId: ctx.deviceId, brand: product.brand, name: product.name }),
+      Effect.annotateLogs({ deviceId, brand: product.brand, name: product.name }),
     );
 
     yield* entityData.saveRawData({
-      deviceId: ctx.deviceId,
+      deviceId,
       source: "yandex_market",
       dataKind: "specs",
       scrapeId: ctx.scrapeId ?? undefined,
@@ -69,15 +102,37 @@ const processRawHandler = (ctx: PipelineContext) =>
     });
 
     if (images.galleryImageUrls.length > 0) {
-      const imageInputs = images.galleryImageUrls.map((url, index) => ({
-        url,
-        position: index,
-        isPrimary: index === 0,
+      const uploadResults = yield* Effect.forEach(
+        images.galleryImageUrls,
+        (url, index) =>
+          uploadSingleImage(deviceId, url, index).pipe(
+            Effect.map((cdnUrl) => ({ url: cdnUrl, position: index, isPrimary: index === 0, success: true })),
+            Effect.catchAll((error) =>
+              Effect.gen(function* () {
+                yield* Effect.logWarning(`Failed to upload image ${index}`).pipe(
+                  Effect.annotateLogs({ deviceId, originalUrl: url, error: String(error) }),
+                );
+                return { url, position: index, isPrimary: index === 0, success: false };
+              }),
+            ),
+          ),
+        { concurrency: 4 },
+      );
+
+      const successCount = uploadResults.filter((r) => r.success).length;
+      yield* Effect.logInfo(`Uploaded ${successCount}/${images.galleryImageUrls.length} images to S3`).pipe(
+        Effect.annotateLogs({ deviceId }),
+      );
+
+      const imageInputs = uploadResults.map((r) => ({
+        url: r.url,
+        position: r.position,
+        isPrimary: r.isPrimary,
       }));
 
-      const savedCount = yield* imageService.upsertImages(ctx.deviceId, "yandex_market", imageInputs);
-      yield* Effect.logInfo(`Saved ${savedCount} images`).pipe(
-        Effect.annotateLogs({ deviceId: ctx.deviceId }),
+      const savedCount = yield* imageService.upsertImages(deviceId, "yandex_market", imageInputs);
+      yield* Effect.logInfo(`Saved ${savedCount} images to DB`).pipe(
+        Effect.annotateLogs({ deviceId }),
       );
     }
   });
