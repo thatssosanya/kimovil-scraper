@@ -13,6 +13,8 @@ import type {
 } from "../WidgetDebug.types";
 import * as api from "../../../api/widgetMappings";
 import * as analyticsApi from "../../../api/analytics";
+import { previewYandexSpecs, createDeviceFromYandex } from "../../../api/yandex";
+import type { YandexPreviewData } from "./YandexPreviewPanel";
 import { MappingModalContext, type MappingModalContextValue } from "./MappingModalContext";
 import { MappingModalHeader } from "./MappingModalHeader";
 import { LeftColumn } from "./LeftColumn";
@@ -60,6 +62,13 @@ export function MappingModal(props: MappingModalProps) {
   const [catalogueLinks, setCatalogueLinks] = createSignal<CatalogueLink[] | null>(null);
   const [excludingQuote, setExcludingQuote] = createSignal<string | null>(null);
 
+  const [yandexPreviewUrl, setYandexPreviewUrl] = createSignal("");
+  const [yandexPreview, setYandexPreview] = createSignal<YandexPreviewData | null>(null);
+  const [yandexPreviewLoading, setYandexPreviewLoading] = createSignal(false);
+  const [yandexPreviewError, setYandexPreviewError] = createSignal<string | null>(null);
+  const [selectedYandexImages, setSelectedYandexImages] = createSignal<string[]>([]);
+  const [yandexCreating, setYandexCreating] = createSignal(false);
+
   let searchTimeout: ReturnType<typeof setTimeout>;
 
   onCleanup(() => {
@@ -100,6 +109,10 @@ export function MappingModal(props: MappingModalProps) {
     setScrapeError(null);
     setScrapeSuccess(null);
     setCatalogueLinks(null);
+    setYandexPreviewUrl("");
+    setYandexPreview(null);
+    setYandexPreviewError(null);
+    setSelectedYandexImages([]);
 
     try {
       const data = await api.getMappingContext(mapping.rawModel);
@@ -375,10 +388,59 @@ export function MappingModal(props: MappingModalProps) {
     }, 300);
   };
 
+  const handlePreviewYandex = async () => {
+    const url = yandexPreviewUrl().trim();
+    if (!url) return;
+
+    setYandexPreviewLoading(true);
+    setYandexPreviewError(null);
+    setYandexPreview(null);
+    setSelectedYandexImages([]);
+
+    try {
+      const result = await previewYandexSpecs({ url });
+
+      if (!result.success) {
+        setYandexPreviewError(result.error || "Failed to preview");
+        return;
+      }
+
+      setYandexPreview({
+        name: result.name,
+        brand: result.brand,
+        suggestedSlug: result.suggestedSlug,
+        imageUrls: [...(result.imageUrls || [])],
+        specsCount: result.specsCount,
+        priceCount: result.priceCount,
+        minPrice: result.minPrice,
+        maxPrice: result.maxPrice,
+        externalId: result.externalId,
+      });
+
+      if (result.name) setNewDeviceName(result.name);
+      if (result.brand) setNewDeviceBrand(result.brand);
+      if (result.suggestedSlug) setNewDeviceSlug(result.suggestedSlug);
+    } catch (e) {
+      setYandexPreviewError(e instanceof Error ? e.message : "Network error");
+    } finally {
+      setYandexPreviewLoading(false);
+    }
+  };
+
+  const toggleYandexImage = (url: string) => {
+    const current = selectedYandexImages();
+    if (current.includes(url)) {
+      setSelectedYandexImages(current.filter((u) => u !== url));
+    } else if (current.length < 5) {
+      setSelectedYandexImages([...current, url]);
+    }
+  };
+
   const handleCreateDevice = async () => {
     const slug = newDeviceSlug().trim();
     const name = newDeviceName().trim();
     const brand = newDeviceBrand().trim() || null;
+    const preview = yandexPreview();
 
     if (!slug || !name) {
       setCreateError("Slug and name are required");
@@ -389,7 +451,32 @@ export function MappingModal(props: MappingModalProps) {
     setCreateError(null);
 
     try {
-      const device = await api.createDevice({ slug, name, brand });
+      let device;
+
+      if (preview && selectedYandexImages().length > 0) {
+        setYandexCreating(true);
+        const result = await createDeviceFromYandex({
+          url: yandexPreviewUrl(),
+          name,
+          brand: brand || "",
+          slug,
+          selectedImageUrls: selectedYandexImages(),
+        });
+
+        if (!result.success) {
+          setCreateError(result.error || "Failed to create device");
+          return;
+        }
+
+        device = {
+          id: result.deviceId!,
+          slug: result.deviceSlug!,
+          name,
+          brand,
+        };
+      } else {
+        device = await api.createDevice({ slug, name, brand });
+      }
 
       setSelectedDeviceId(device.id);
       setSelectedDeviceName(device.name);
@@ -399,10 +486,15 @@ export function MappingModal(props: MappingModalProps) {
         name: device.name,
         brand: device.brand,
       });
+
+      setYandexPreview(null);
+      setYandexPreviewUrl("");
+      setSelectedYandexImages([]);
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : "Failed to create device");
     } finally {
       setActionLoading(false);
+      setYandexCreating(false);
     }
   };
 
@@ -532,6 +624,16 @@ export function MappingModal(props: MappingModalProps) {
     setNewDeviceSlug,
     createError,
     handleCreateDevice,
+    yandexPreviewUrl,
+    setYandexPreviewUrl,
+    yandexPreview,
+    yandexPreviewLoading,
+    yandexPreviewError,
+    selectedYandexImages,
+    setSelectedYandexImages,
+    toggleYandexImage,
+    handlePreviewYandex,
+    yandexCreating,
     previewTab,
     setPreviewTab,
     widgetHtml,

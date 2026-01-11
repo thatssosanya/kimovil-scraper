@@ -1,5 +1,6 @@
 import { Show, For } from "solid-js";
 import { useMappingModal } from "./MappingModalContext";
+import { YandexPreviewPanel } from "./YandexPreviewPanel";
 
 export function RightColumn() {
   const ctx = useMappingModal();
@@ -54,6 +55,47 @@ function CreateDeviceForm() {
         </div>
       </div>
 
+      {/* Yandex Preview Section */}
+      <div class="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+        <div class="flex items-center gap-2 mb-2">
+          <svg class="w-4 h-4 text-amber-600 dark:text-amber-400" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+          </svg>
+          <span class="text-sm font-medium text-amber-800 dark:text-amber-300">Import from Yandex Market (optional)</span>
+        </div>
+        
+        <div class="flex gap-2">
+          <input
+            type="text"
+            value={ctx.yandexPreviewUrl()}
+            onInput={(e) => ctx.setYandexPreviewUrl(e.currentTarget.value)}
+            placeholder="https://market.yandex.ru/product/..."
+            class="flex-1 px-3 py-2 text-sm bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 rounded-lg text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+          <button
+            onClick={ctx.handlePreviewYandex}
+            disabled={ctx.yandexPreviewLoading() || !ctx.yandexPreviewUrl().trim()}
+            class="px-3 py-2 text-sm font-medium bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+          >
+            {ctx.yandexPreviewLoading() ? "Loading..." : "Preview"}
+          </button>
+        </div>
+        
+        <Show when={ctx.yandexPreviewError()}>
+          <div class="mt-2 text-xs text-rose-600 dark:text-rose-400">
+            {ctx.yandexPreviewError()}
+          </div>
+        </Show>
+      </div>
+
+      <Show when={ctx.yandexPreview()}>
+        <YandexPreviewPanel
+          preview={ctx.yandexPreview()!}
+          selectedImageUrls={ctx.selectedYandexImages()}
+          onImageToggle={ctx.toggleYandexImage}
+        />
+      </Show>
+
       <div class="space-y-4 flex-1">
         <div>
           <label class="block text-xs font-medium text-zinc-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
@@ -104,7 +146,13 @@ function CreateDeviceForm() {
             disabled={ctx.actionLoading() || !ctx.newDeviceName().trim() || !ctx.newDeviceSlug().trim()}
             class="w-full px-4 py-2.5 text-sm font-medium bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg hover:from-emerald-600 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-emerald-500/25"
           >
-            {ctx.actionLoading() ? "Creating..." : "Create & Select Device"}
+            {ctx.yandexCreating() 
+              ? "Creating with images..." 
+              : ctx.actionLoading() 
+                ? "Creating..." 
+                : ctx.yandexPreview() && ctx.selectedYandexImages().length > 0
+                  ? `Create with ${ctx.selectedYandexImages().length} images`
+                  : "Create & Select Device"}
           </button>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { createContext, useContext, type Accessor } from "solid-js";
+import type { YandexPreviewData } from "./YandexPreviewPanel";
 import type {
   WidgetMapping,
   SuggestedMatch,
@@ -41,6 +42,18 @@ export interface MappingModalContextValue {
   setNewDeviceSlug: (value: string) => void;
   createError: Accessor<string | null>;
   handleCreateDevice: () => Promise<void>;
+
+  // Yandex preview (for new device creation)
+  yandexPreviewUrl: Accessor<string>;
+  setYandexPreviewUrl: (url: string) => void;
+  yandexPreview: Accessor<YandexPreviewData | null>;
+  yandexPreviewLoading: Accessor<boolean>;
+  yandexPreviewError: Accessor<string | null>;
+  selectedYandexImages: Accessor<string[]>;
+  setSelectedYandexImages: (urls: string[]) => void;
+  toggleYandexImage: (url: string) => void;
+  handlePreviewYandex: () => Promise<void>;
+  yandexCreating: Accessor<boolean>;
 
   // Preview tabs
   previewTab: Accessor<PreviewTab>;
