@@ -16,6 +16,7 @@ import { DeviceRegistryServiceLive } from "../services/device-registry";
 import { EntityDataServiceLive } from "../services/entity-data";
 import { ScrapeRecordServiceLive } from "../services/scrape-record";
 import { PriceServiceLive } from "../services/price";
+import { DeviceImageServiceLive } from "../services/device-image";
 import { SchedulerServiceLive } from "../services/scheduler";
 import { WidgetDataServiceLive } from "../services/widget-data";
 import { WidgetServiceLive } from "../services/widget";
@@ -50,6 +51,7 @@ const BaseDataLayer = Layer.mergeAll(
   DeviceRegistryServiceLive,
   EntityDataServiceLive,
   PriceServiceLive,
+  DeviceImageServiceLive,
 ).pipe(
   Layer.provide(SqlLayer),
   Layer.provideMerge(JobQueueLayer),

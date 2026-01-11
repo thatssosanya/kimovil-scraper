@@ -1260,30 +1260,21 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* ensureColumn(sql, "price_quotes", "affiliate_url_created_at", "TEXT");
     yield* ensureColumn(sql, "price_quotes", "affiliate_error", "TEXT");
 
-    // Device images - normalized storage for CDN-hosted images
+    // Device images - simple URL storage for device images
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS device_images (
-        device_id    TEXT NOT NULL REFERENCES devices(id),
-        source       TEXT NOT NULL,
-        kind         TEXT NOT NULL,
-        image_index  INTEGER NOT NULL DEFAULT 0,
-        variant      TEXT NOT NULL DEFAULT 'optimized',
-        storage_key  TEXT NOT NULL,
-        cdn_url      TEXT NOT NULL,
-        original_url TEXT,
-        width        INTEGER,
-        height       INTEGER,
-        format       TEXT,
-        status       TEXT NOT NULL DEFAULT 'uploaded'
-                     CHECK (status IN ('pending', 'uploaded', 'error')),
-        last_error   TEXT,
-        created_at   INTEGER NOT NULL DEFAULT (unixepoch()),
-        updated_at   INTEGER NOT NULL DEFAULT (unixepoch()),
-        PRIMARY KEY (device_id, source, kind, image_index, variant)
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_id TEXT NOT NULL REFERENCES devices(id),
+        source TEXT NOT NULL,
+        url TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        is_primary INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        UNIQUE(device_id, source, url)
       )
     `);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_images_device ON device_images(device_id)`);
-    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_images_status ON device_images(status)`);
 
     // Backup table for entity_data_raw URLs before migration
     yield* sql.unsafe(`

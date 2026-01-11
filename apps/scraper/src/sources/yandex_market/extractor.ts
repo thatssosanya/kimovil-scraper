@@ -13,6 +13,33 @@ export interface YandexOffer {
   isPrimary?: boolean;
 }
 
+export interface YandexSpecItem {
+  section?: string;
+  name: string;
+  value: string;
+}
+
+export interface YandexImages {
+  primaryImageUrl?: string;
+  galleryImageUrls: string[];
+}
+
+export interface YandexProduct {
+  name?: string;
+  brand?: string;
+  msku?: string;
+  modelId?: string;
+  businessId?: string;
+  breadcrumbs: { name: string; url?: string }[];
+}
+
+interface SpecSection {
+  id: string;
+  name: string;
+  start: number;
+  end: number;
+}
+
 interface LdJsonOffer {
   price?: string | number;
   priceCurrency?: string;
@@ -202,6 +229,239 @@ function extractVariantFromUrl(url: string): { key: string; label: string } | nu
     }
   }
   return null;
+}
+
+// -------------------------------------------
+// HTML Text Helpers
+// -------------------------------------------
+
+export function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&nbsp;|&#160;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/·/g, "·")
+    .replace(/&#(\d+);/g, (_, code) => {
+      const c = Number(code);
+      return Number.isFinite(c) ? String.fromCharCode(c) : _;
+    });
+}
+
+export function cleanHtmlText(htmlFragment: string): string {
+  const withoutTags = htmlFragment.replace(/<[^>]*>/g, " ");
+  return decodeHtmlEntities(withoutTags).replace(/\s+/g, " ").trim();
+}
+
+export function findSpecSections(html: string): SpecSection[] {
+  const sections: SpecSection[] = [];
+  const sectionLabelRe = /<label[^>]*for="group-collapse-([^"]+)"[^>]*>([\s\S]*?)<\/label>/g;
+
+  let m: RegExpExecArray | null;
+  while ((m = sectionLabelRe.exec(html)) !== null) {
+    const id = m[1];
+    const rawInner = m[2];
+    const name = cleanHtmlText(rawInner);
+    const start = sectionLabelRe.lastIndex;
+    sections.push({ id, name, start, end: html.length });
+  }
+
+  // Set end = start of next section
+  for (let i = 0; i < sections.length - 1; i++) {
+    sections[i].end = sections[i + 1].start;
+  }
+
+  return sections;
+}
+
+// -------------------------------------------
+// Image Helpers
+// -------------------------------------------
+
+function parseSrcset(srcset: string): string[] {
+  return srcset
+    .split(",")
+    .map((p) => p.trim().split(/\s+/)[0])
+    .filter(Boolean);
+}
+
+function toOrigUrl(url: string): string {
+  // Normalize Yandex image URLs to /orig resolution
+  return url.replace(/\/\d+x\d+(?:_[a-z]+)?(?=\/|$|")/g, "/orig");
+}
+
+// -------------------------------------------
+// Apiary Patches Helpers
+// -------------------------------------------
+
+interface ApiaryPatch {
+  widgets: Record<string, unknown>;
+  meta: Record<string, unknown>;
+  collections?: Record<string, unknown>;
+}
+
+function extractApiaryPatches(html: string): ApiaryPatch[] {
+  const patches: ApiaryPatch[] = [];
+  const re = /<noframes[^>]+data-apiary="patch"[^>]*>([\s\S]*?)<\/noframes>/g;
+
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    try {
+      patches.push(JSON.parse(m[1]));
+    } catch {
+      // Skip invalid JSON
+    }
+  }
+
+  return patches;
+}
+
+function extractCoreIds(patches: ApiaryPatch[]): {
+  msku?: string;
+  modelId?: string;
+  businessId?: string;
+} {
+  for (const patch of patches) {
+    const root = patch.widgets?.["@baobab/RootNodeRecoverer"] as Record<string, { asyncAttrs?: Record<string, unknown> }> | undefined;
+    if (!root) continue;
+
+    for (const key of Object.keys(root)) {
+      const asyncAttrs = root[key]?.asyncAttrs;
+      if (!asyncAttrs) continue;
+      return {
+        msku: asyncAttrs.msku as string | undefined,
+        modelId: asyncAttrs.modelId?.toString(),
+        businessId: asyncAttrs.businessId?.toString(),
+      };
+    }
+  }
+  return {};
+}
+
+// -------------------------------------------
+// Extraction Functions
+// -------------------------------------------
+
+export function parseYandexSpecs(html: string): YandexSpecItem[] {
+  const result: YandexSpecItem[] = [];
+  const sections = findSpecSections(html);
+
+  const nameRe = /<span[^>]*data-auto="product-spec"[^>]*>([\s\S]*?)<\/span>/g;
+
+  for (const section of sections) {
+    const block = html.slice(section.start, section.end);
+    nameRe.lastIndex = 0;
+
+    let m: RegExpExecArray | null;
+    while ((m = nameRe.exec(block)) !== null) {
+      const rawName = m[1];
+      const name = cleanHtmlText(rawName);
+      if (!name) continue;
+
+      const nameEndInBlock = nameRe.lastIndex;
+
+      // Look ahead in limited window for value span
+      const valueWindowEnd = Math.min(block.length, nameEndInBlock + 2000);
+      const valueWindow = block.slice(nameEndInBlock, valueWindowEnd);
+
+      // First span WITHOUT data-auto="product-spec"
+      const valueRe = /<span(?![^>]*data-auto="product-spec")[^>]*>([\s\S]*?)<\/span>/;
+      const vm = valueRe.exec(valueWindow);
+      if (!vm) continue;
+
+      const rawValue = vm[1];
+      const value = cleanHtmlText(rawValue);
+      if (!value) continue;
+
+      result.push({
+        section: section.name,
+        name,
+        value,
+      });
+    }
+  }
+
+  return result;
+}
+
+export function parseYandexImages(html: string): YandexImages {
+  const urls: string[] = [];
+
+  // Extract from srcset/srcSet attributes
+  const attrRe = /(?:srcset|srcSet)="([^"]*avatars\.mds\.yandex\.net[^"]*)"/g;
+  let m;
+  while ((m = attrRe.exec(html)) !== null) {
+    const srcset = m[1];
+    for (const url of parseSrcset(srcset)) {
+      if (url.includes("avatars.mds.yandex.net")) {
+        urls.push(toOrigUrl(url));
+      }
+    }
+  }
+
+  // Also extract from src attributes
+  const srcRe = /src="(https?:\/\/avatars\.mds\.yandex\.net[^"]+)"/g;
+  while ((m = srcRe.exec(html)) !== null) {
+    if (m[1].includes("/get-mpic/")) {
+      urls.push(toOrigUrl(m[1]));
+    }
+  }
+
+  // Dedupe and filter to only /orig URLs
+  const unique = [...new Set(urls)].filter((url) => url.includes("/orig"));
+
+  return {
+    primaryImageUrl: unique[0],
+    galleryImageUrls: unique,
+  };
+}
+
+export function parseYandexProduct(html: string): YandexProduct {
+  const result: YandexProduct = {
+    breadcrumbs: [],
+  };
+
+  // Extract from LD+JSON Product block
+  const ldJsonPattern = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g;
+  let match;
+  while ((match = ldJsonPattern.exec(html)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1]);
+
+      // Extract Product data
+      if (parsed["@type"] === "Product") {
+        result.name = parsed.name;
+        if (typeof parsed.brand === "string") {
+          result.brand = parsed.brand;
+        } else if (parsed.brand?.name) {
+          result.brand = parsed.brand.name;
+        }
+      }
+
+      // Extract breadcrumbs from BreadcrumbList
+      if (parsed["@type"] === "BreadcrumbList" && Array.isArray(parsed.itemListElement)) {
+        for (const el of parsed.itemListElement) {
+          const item = el?.item;
+          if (item?.name) {
+            result.breadcrumbs.push({ name: item.name, url: item["@id"] });
+          }
+        }
+      }
+    } catch {
+      // Skip invalid JSON
+    }
+  }
+
+  // Extract msku/modelId/businessId from apiary patches
+  const patches = extractApiaryPatches(html);
+  const ids = extractCoreIds(patches);
+  result.msku = ids.msku;
+  result.modelId = ids.modelId;
+  result.businessId = ids.businessId;
+
+  return result;
 }
 
 export function parseYandexPrices(html: string): YandexOffer[] {
