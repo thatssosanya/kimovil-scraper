@@ -31,6 +31,8 @@ import {
   YandexLinkResult,
   YandexPreviewParams,
   YandexPreviewResult,
+  YandexCreateDeviceParams,
+  YandexCreateDeviceResult,
 } from "@repo/scraper-protocol";
 import {
   SearchService,
@@ -56,6 +58,8 @@ import { DeviceRegistryService } from "../services/device-registry";
 import { parseYandexPrices, parseYandexSpecs, parseYandexProduct, parseYandexImages } from "../sources/yandex_market/extractor";
 import { ALLOWED_HOSTS, validateYandexMarketUrl } from "../sources/yandex_market/url-utils";
 import { YandexBrowserError } from "../sources/yandex_market/errors";
+import { uploadYandexImage } from "../sources/yandex_market/image-upload";
+import { DeviceImageService } from "../services/device-image";
 
 type StreamHandler = (
   request: WsRequest,
@@ -970,6 +974,156 @@ const createHandlers = (
       yield* Effect.sync(() =>
         ws.send(JSON.stringify(new Response({ id: request.id, result }))),
       );
+    }),
+
+  "yandex.createDeviceFromPreview": (request, ws) =>
+    Effect.gen(function* () {
+      const params = yield* Schema.decodeUnknown(YandexCreateDeviceParams)(request.params);
+
+      // 1. Validate URL
+      const validation = validateYandexMarketUrl(params.url);
+      if (!validation.valid) {
+        const result = new YandexCreateDeviceResult({ success: false, error: validation.error });
+        yield* Effect.sync(() => ws.send(JSON.stringify(new Response({ id: request.id, result }))));
+        return;
+      }
+      const externalId = validation.externalId;
+
+      // 2. Validate selectedImageUrls (1-5)
+      if (params.selectedImageUrls.length === 0 || params.selectedImageUrls.length > 5) {
+        const result = new YandexCreateDeviceResult({ success: false, error: "Select 1-5 images" });
+        yield* Effect.sync(() => ws.send(JSON.stringify(new Response({ id: request.id, result }))));
+        return;
+      }
+
+      // 3. Send progress
+      yield* Effect.sync(() => ws.send(JSON.stringify(new StreamEvent({
+        id: request.id, event: { type: "progress", stage: "browser", percent: 10 }
+      }))));
+
+      // 4. Re-scrape URL (same pattern as yandex.previewSpecs)
+      const browserService = yield* BrowserService;
+      const cleanUrl = validation.cleanUrl;
+      const html = yield* browserService.withPersistentStealthPage((page) =>
+        Effect.gen(function* () {
+          yield* Effect.tryPromise({
+            try: () => page.goto(cleanUrl, { waitUntil: "domcontentloaded", timeout: 60000 }),
+            catch: (cause) => new YandexBrowserError({ message: "Failed to navigate", url: cleanUrl, cause }),
+          });
+          const finalUrl = page.url();
+          const finalParsed = new URL(finalUrl);
+          if (!ALLOWED_HOSTS.includes(finalParsed.hostname)) {
+            return yield* Effect.fail(new YandexBrowserError({ message: `Redirected to disallowed host`, url: cleanUrl }));
+          }
+          yield* Effect.promise(() => page.waitForTimeout(3000));
+          return yield* Effect.tryPromise({
+            try: () => page.content(),
+            catch: (cause) => new YandexBrowserError({ message: "Failed to get content", url: cleanUrl, cause }),
+          });
+        }),
+      );
+
+      // 5. Extract data
+      const product = parseYandexProduct(html);
+      const images = parseYandexImages(html);
+      const specs = parseYandexSpecs(html);
+      const offers = parseYandexPrices(html);
+
+      // 6. Create device
+      yield* Effect.sync(() => ws.send(JSON.stringify(new StreamEvent({
+        id: request.id, event: { type: "progress", stage: "create", percent: 30 }
+      }))));
+
+      const deviceRegistry = yield* DeviceRegistryService;
+      const device = yield* deviceRegistry.createDevice({
+        slug: params.slug,
+        name: params.name,
+        brand: params.brand,
+      });
+
+      // 7. Link to yandex_market source
+      yield* deviceRegistry.linkDeviceToSource({
+        deviceId: device.id,
+        source: "yandex_market",
+        externalId,
+        url: params.url,
+      });
+
+      // 8. Upload selected images (filter to ones still in scraped gallery)
+      yield* Effect.sync(() => ws.send(JSON.stringify(new StreamEvent({
+        id: request.id, event: { type: "progress", stage: "upload", percent: 50 }
+      }))));
+
+      const imageService = yield* DeviceImageService;
+      const gallerySet = new Set(images.galleryImageUrls);
+      const validSelectedUrls = params.selectedImageUrls.filter(url => gallerySet.has(url));
+
+      const uploadResults = yield* Effect.forEach(
+        validSelectedUrls,
+        (url, index) =>
+          uploadYandexImage(device.id, url, index).pipe(
+            Effect.map((cdnUrl) => ({ url: cdnUrl, position: index, isPrimary: index === 0, success: true })),
+            Effect.catchAll((error) =>
+              Effect.gen(function* () {
+                yield* Effect.logWarning(`Failed to upload image ${index}`).pipe(
+                  Effect.annotateLogs({ deviceId: device.id, originalUrl: url, error: String(error) }),
+                );
+                return { url, position: index, isPrimary: index === 0, success: false };
+              }),
+            ),
+          ),
+        { concurrency: 3 },
+      );
+
+      const successfulUploads = uploadResults.filter(r => r.success);
+      yield* imageService.upsertImages(device.id, "yandex_market", successfulUploads.map(r => ({
+        url: r.url, position: r.position, isPrimary: r.isPrimary,
+      })));
+
+      // 9. Save specs as raw data
+      const entityData = yield* EntityDataService;
+      yield* entityData.saveRawData({
+        deviceId: device.id,
+        source: "yandex_market",
+        dataKind: "specs",
+        data: { specs, images, product, extractedAt: Date.now() },
+      });
+
+      // 10. Save prices
+      yield* Effect.sync(() => ws.send(JSON.stringify(new StreamEvent({
+        id: request.id, event: { type: "progress", stage: "prices", percent: 80 }
+      }))));
+
+      const priceService = yield* PriceService;
+      if (offers.length > 0) {
+        yield* priceService.savePriceQuotes({
+          deviceId: device.id,
+          source: "yandex_market",
+          externalId,
+          offers: offers.map(o => ({
+            seller: o.sellerName,
+            sellerId: o.sellerId,
+            priceMinorUnits: o.priceMinorUnits,
+            currency: o.currency,
+            variantKey: o.variantKey,
+            variantLabel: o.variantLabel,
+            url: o.url,
+            isAvailable: o.isAvailable,
+            offerId: o.offerId,
+          })),
+        });
+        yield* priceService.updatePriceSummary(device.id);
+      }
+
+      // 11. Return result
+      const result = new YandexCreateDeviceResult({
+        success: true,
+        deviceId: device.id,
+        deviceSlug: device.slug,
+        imagesUploaded: successfulUploads.length,
+        pricesSaved: offers.length,
+      });
+      yield* Effect.sync(() => ws.send(JSON.stringify(new Response({ id: request.id, result }))));
     }),
 });
 
