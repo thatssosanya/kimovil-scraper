@@ -113,7 +113,7 @@ export const EventQueryServiceLive = Layer.effect(
             FROM events
             WHERE ${whereClause}
             GROUP BY mapping_id, post_id, device_slug, raw_model
-            ORDER BY impressions DESC
+            ORDER BY clicks DESC, impressions DESC
             LIMIT ${limit}
           `;
         } else {
@@ -154,7 +154,7 @@ export const EventQueryServiceLive = Layer.effect(
               WHERE ${whereClause}
               GROUP BY mapping_id, post_id, device_slug, raw_model
             )
-            ORDER BY impressions DESC
+            ORDER BY clicks DESC, impressions DESC
             LIMIT ${limit}
           `;
         }
