@@ -6,8 +6,6 @@ import {
 import { parseYandexSpecs, parseYandexImages, parseYandexProduct } from "./extractor";
 import { HtmlCacheService } from "../../services/html-cache";
 import { EntityDataService } from "../../services/entity-data";
-import { DeviceImageService } from "../../services/device-image";
-import { uploadYandexImage } from "./image-upload";
 
 /**
  * Yandex specs scraping is user-driven via the WebSocket handler,
@@ -25,11 +23,15 @@ const scrapeHandler = (ctx: PipelineContext) =>
     );
   });
 
+/**
+ * Process raw handler extracts specs from cached HTML.
+ * Note: Image upload is NOT done here - it's handled by yandex.createDeviceFromPreview
+ * with user-selected images (1-5) instead of all 20-35 images.
+ */
 const processRawHandler = (ctx: PipelineContext) =>
   Effect.gen(function* () {
     const htmlCache = yield* HtmlCacheService;
     const entityData = yield* EntityDataService;
-    const imageService = yield* DeviceImageService;
 
     if (!ctx.deviceId) {
       yield* Effect.logWarning("No deviceId in context, skipping process_raw").pipe(
@@ -69,41 +71,6 @@ const processRawHandler = (ctx: PipelineContext) =>
         extractedAt: Date.now(),
       },
     });
-
-    if (images.galleryImageUrls.length > 0) {
-      const uploadResults = yield* Effect.forEach(
-        images.galleryImageUrls,
-        (url, index) =>
-          uploadYandexImage(deviceId, url, index).pipe(
-            Effect.map((cdnUrl) => ({ url: cdnUrl, position: index, isPrimary: index === 0, success: true })),
-            Effect.catchAll((error) =>
-              Effect.gen(function* () {
-                yield* Effect.logWarning(`Failed to upload image ${index}`).pipe(
-                  Effect.annotateLogs({ deviceId, originalUrl: url, error: String(error) }),
-                );
-                return { url, position: index, isPrimary: index === 0, success: false };
-              }),
-            ),
-          ),
-        { concurrency: 4 },
-      );
-
-      const successCount = uploadResults.filter((r) => r.success).length;
-      yield* Effect.logInfo(`Uploaded ${successCount}/${images.galleryImageUrls.length} images to S3`).pipe(
-        Effect.annotateLogs({ deviceId }),
-      );
-
-      const imageInputs = uploadResults.map((r) => ({
-        url: r.url,
-        position: r.position,
-        isPrimary: r.isPrimary,
-      }));
-
-      const savedCount = yield* imageService.upsertImages(deviceId, "yandex_market", imageInputs);
-      yield* Effect.logInfo(`Saved ${savedCount} images to DB`).pipe(
-        Effect.annotateLogs({ deviceId }),
-      );
-    }
   });
 
 registerPipeline({
