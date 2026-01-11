@@ -338,25 +338,43 @@ export function extractYandexImage(html: string): string | null {
 
 ## Success Criteria
 
-- [ ] All 500 optimized AVIF files uploaded to Yandex S3
-- [ ] All 5,961 original files uploaded to Yandex S3
-- [ ] `device_images` table populated with correct cdn_urls
-- [ ] `entity_data_raw` URLs updated to CDN URLs
-- [ ] Widget displays images from our CDN
-- [ ] Backup table contains original Kimovil URLs
-- [ ] No broken images in production
+- [x] All 500 optimized AVIF files uploaded to Yandex S3 (HQ, med, mini variants = 1,500 files)
+- [x] All 6,461 original files uploaded to Yandex S3
+- [x] `device_images` table populated with correct cdn_urls
+- [x] Widget displays images from our CDN (cdn.click-or-die.ru)
+- [x] No broken images in production
+- [ ] `entity_data_raw` URLs updated to CDN URLs — **SKIPPED**: Not needed since WidgetDataService queries device_images directly
+- [ ] Backup table contains original Kimovil URLs — **SKIPPED**: Not needed since entity_data_raw wasn't modified
+
+---
+
+## Implementation Notes (Completed 2026-01-10)
+
+**What was implemented:**
+- Yandex Cloud: service account `cod-storage-writer`, bucket `cod-devices-images`, CDN at `cdn.click-or-die.ru`
+- Schema: `device_images` table with auto-migration, `entity_data_raw_backup` table created but unused
+- StorageService: Uses `@aws-sdk/client-s3` (not @effect-aws) with exponential retry
+- Migration: 7,961 images total (500 HQ + 500 med + 500 mini AVIF + 6,461 originals)
+- URL structure: Flat naming `{slug}-{variant}.{ext}` instead of nested paths
+- WidgetDataService: JOINs device_images with priority `mini → hq → original → Kimovil fallback`
+
+**Deviations from plan:**
+1. Used `@aws-sdk/client-s3` instead of `@effect-aws/client-s3` — simpler, works well
+2. Flat URL structure instead of nested `optimized/{source}/specs/{slug}/` paths
+3. No entity_data_raw URL replacement — direct device_images JOIN is cleaner
+4. Added mini/med/hq variants instead of single "optimized" variant
 
 ---
 
 ## Beads Issue Tracking
 
-Epic: `cod-xxx` - Device Image Migration to Yandex S3
+Epic: `cod-82x` - Device Image Migration to Yandex S3 ✅ CLOSED
 
-Subtasks:
-1. Schema changes (device_images, backup table)
-2. StorageService with @effect-aws/client-s3
-3. ImageMigrationService (upload logic)
-4. Migration script (CLI runner)
-5. Update entity_data_raw URLs
-6. Update WidgetDataService
-7. Yandex image extraction (future)
+Subtasks (all closed):
+1. `cod-gag` Schema changes (device_images, backup table) ✅
+2. `cod-0lb` StorageService with @aws-sdk/client-s3 ✅
+3. `cod-4w4` ImageMigrationService (upload logic) ✅
+4. `cod-2b5` Migration script (CLI runner) ✅
+5. `cod-9pv` Update entity_data_raw URLs — SKIPPED (not needed)
+6. `cod-rcw` Update WidgetDataService ✅
+7. `cod-e3z` Yandex image extraction — OPEN (future P2 work)
