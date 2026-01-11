@@ -97,6 +97,7 @@ export interface WidgetStats {
   mapping_id: number | null;
   post_id: number | null;
   device_slug: string | null;
+  raw_model: string | null;
   impressions: number;
   clicks: number;
   unique_visitors: number;

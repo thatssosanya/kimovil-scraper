@@ -418,6 +418,23 @@ export function parseYandexImages(html: string): YandexImages {
   };
 }
 
+function extractH1Title(html: string): string | null {
+  const h1Match = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+  if (!h1Match) return null;
+  const text = h1Match[1].replace(/<[^>]+>/g, "").trim();
+  return text || null;
+}
+
+function extractOgTitle(html: string): string | null {
+  const match = html.match(/<meta[^>]*property="og:title"[^>]*content="([^"]+)"/i) ||
+                html.match(/<meta[^>]*content="([^"]+)"[^>]*property="og:title"/i);
+  if (!match) return null;
+  let title = match[1];
+  const idx = title.indexOf(" — ");
+  if (idx > 0) title = title.slice(0, idx);
+  return title.trim() || null;
+}
+
 export function parseYandexProduct(html: string): YandexProduct {
   const result: YandexProduct = {
     breadcrumbs: [],
@@ -426,18 +443,17 @@ export function parseYandexProduct(html: string): YandexProduct {
   // Extract from LD+JSON Product block
   const ldJsonPattern = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g;
   let match;
+  
+  // Collect all Product blocks to find the main one
+  const productBlocks: Array<{ name?: string; brand?: unknown; offers?: unknown; aggregateRating?: unknown }> = [];
+  
   while ((match = ldJsonPattern.exec(html)) !== null) {
     try {
       const parsed = JSON.parse(match[1]);
 
-      // Extract Product data
+      // Collect Product data for later selection
       if (parsed["@type"] === "Product") {
-        result.name = parsed.name;
-        if (typeof parsed.brand === "string") {
-          result.brand = parsed.brand;
-        } else if (parsed.brand?.name) {
-          result.brand = parsed.brand.name;
-        }
+        productBlocks.push(parsed);
       }
 
       // Extract breadcrumbs from BreadcrumbList
@@ -451,6 +467,28 @@ export function parseYandexProduct(html: string): YandexProduct {
       }
     } catch {
       // Skip invalid JSON
+    }
+  }
+  
+  // Find the main product: prefer blocks with offers or aggregateRating (main product has these, card products don't)
+  const mainProduct = 
+    productBlocks.find(p => p.offers && p.aggregateRating) ??
+    productBlocks.find(p => p.offers) ??
+    productBlocks.find(p => p.aggregateRating) ??
+    productBlocks[0];
+  
+  // Priority for product name:
+  // 1. <h1> tag - most accurate for actual SKU/variant being shown
+  // 2. og:title (without store suffix)
+  // 3. LD+JSON (fallback - often gives model name, not SKU name)
+  result.name = extractH1Title(html) ?? extractOgTitle(html) ?? mainProduct?.name;
+  
+  // Brand from LD+JSON
+  if (mainProduct) {
+    if (typeof mainProduct.brand === "string") {
+      result.brand = mainProduct.brand;
+    } else if ((mainProduct.brand as { name?: string })?.name) {
+      result.brand = (mainProduct.brand as { name: string }).name;
     }
   }
 

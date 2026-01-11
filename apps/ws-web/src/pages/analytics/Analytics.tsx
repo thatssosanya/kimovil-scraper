@@ -6,6 +6,9 @@ import {
   setAnalyticsEnv,
 } from "../../api/analytics";
 import { MiniStatCard, type SparklinePoint } from "../../components/SparklineChart";
+import { MappingModal } from "../widgets/modal/MappingModal";
+import { getMappingById, getMappingByRawModel } from "../../api/widgetMappings";
+import type { WidgetMapping } from "../widgets/WidgetDebug.types";
 
 const ANALYTICS_LOCAL = import.meta.env.VITE_ANALYTICS_URL ?? "http://localhost:1489";
 const ANALYTICS_PROD = import.meta.env.VITE_ANALYTICS_PROD_URL ?? "https://api.click-or-die.ru";
@@ -40,6 +43,7 @@ interface WidgetStat {
   mapping_id: number | null;
   post_id: number | null;
   device_slug: string | null;
+  raw_model: string | null;
   impressions: number;
   clicks: number;
   unique_visitors: number;
@@ -49,6 +53,7 @@ interface WidgetStat {
 interface AggregatedWidgetStat {
   device_slug: string | null;
   mapping_id: number | null;
+  raw_model: string | null;
   impressions: number;
   clicks: number;
   unique_visitors: number;
@@ -73,10 +78,14 @@ function aggregateByDeviceSlug(stats: WidgetStat[]): AggregatedWidgetStat[] {
       existing.clicks += stat.clicks;
       existing.unique_visitors += stat.unique_visitors;
       existing.unique_sessions += stat.unique_sessions;
+      if (!existing.raw_model && stat.raw_model) {
+        existing.raw_model = stat.raw_model;
+      }
     } else {
       bySlug.set(key, {
         device_slug: stat.device_slug,
         mapping_id: stat.mapping_id,
+        raw_model: stat.raw_model,
         impressions: stat.impressions,
         clicks: stat.clicks,
         unique_visitors: stat.unique_visitors,
@@ -86,6 +95,34 @@ function aggregateByDeviceSlug(stats: WidgetStat[]): AggregatedWidgetStat[] {
   }
   
   return Array.from(bySlug.values());
+}
+
+function aggregateByRawModel(stats: WidgetStat[]): AggregatedWidgetStat[] {
+  const byRaw = new Map<string, AggregatedWidgetStat>();
+  
+  for (const stat of stats) {
+    const key = stat.raw_model ?? "__empty__";
+    const existing = byRaw.get(key);
+    
+    if (existing) {
+      existing.impressions += stat.impressions;
+      existing.clicks += stat.clicks;
+      existing.unique_visitors += stat.unique_visitors;
+      existing.unique_sessions += stat.unique_sessions;
+    } else {
+      byRaw.set(key, {
+        device_slug: stat.device_slug,
+        mapping_id: stat.mapping_id,
+        raw_model: stat.raw_model,
+        impressions: stat.impressions,
+        clicks: stat.clicks,
+        unique_visitors: stat.unique_visitors,
+        unique_sessions: stat.unique_sessions,
+      });
+    }
+  }
+  
+  return Array.from(byRaw.values());
 }
 
 type PeriodOption = "1h" | "1d" | "7d" | "30d" | "90d";
@@ -140,6 +177,8 @@ export default function Analytics() {
   const [clicksTimeseries, setClicksTimeseries] = createSignal<TimeseriesPoint[]>([]);
   const [timeseriesLoading, setTimeseriesLoading] = createSignal(false);
   const [priceCounts, setPriceCounts] = createSignal<Record<string, number>>({});
+  const [selectedMapping, setSelectedMapping] = createSignal<WidgetMapping | null>(null);
+  const [mappingLoading, setMappingLoading] = createSignal(false);
 
   const handleEnvChange = (env: AnalyticsEnv) => {
     setAnalyticsEnv(env);
@@ -273,7 +312,7 @@ export default function Analytics() {
     const all = stats();
     if (tab() === "empty") {
       const filtered = all.filter((s) => s.mapping_id == null);
-      return aggregateByDeviceSlug(filtered).sort((a, b) => b.impressions - a.impressions);
+      return aggregateByRawModel(filtered).sort((a, b) => b.impressions - a.impressions);
     }
     const filtered = all.filter((s) => s.mapping_id != null);
     return aggregateByDeviceSlug(filtered).sort((a, b) => b.impressions - a.impressions);
@@ -283,7 +322,7 @@ export default function Analytics() {
   const totalClicks = createMemo(() => aggregatedStats().reduce((sum, s) => sum + s.clicks, 0));
   const emptyCount = createMemo(() => {
     const filtered = stats().filter((s) => s.mapping_id == null);
-    return aggregateByDeviceSlug(filtered).length;
+    return aggregateByRawModel(filtered).length;
   });
   const mappedCount = createMemo(() => {
     const filtered = stats().filter((s) => s.mapping_id != null);
@@ -414,6 +453,48 @@ export default function Analytics() {
       setSelectedDevice(slug);
       fetchPostBreakdown(slug);
     }
+  };
+
+  const openMappingModal = async (mappingId: number) => {
+    setMappingLoading(true);
+    try {
+      const mapping = await getMappingById(mappingId);
+      if (mapping) {
+        setSelectedMapping(mapping);
+      } else {
+        console.warn(`Mapping #${mappingId} not found`);
+      }
+    } catch (e) {
+      console.error("Failed to fetch mapping:", e);
+    } finally {
+      setMappingLoading(false);
+    }
+  };
+
+  const openMappingByRawModel = async (rawModel: string | null) => {
+    if (!rawModel) return;
+    setMappingLoading(true);
+    try {
+      const mapping = await getMappingByRawModel(rawModel);
+      if (mapping) {
+        setSelectedMapping(mapping);
+      } else {
+        console.warn("No mapping found for raw_model:", rawModel);
+      }
+    } catch (e) {
+      console.error("Failed to fetch mapping by raw_model:", e);
+    } finally {
+      setMappingLoading(false);
+    }
+  };
+
+  const closeMappingModal = () => {
+    setSelectedMapping(null);
+  };
+
+  const handleMappingUpdated = () => {
+    fetchStats();
+    closeMappingModal();
   };
 
   return (
@@ -625,26 +706,56 @@ export default function Analytics() {
                               <div class="min-w-0">
                                 <div
                                   class="font-mono text-xs text-zinc-900 dark:text-white truncate max-w-md"
-                                  title={stat.device_slug ?? ""}
+                                  title={stat.raw_model ?? stat.device_slug ?? ""}
                                 >
-                                  {stat.device_slug || "Unknown"}
+                                  {stat.raw_model || stat.device_slug || "Unknown"}
                                 </div>
                                 <Show when={stat.mapping_id}>
-                                  <div class="text-[10px] text-zinc-400 dark:text-slate-500 mt-0.5">
-                                    ID #{stat.mapping_id}
+                                  <div class="flex items-center gap-1.5 mt-0.5">
+                                    <span class="text-[10px] text-zinc-400 dark:text-slate-500">
+                                      ID #{stat.mapping_id}
+                                    </span>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openMappingModal(stat.mapping_id!);
+                                      }}
+                                      class="p-0.5 text-zinc-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded transition-colors"
+                                      title="Edit mapping"
+                                    >
+                                      <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                      </svg>
+                                    </button>
                                   </div>
                                 </Show>
                                 <Show when={!stat.mapping_id}>
-                                  <span class="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
-                                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                      <path
-                                        fill-rule="evenodd"
-                                        d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                                        clip-rule="evenodd"
-                                      />
-                                    </svg>
-                                    Needs mapping
-                                  </span>
+                                  <div class="flex items-center gap-1.5 mt-0.5">
+                                    <span class="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
+                                      <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                        <path
+                                          fill-rule="evenodd"
+                                          d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                                          clip-rule="evenodd"
+                                        />
+                                      </svg>
+                                      Unmapped
+                                    </span>
+                                    <Show when={stat.raw_model}>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openMappingByRawModel(stat.raw_model);
+                                        }}
+                                        class="p-0.5 text-amber-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded transition-colors"
+                                        title="Map this widget"
+                                      >
+                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                        </svg>
+                                      </button>
+                                    </Show>
+                                  </div>
                                 </Show>
                               </div>
                             </div>
@@ -782,6 +893,21 @@ export default function Analytics() {
           </div>
         </Show>
       </div>
+
+      {/* Mapping Loading Overlay */}
+      <Show when={mappingLoading()}>
+        <div class="fixed inset-0 bg-black/20 flex items-center justify-center z-50">
+          <div class="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </Show>
+
+      {/* Mapping Modal */}
+      <MappingModal
+        mapping={selectedMapping()}
+        onClose={closeMappingModal}
+        onMappingUpdated={handleMappingUpdated}
+        onNavigate={() => {}}
+      />
     </div>
   );
 }

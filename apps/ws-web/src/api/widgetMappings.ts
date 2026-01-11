@@ -7,6 +7,7 @@ import type {
   PriceInfo,
   ScrapeResult,
   CatalogueLink,
+  WidgetMapping,
 } from "../pages/widgets/WidgetDebug.types";
 
 export const API_BASE = "http://localhost:1488";
@@ -67,6 +68,25 @@ export async function updateMapping(
       credentials: "include",
     }
   );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function getMappingById(id: number): Promise<WidgetMapping | null> {
+  const res = await fetch(`${API_BASE}/api/widget-mappings/by-id/${id}`, {
+    credentials: "include",
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function getMappingByRawModel(rawModel: string, source = "wordpress"): Promise<WidgetMapping | null> {
+  const params = new URLSearchParams({ raw_model: rawModel, source });
+  const res = await fetch(`${API_BASE}/api/widget-mappings/by-raw-model?${params}`, {
+    credentials: "include",
+  });
+  if (res.status === 404) return null;
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }

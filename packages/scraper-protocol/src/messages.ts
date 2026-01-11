@@ -414,4 +414,5 @@ export class YandexCreateDeviceResult extends Schema.Class<YandexCreateDeviceRes
   deviceSlug: Schema.optional(Schema.String),
   imagesUploaded: Schema.optional(Schema.Number),
   pricesSaved: Schema.optional(Schema.Number),
+  mappingConfirmed: Schema.optional(Schema.Boolean),
 }) {}

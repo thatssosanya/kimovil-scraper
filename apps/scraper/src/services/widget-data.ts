@@ -106,29 +106,17 @@ export const WidgetDataServiceLive = Layer.effect(
               d.name as device_name,
               d.brand as device_brand,
               edr.data as specs_data,
-              di_mini.cdn_url as cdn_image_mini,
-              di_hq.cdn_url as cdn_image_hq,
-              di_orig.cdn_url as cdn_image_original
+              di_primary.url as cdn_image_mini,
+              di_primary.url as cdn_image_hq,
+              di_primary.url as cdn_image_original
             FROM devices d
             LEFT JOIN entity_data_raw edr 
               ON edr.device_id = d.id 
               AND edr.source = 'kimovil' 
               AND edr.data_kind = 'specs'
-            LEFT JOIN device_images di_mini
-              ON di_mini.device_id = d.id
-              AND di_mini.kind = 'primary'
-              AND di_mini.variant = 'mini'
-              AND di_mini.status = 'uploaded'
-            LEFT JOIN device_images di_hq
-              ON di_hq.device_id = d.id
-              AND di_hq.kind = 'primary'
-              AND di_hq.variant = 'hq'
-              AND di_hq.status = 'uploaded'
-            LEFT JOIN device_images di_orig
-              ON di_orig.device_id = d.id
-              AND di_orig.kind = 'primary'
-              AND di_orig.variant = 'original'
-              AND di_orig.status = 'uploaded'
+            LEFT JOIN device_images di_primary
+              ON di_primary.device_id = d.id
+              AND di_primary.is_primary = 1
             WHERE d.slug = ${slug}
           `;
 
@@ -204,29 +192,28 @@ export const WidgetDataServiceLive = Layer.effect(
             topOffers: offersBySource.get(group.source) ?? [],
           }));
 
+          // CDN image takes priority regardless of specs_data
+          const cdnImage =
+            deviceRow.cdn_image_mini ??
+            deviceRow.cdn_image_hq ??
+            deviceRow.cdn_image_original ??
+            null;
+
           let specs: WidgetDeviceData["specs"] = {
             screenSize: null,
             cpu: null,
             battery: null,
-            image: null,
+            image: cdnImage,
           };
 
           if (deviceRow.specs_data) {
             const rawSpecs = safeParseJson(deviceRow.specs_data) as RawSpecs | null;
             if (rawSpecs) {
-              // Image priority: CDN mini → CDN hq → CDN original → Kimovil fallback
-              const image =
-                deviceRow.cdn_image_mini ??
-                deviceRow.cdn_image_hq ??
-                deviceRow.cdn_image_original ??
-                rawSpecs.images?.[0] ??
-                null;
-
               specs = {
                 screenSize: rawSpecs.size_in ?? null,
                 cpu: rawSpecs.cpu ?? null,
                 battery: rawSpecs.batteryCapacity_mah ?? null,
-                image,
+                image: cdnImage ?? rawSpecs.images?.[0] ?? null,
               };
             }
           }

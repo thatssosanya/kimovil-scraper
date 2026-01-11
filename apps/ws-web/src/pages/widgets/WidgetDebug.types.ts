@@ -104,7 +104,18 @@ export interface MappingContext {
 export type SortField = "usageCount" | "rawModel" | "status" | "confidence";
 export type StatusTab = "all" | "needs_review" | "auto_confirmed" | "confirmed" | "ignored";
 export type PeriodOption = "all" | "1d" | "7d" | "30d" | "90d" | "custom";
-export type PreviewTab = "widget" | "device" | "prices";
+export type PreviewTab = "widget" | "device" | "prices" | "images";
+
+export interface DeviceImage {
+  id: number;
+  deviceId: string;
+  source: string;
+  url: string;
+  position: number;
+  isPrimary: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
 
 export const STATUS_TABS: { id: StatusTab; label: string }[] = [
   { id: "all", label: "All" },

@@ -13,6 +13,7 @@ import type {
 } from "../WidgetDebug.types";
 import * as api from "../../../api/widgetMappings";
 import * as analyticsApi from "../../../api/analytics";
+import * as devicesApi from "../../../api/devices";
 import { previewYandexSpecs, createDeviceFromYandex } from "../../../api/yandex";
 import type { YandexPreviewData } from "./YandexPreviewPanel";
 import { MappingModalContext, type MappingModalContextValue } from "./MappingModalContext";
@@ -68,6 +69,9 @@ export function MappingModal(props: MappingModalProps) {
   const [yandexPreviewError, setYandexPreviewError] = createSignal<string | null>(null);
   const [selectedYandexImages, setSelectedYandexImages] = createSignal<string[]>([]);
   const [yandexCreating, setYandexCreating] = createSignal(false);
+
+  const [deviceImages, setDeviceImages] = createSignal<devicesApi.DeviceImage[]>([]);
+  const [imagesLoading, setImagesLoading] = createSignal(false);
 
   let searchTimeout: ReturnType<typeof setTimeout>;
 
@@ -388,6 +392,46 @@ export function MappingModal(props: MappingModalProps) {
     }, 300);
   };
 
+  const fetchDeviceImages = async (deviceId: string) => {
+    setImagesLoading(true);
+    try {
+      const images = await devicesApi.getDeviceImages(deviceId);
+      // Guard against stale response if device changed during fetch
+      if (devicePreview()?.id === deviceId) {
+        setDeviceImages(images);
+      }
+    } catch (e) {
+      console.error("Failed to fetch images:", e);
+      if (devicePreview()?.id === deviceId) {
+        setDeviceImages([]);
+      }
+    } finally {
+      setImagesLoading(false);
+    }
+  };
+
+  const handleSetPrimaryImage = async (imageId: number) => {
+    const device = devicePreview();
+    if (!device) return;
+
+    const deviceId = device.id;
+    setImagesLoading(true);
+    try {
+      const updatedImages = await devicesApi.setPrimaryImage(deviceId, imageId);
+      // Guard against stale response if device changed during request
+      if (devicePreview()?.id === deviceId) {
+        setDeviceImages(updatedImages);
+        // Invalidate widget cache and refresh preview
+        setWidgetHtml(null);
+        await fetchWidgetPreview(device.slug, true);
+      }
+    } catch (e) {
+      console.error("Failed to set primary image:", e);
+    } finally {
+      setImagesLoading(false);
+    }
+  };
+
   const handlePreviewYandex = async () => {
     const url = yandexPreviewUrl().trim();
     if (!url) return;
@@ -461,6 +505,7 @@ export function MappingModal(props: MappingModalProps) {
           brand: brand || "",
           slug,
           selectedImageUrls: selectedYandexImages(),
+          widgetMappingId: props.mapping?.id,
         });
 
         if (!result.success) {
@@ -490,6 +535,11 @@ export function MappingModal(props: MappingModalProps) {
       setYandexPreview(null);
       setYandexPreviewUrl("");
       setSelectedYandexImages([]);
+
+      // If we created via Yandex with a mapping, notify parent that mapping was auto-confirmed
+      if (props.mapping?.id && preview && selectedYandexImages().length > 0) {
+        props.onMappingUpdated();
+      }
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : "Failed to create device");
     } finally {
@@ -656,6 +706,10 @@ export function MappingModal(props: MappingModalProps) {
     clearScrapeMessages,
     handleExcludeQuote,
     excludingQuote,
+    deviceImages,
+    imagesLoading,
+    fetchDeviceImages,
+    handleSetPrimaryImage,
     actionLoading,
     modalLoading,
     handleConfirm,

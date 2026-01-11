@@ -75,6 +75,7 @@ export const EventQueryServiceLive = Layer.effect(
           mapping_id: string;
           post_id: string;
           device_slug: string;
+          raw_model: string;
           impressions: string;
           clicks: string;
           unique_visitors: string;
@@ -103,6 +104,7 @@ export const EventQueryServiceLive = Layer.effect(
               coalesce(prop_mapping_id, 0) AS mapping_id,
               coalesce(prop_post_id, 0) AS post_id,
               coalesce(prop_device_slug, '') AS device_slug,
+              coalesce(prop_raw_model, '') AS raw_model,
               countIf(event_type = 'widget_impression') AS impressions,
               countIf(event_type = 'widget_click') AS clicks,
               uniq(visitor_id) AS unique_visitors,
@@ -110,7 +112,7 @@ export const EventQueryServiceLive = Layer.effect(
               if(impressions > 0, clicks / impressions, 0) AS ctr
             FROM events
             WHERE ${whereClause}
-            GROUP BY mapping_id, post_id, device_slug
+            GROUP BY mapping_id, post_id, device_slug, raw_model
             ORDER BY impressions DESC
             LIMIT ${limit}
           `;
@@ -163,6 +165,7 @@ export const EventQueryServiceLive = Layer.effect(
           mapping_id: parseInt(row.mapping_id, 10) || null,
           post_id: parseInt(row.post_id, 10) || null,
           device_slug: row.device_slug || null,
+          raw_model: row.raw_model || null,
           impressions: parseInt(row.impressions, 10),
           clicks: parseInt(row.clicks, 10),
           unique_visitors: parseInt(row.unique_visitors, 10),

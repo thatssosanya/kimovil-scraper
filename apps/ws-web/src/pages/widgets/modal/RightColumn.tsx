@@ -1,4 +1,4 @@
-import { Show, For } from "solid-js";
+import { Show, For, createEffect } from "solid-js";
 import { useMappingModal } from "./MappingModalContext";
 import { YandexPreviewPanel } from "./YandexPreviewPanel";
 
@@ -237,6 +237,24 @@ function DevicePreviewContent() {
             <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
           </Show>
         </button>
+        <button
+          onClick={() => ctx.setPreviewTab("images")}
+          class={`relative px-3 py-2 text-sm font-medium transition-colors ${
+            ctx.previewTab() === "images"
+              ? "text-zinc-900 dark:text-white"
+              : "text-zinc-400 dark:text-slate-500 hover:text-zinc-600 dark:hover:text-slate-300"
+          }`}
+        >
+          Images
+          <Show when={ctx.deviceImages().length > 0}>
+            <span class="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 dark:bg-slate-800 text-zinc-500 dark:text-slate-400 rounded">
+              {ctx.deviceImages().length}
+            </span>
+          </Show>
+          <Show when={ctx.previewTab() === "images"}>
+            <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
+          </Show>
+        </button>
       </div>
 
       <div class="flex-1 overflow-y-auto">
@@ -248,6 +266,9 @@ function DevicePreviewContent() {
         </Show>
         <Show when={ctx.previewTab() === "prices"}>
           <PricesPanel />
+        </Show>
+        <Show when={ctx.previewTab() === "images"}>
+          <ImagesPanel />
         </Show>
       </div>
     </div>
@@ -759,6 +780,75 @@ function PricesPanel() {
             </div>
           );
         })()}
+      </Show>
+    </div>
+  );
+}
+
+function ImagesPanel() {
+  const ctx = useMappingModal();
+
+  createEffect(() => {
+    const device = ctx.devicePreview();
+    if (device && ctx.previewTab() === "images") {
+      ctx.fetchDeviceImages(device.id);
+    }
+  });
+
+  return (
+    <div class="space-y-4">
+      <Show when={ctx.imagesLoading()}>
+        <div class="flex justify-center py-8">
+          <div class="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </Show>
+
+      <Show when={!ctx.imagesLoading() && ctx.deviceImages().length === 0}>
+        <div class="flex flex-col items-center justify-center py-12 bg-zinc-50 dark:bg-slate-900 rounded-lg border border-zinc-200 dark:border-slate-800">
+          <svg class="w-8 h-8 text-zinc-300 dark:text-slate-700 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          <p class="text-xs text-zinc-400 dark:text-slate-500">
+            No images uploaded
+          </p>
+        </div>
+      </Show>
+
+      <Show when={!ctx.imagesLoading() && ctx.deviceImages().length > 0}>
+        <div class="grid grid-cols-3 gap-2">
+          <For each={ctx.deviceImages()}>
+            {(img) => (
+              <button
+                onClick={() => ctx.handleSetPrimaryImage(img.id)}
+                class={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${
+                  img.isPrimary
+                    ? "border-amber-400 ring-2 ring-amber-400/30"
+                    : "border-zinc-200 dark:border-slate-700 hover:border-zinc-400"
+                }`}
+              >
+                <img src={img.url} alt="" class="w-full h-full object-cover" />
+                <Show when={img.isPrimary}>
+                  <div class="absolute top-1 right-1 w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center">
+                    <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    </svg>
+                  </div>
+                </Show>
+                <Show when={!img.isPrimary}>
+                  <div class="absolute inset-0 bg-black/0 hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 hover:opacity-100">
+                    <span class="text-xs text-white font-medium bg-black/50 px-2 py-1 rounded">
+                      Set Primary
+                    </span>
+                  </div>
+                </Show>
+              </button>
+            )}
+          </For>
+        </div>
+
+        <div class="text-xs text-zinc-400 dark:text-slate-500 text-center">
+          Click an image to set it as primary
+        </div>
       </Show>
     </div>
   );

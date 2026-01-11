@@ -77,6 +77,131 @@ export const createWidgetMappingsRoutes = () =>
         }),
       },
     )
+    .get("/by-id/:id", async ({ params, set }) => {
+      const id = parseInt(params.id, 10);
+      if (isNaN(id)) {
+        set.status = 400;
+        return { error: "Invalid id" };
+      }
+
+      const program = Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const rows = yield* sql<{
+          id: number;
+          source: string;
+          raw_model: string;
+          normalized_model: string | null;
+          device_id: string | null;
+          device_slug: string | null;
+          confidence: number | null;
+          status: string;
+          usage_count: number;
+          first_seen_at: number | null;
+          last_seen_at: number | null;
+          created_at: number;
+          updated_at: number;
+        }>`
+          SELECT wm.*, d.slug as device_slug 
+          FROM widget_model_mappings wm
+          LEFT JOIN devices d ON wm.device_id = d.id
+          WHERE wm.id = ${id}
+        `;
+
+        if (rows.length === 0) {
+          return null;
+        }
+
+        const row = rows[0];
+        return {
+          id: row.id,
+          source: row.source,
+          rawModel: row.raw_model,
+          normalizedModel: row.normalized_model,
+          deviceId: row.device_id,
+          deviceSlug: row.device_slug,
+          confidence: row.confidence,
+          status: row.status as MappingStatus,
+          usageCount: row.usage_count,
+          firstSeenAt: row.first_seen_at,
+          lastSeenAt: row.last_seen_at,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        };
+      });
+
+      const result = await LiveRuntime.runPromise(program);
+      if (!result) {
+        set.status = 404;
+        return { error: "Mapping not found" };
+      }
+      return result;
+    })
+    .get("/by-raw-model", async ({ query, set }) => {
+      const rawModel = query.raw_model;
+      const source = query.source ?? "wordpress";
+      
+      if (!rawModel) {
+        set.status = 400;
+        return { error: "raw_model parameter required" };
+      }
+
+      const program = Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const rows = yield* sql<{
+          id: number;
+          source: string;
+          raw_model: string;
+          normalized_model: string | null;
+          device_id: string | null;
+          device_slug: string | null;
+          confidence: number | null;
+          status: string;
+          usage_count: number;
+          first_seen_at: number | null;
+          last_seen_at: number | null;
+          created_at: number;
+          updated_at: number;
+        }>`
+          SELECT wm.*, d.slug as device_slug 
+          FROM widget_model_mappings wm
+          LEFT JOIN devices d ON wm.device_id = d.id
+          WHERE wm.source = ${source} AND wm.raw_model = ${rawModel}
+        `;
+
+        if (rows.length === 0) {
+          return null;
+        }
+
+        const row = rows[0];
+        return {
+          id: row.id,
+          source: row.source,
+          rawModel: row.raw_model,
+          normalizedModel: row.normalized_model,
+          deviceId: row.device_id,
+          deviceSlug: row.device_slug,
+          confidence: row.confidence,
+          status: row.status as MappingStatus,
+          usageCount: row.usage_count,
+          firstSeenAt: row.first_seen_at,
+          lastSeenAt: row.last_seen_at,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        };
+      });
+
+      const result = await LiveRuntime.runPromise(program);
+      if (!result) {
+        set.status = 404;
+        return { error: "Mapping not found" };
+      }
+      return result;
+    }, {
+      query: t.Object({
+        raw_model: t.Optional(t.String()),
+        source: t.Optional(t.String()),
+      }),
+    })
     .get("/:rawModel", async ({ params }) => {
       const rawModel = decodeURIComponent(params.rawModel);
       const program = Effect.gen(function* () {

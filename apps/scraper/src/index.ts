@@ -18,6 +18,7 @@ import { createAuthRoutes, requireRole } from "./routes/auth";
 import { createWidgetRoutes } from "./routes/widget";
 import { createWidgetDebugRoutes } from "./routes/widget-debug";
 import { createWidgetMappingsRoutes } from "./routes/widget-mappings";
+import { createDeviceImagesRoutes } from "./routes/device-images";
 import { createWsServer } from "./routes/ws-server";
 
 const bulkJobManager = new BulkJobManager(LiveRuntime);
@@ -55,7 +56,8 @@ const app = new Elysia()
   .use(createApiV2Routes(bulkJobManager))
   .use(createWidgetRoutes())
   .use(createWidgetDebugRoutes())
-  .use(createWidgetMappingsRoutes());
+  .use(createWidgetMappingsRoutes())
+  .use(createDeviceImagesRoutes());
 
 // Mount debug eval endpoint only in development
 if (config.enableDebugEval) {

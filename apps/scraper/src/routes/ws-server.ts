@@ -1,9 +1,11 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server, IncomingMessage } from "http";
-import { Effect, Stream } from "effect";
+import { Effect, Stream, Layer } from "effect";
 import { getSession } from "./auth";
 import { Schema } from "@effect/schema";
-import { LiveRuntime } from "../layers/live";
+import { LiveRuntime, LiveLayer } from "../layers/live";
+
+type LiveContext = Layer.Layer.Success<typeof LiveLayer>;
 import {
   Request as WsRequest,
   Response,
@@ -58,13 +60,55 @@ import { DeviceRegistryService } from "../services/device-registry";
 import { parseYandexPrices, parseYandexSpecs, parseYandexProduct, parseYandexImages } from "../sources/yandex_market/extractor";
 import { ALLOWED_HOSTS, validateYandexMarketUrl } from "../sources/yandex_market/url-utils";
 import { YandexBrowserError } from "../sources/yandex_market/errors";
+import { LinkResolverService } from "../services/link-resolver";
+
 import { uploadYandexImage } from "../sources/yandex_market/image-upload";
 import { DeviceImageService } from "../services/device-image";
+import { SqlClient } from "@effect/sql";
+
+const SHORTENER_HOSTS = ["kik.cat", "ya.cc", "clck.ru"];
+
+type YandexUrlResolution = 
+  | { valid: true; externalId: string; cleanUrl: string }
+  | { valid: false; error: string };
+
+const resolveYandexUrl = (url: string): Effect.Effect<YandexUrlResolution, never, LinkResolverService> =>
+  Effect.gen(function* () {
+    const validation = validateYandexMarketUrl(url);
+    if (validation.valid) {
+      return { valid: true as const, externalId: validation.externalId, cleanUrl: validation.cleanUrl };
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return { valid: false as const, error: "Invalid URL format" };
+    }
+
+    if (!SHORTENER_HOSTS.includes(parsedUrl.hostname)) {
+      return { valid: false as const, error: validation.error };
+    }
+
+    const resolver = yield* LinkResolverService;
+    const resolvedEither = yield* resolver.resolve(url).pipe(Effect.either);
+
+    if (resolvedEither._tag === "Left") {
+      return { valid: false as const, error: resolvedEither.left.message };
+    }
+
+    const resolved = resolvedEither.right;
+    if (!resolved.isYandexMarket || !resolved.resolvedUrl || !resolved.externalId) {
+      return { valid: false as const, error: resolved.error ?? "Shortener link did not resolve to a valid Yandex Market URL" };
+    }
+
+    return { valid: true as const, externalId: resolved.externalId, cleanUrl: resolved.resolvedUrl };
+  });
 
 type StreamHandler = (
   request: WsRequest,
   ws: Ws,
-) => Effect.Effect<void, unknown, unknown>;
+) => Effect.Effect<void, unknown, LiveContext>;
 
 const isSearchResult = (
   item: SearchResult | SearchEvent,
@@ -700,18 +744,18 @@ const createHandlers = (
         request.params,
       );
 
-      const validation = validateYandexMarketUrl(params.url);
-      if (!validation.valid) {
+      const resolved = yield* resolveYandexUrl(params.url);
+      if (!resolved.valid) {
         const result = new YandexScrapeResult({
           success: false,
-          error: validation.error,
+          error: resolved.error,
         });
         yield* Effect.sync(() =>
           ws.send(JSON.stringify(new Response({ id: request.id, result }))),
         );
         return;
       }
-      const externalId = validation.externalId;
+      const { externalId, cleanUrl } = resolved;
 
       yield* Effect.sync(() =>
         ws.send(
@@ -732,8 +776,6 @@ const createHandlers = (
       const htmlCache = yield* HtmlCacheService;
       const priceService = yield* PriceService;
       const entityData = yield* EntityDataService;
-
-      const cleanUrl = validation.cleanUrl;
       const html = yield* browserService.withPersistentStealthPage((page) =>
         Effect.gen(function* () {
           yield* Effect.tryPromise({
@@ -889,15 +931,15 @@ const createHandlers = (
     Effect.gen(function* () {
       const params = yield* Schema.decodeUnknown(YandexPreviewParams)(request.params);
 
-      const validation = validateYandexMarketUrl(params.url);
-      if (!validation.valid) {
-        const result = new YandexPreviewResult({ success: false, error: validation.error });
+      const resolved = yield* resolveYandexUrl(params.url);
+      if (!resolved.valid) {
+        const result = new YandexPreviewResult({ success: false, error: resolved.error });
         yield* Effect.sync(() =>
           ws.send(JSON.stringify(new Response({ id: request.id, result }))),
         );
         return;
       }
-      const externalId = validation.externalId;
+      const { externalId, cleanUrl } = resolved;
 
       yield* Effect.sync(() =>
         ws.send(
@@ -911,7 +953,6 @@ const createHandlers = (
       );
 
       const browserService = yield* BrowserService;
-      const cleanUrl = validation.cleanUrl;
       const html = yield* browserService.withPersistentStealthPage((page) =>
         Effect.gen(function* () {
           yield* Effect.tryPromise({
@@ -981,13 +1022,13 @@ const createHandlers = (
       const params = yield* Schema.decodeUnknown(YandexCreateDeviceParams)(request.params);
 
       // 1. Validate URL
-      const validation = validateYandexMarketUrl(params.url);
-      if (!validation.valid) {
-        const result = new YandexCreateDeviceResult({ success: false, error: validation.error });
+      const resolved = yield* resolveYandexUrl(params.url);
+      if (!resolved.valid) {
+        const result = new YandexCreateDeviceResult({ success: false, error: resolved.error });
         yield* Effect.sync(() => ws.send(JSON.stringify(new Response({ id: request.id, result }))));
         return;
       }
-      const externalId = validation.externalId;
+      const { externalId, cleanUrl } = resolved;
 
       // 2. Validate selectedImageUrls (1-5)
       if (params.selectedImageUrls.length === 0 || params.selectedImageUrls.length > 5) {
@@ -1003,7 +1044,6 @@ const createHandlers = (
 
       // 4. Re-scrape URL (same pattern as yandex.previewSpecs)
       const browserService = yield* BrowserService;
-      const cleanUrl = validation.cleanUrl;
       const html = yield* browserService.withPersistentStealthPage((page) =>
         Effect.gen(function* () {
           yield* Effect.tryPromise({
@@ -1115,13 +1155,31 @@ const createHandlers = (
         yield* priceService.updatePriceSummary(device.id);
       }
 
-      // 11. Return result
+      // 11. Auto-confirm mapping if widgetMappingId provided
+      let mappingConfirmed = false;
+      if (params.widgetMappingId) {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`
+          UPDATE widget_model_mappings
+          SET device_id = ${device.id}, 
+              status = 'confirmed',
+              updated_at = unixepoch()
+          WHERE id = ${params.widgetMappingId}
+        `;
+        mappingConfirmed = true;
+        yield* Effect.logInfo("Auto-confirmed mapping").pipe(
+          Effect.annotateLogs({ mappingId: params.widgetMappingId, deviceId: device.id })
+        );
+      }
+
+      // 12. Return result
       const result = new YandexCreateDeviceResult({
         success: true,
         deviceId: device.id,
         deviceSlug: device.slug,
         imagesUploaded: successfulUploads.length,
         pricesSaved: offers.length,
+        mappingConfirmed,
       });
       yield* Effect.sync(() => ws.send(JSON.stringify(new Response({ id: request.id, result }))));
     }),

@@ -29,6 +29,7 @@ import { CatalogueSqlClientLive } from "../sql/catalogue";
 import { LinkResolverServiceLive } from "../services/link-resolver";
 import { CatalogueLinkServiceLive } from "../services/catalogue-link";
 import { YandexAffiliateServiceLive } from "../services/yandex-affiliate";
+import { StorageServiceLive } from "../services/storage";
 
 const SearchServiceLayer = SearchServiceKimovil.pipe(
   Layer.provide(BrowserServiceLive),
@@ -122,6 +123,7 @@ export const LiveLayer = Layer.mergeAll(
   CatalogueLinkLayer,
   LinkResolverLayer,
   YandexAffiliateLayer,
+  StorageServiceLive,
 );
 
 export type LiveLayerType = typeof LiveLayer;

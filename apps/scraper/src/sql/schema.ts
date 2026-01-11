@@ -1261,6 +1261,13 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* ensureColumn(sql, "price_quotes", "affiliate_error", "TEXT");
 
     // Device images - simple URL storage for device images
+    // Migration: drop old schema if it has the legacy 'kind' column
+    const hasOldSchema = yield* sql<{ name: string }>`
+      SELECT name FROM pragma_table_info('device_images') WHERE name = 'kind'
+    `.pipe(Effect.map((rows) => rows.length > 0));
+    if (hasOldSchema) {
+      yield* sql.unsafe(`DROP TABLE device_images`);
+    }
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS device_images (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1274,6 +1281,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
         UNIQUE(device_id, source, url)
       )
     `);
+    
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_images_device ON device_images(device_id)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_device_images_device_source ON device_images(device_id, source, position)`);
 

@@ -12,6 +12,7 @@ import type {
   DetailedQuote,
   CatalogueLink,
 } from "../WidgetDebug.types";
+import type { DeviceImage } from "../../../api/devices";
 
 export interface MappingModalContextValue {
   // Mapping info
@@ -80,6 +81,12 @@ export interface MappingModalContextValue {
   clearScrapeMessages: () => void;
   handleExcludeQuote: (source: string, externalId: string) => Promise<void>;
   excludingQuote: Accessor<string | null>;
+
+  // Images
+  deviceImages: Accessor<DeviceImage[]>;
+  imagesLoading: Accessor<boolean>;
+  fetchDeviceImages: (deviceId: string) => Promise<void>;
+  handleSetPrimaryImage: (imageId: number) => Promise<void>;
 
   // Actions
   actionLoading: Accessor<boolean>;
