@@ -134,6 +134,7 @@ export const EventQueryServiceLive = Layer.effect(
               mapping_id,
               post_id,
               device_slug,
+              raw_model,
               impressions,
               clicks,
               unique_visitors,
@@ -144,13 +145,14 @@ export const EventQueryServiceLive = Layer.effect(
                 mapping_id,
                 post_id,
                 device_slug,
+                raw_model,
                 sumMerge(impressions) AS impressions,
                 sumMerge(clicks) AS clicks,
                 uniqMerge(unique_visitors) AS unique_visitors,
                 uniqMerge(unique_sessions) AS unique_sessions
               FROM daily_widget_stats
               WHERE ${whereClause}
-              GROUP BY mapping_id, post_id, device_slug
+              GROUP BY mapping_id, post_id, device_slug, raw_model
             )
             ORDER BY impressions DESC
             LIMIT ${limit}
