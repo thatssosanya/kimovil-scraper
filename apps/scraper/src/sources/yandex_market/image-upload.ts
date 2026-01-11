@@ -27,6 +27,15 @@ export const uploadYandexImage = (
       );
     }
 
+    const contentType = response.headers.get("content-type") ?? "";
+    
+    // Security: Validate content-type is actually an image
+    if (!contentType.startsWith("image/")) {
+      yield* Effect.fail(
+        new YandexImageUploadError(`Invalid content-type for image URL ${url}: ${contentType || "(none)"}`),
+      );
+    }
+
     const buffer = Buffer.from(
       yield* Effect.tryPromise({
         try: () => response.arrayBuffer(),
@@ -34,7 +43,6 @@ export const uploadYandexImage = (
       }),
     );
 
-    const contentType = response.headers.get("content-type") ?? "image/jpeg";
     const ext = contentType.includes("png")
       ? "png"
       : contentType.includes("webp")
