@@ -370,3 +370,48 @@ export class YandexLinkResult extends Schema.Class<YandexLinkResult>(
   externalId: Schema.optional(Schema.String),
   error: Schema.optional(Schema.String),
 }) {}
+
+export class YandexPreviewParams extends Schema.Class<YandexPreviewParams>(
+  "YandexPreviewParams",
+)({
+  url: Schema.String,
+}) {}
+
+export class YandexPreviewResult extends Schema.Class<YandexPreviewResult>(
+  "YandexPreviewResult",
+)({
+  success: Schema.Boolean,
+  error: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.String),
+  brand: Schema.optional(Schema.String),
+  suggestedSlug: Schema.optional(Schema.String),
+  imageUrls: Schema.optional(Schema.Array(Schema.String)),
+  specsCount: Schema.optional(Schema.Number),
+  priceCount: Schema.optional(Schema.Number),
+  minPrice: Schema.optional(Schema.Number),
+  maxPrice: Schema.optional(Schema.Number),
+  externalId: Schema.optional(Schema.String),
+}) {}
+
+export class YandexCreateDeviceParams extends Schema.Class<YandexCreateDeviceParams>(
+  "YandexCreateDeviceParams",
+)({
+  url: Schema.String,
+  name: Schema.String,
+  brand: Schema.String,
+  slug: Schema.String,
+  categoryId: Schema.optional(Schema.Number),
+  selectedImageUrls: Schema.Array(Schema.String),
+  widgetMappingId: Schema.optional(Schema.Number),
+}) {}
+
+export class YandexCreateDeviceResult extends Schema.Class<YandexCreateDeviceResult>(
+  "YandexCreateDeviceResult",
+)({
+  success: Schema.Boolean,
+  error: Schema.optional(Schema.String),
+  deviceId: Schema.optional(Schema.String),
+  deviceSlug: Schema.optional(Schema.String),
+  imagesUploaded: Schema.optional(Schema.Number),
+  pricesSaved: Schema.optional(Schema.Number),
+}) {}
