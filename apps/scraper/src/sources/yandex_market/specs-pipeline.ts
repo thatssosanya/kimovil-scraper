@@ -31,7 +31,9 @@ const processRawHandler = (ctx: PipelineContext) =>
     const imageService = yield* DeviceImageService;
 
     if (!ctx.deviceId) {
-      yield* Effect.logWarning("No deviceId in context, skipping process_raw");
+      yield* Effect.logWarning("No deviceId in context, skipping process_raw").pipe(
+        Effect.annotateLogs({ externalId: ctx.externalId }),
+      );
       return;
     }
 
