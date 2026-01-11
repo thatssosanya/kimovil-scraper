@@ -7,38 +7,7 @@ import { parseYandexSpecs, parseYandexImages, parseYandexProduct } from "./extra
 import { HtmlCacheService } from "../../services/html-cache";
 import { EntityDataService } from "../../services/entity-data";
 import { DeviceImageService } from "../../services/device-image";
-import { StorageService } from "../../services/storage";
-
-const uploadSingleImage = (
-  deviceId: string,
-  url: string,
-  index: number,
-) =>
-  Effect.gen(function* () {
-    const storage = yield* StorageService;
-
-    const response = yield* Effect.tryPromise({
-      try: () => fetch(url),
-      catch: (e) => new Error(`Failed to fetch image: ${e}`),
-    });
-
-    if (!response.ok) {
-      yield* Effect.fail(new Error(`HTTP ${response.status} for ${url}`));
-    }
-
-    const buffer = Buffer.from(yield* Effect.tryPromise({
-      try: () => response.arrayBuffer(),
-      catch: (e) => new Error(`Failed to read image buffer: ${e}`),
-    }));
-
-    const contentType = response.headers.get("content-type") ?? "image/jpeg";
-    const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
-    const key = `yandex/${deviceId}/${index}.${ext}`;
-
-    yield* storage.putObject({ key, contentType, body: buffer });
-
-    return storage.publicUrl(key);
-  });
+import { uploadYandexImage } from "./image-upload";
 
 /**
  * Yandex specs scraping is user-driven via the WebSocket handler,
@@ -105,7 +74,7 @@ const processRawHandler = (ctx: PipelineContext) =>
       const uploadResults = yield* Effect.forEach(
         images.galleryImageUrls,
         (url, index) =>
-          uploadSingleImage(deviceId, url, index).pipe(
+          uploadYandexImage(deviceId, url, index).pipe(
             Effect.map((cdnUrl) => ({ url: cdnUrl, position: index, isPrimary: index === 0, success: true })),
             Effect.catchAll((error) =>
               Effect.gen(function* () {
