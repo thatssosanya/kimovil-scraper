@@ -29,6 +29,8 @@ import {
   YandexScrapeResult,
   YandexLinkParams,
   YandexLinkResult,
+  YandexPreviewParams,
+  YandexPreviewResult,
 } from "@repo/scraper-protocol";
 import {
   SearchService,
@@ -51,7 +53,7 @@ import { BrowserService } from "../services/browser";
 import { PriceService } from "../services/price";
 import { EntityDataService } from "../services/entity-data";
 import { DeviceRegistryService } from "../services/device-registry";
-import { parseYandexPrices } from "../sources/yandex_market/extractor";
+import { parseYandexPrices, parseYandexSpecs, parseYandexProduct, parseYandexImages } from "../sources/yandex_market/extractor";
 import { ALLOWED_HOSTS, validateYandexMarketUrl } from "../sources/yandex_market/url-utils";
 import { YandexBrowserError } from "../sources/yandex_market/errors";
 
@@ -874,6 +876,97 @@ const createHandlers = (
       });
 
       const result = new YandexLinkResult({ success: true, externalId });
+      yield* Effect.sync(() =>
+        ws.send(JSON.stringify(new Response({ id: request.id, result }))),
+      );
+    }),
+
+  "yandex.previewSpecs": (request, ws) =>
+    Effect.gen(function* () {
+      const params = yield* Schema.decodeUnknown(YandexPreviewParams)(request.params);
+
+      const validation = validateYandexMarketUrl(params.url);
+      if (!validation.valid) {
+        const result = new YandexPreviewResult({ success: false, error: validation.error });
+        yield* Effect.sync(() =>
+          ws.send(JSON.stringify(new Response({ id: request.id, result }))),
+        );
+        return;
+      }
+      const externalId = validation.externalId;
+
+      yield* Effect.sync(() =>
+        ws.send(
+          JSON.stringify(
+            new StreamEvent({
+              id: request.id,
+              event: { type: "progress", stage: "browser", percent: 10 },
+            }),
+          ),
+        ),
+      );
+
+      const browserService = yield* BrowserService;
+      const cleanUrl = validation.cleanUrl;
+      const html = yield* browserService.withPersistentStealthPage((page) =>
+        Effect.gen(function* () {
+          yield* Effect.tryPromise({
+            try: () => page.goto(cleanUrl, { waitUntil: "domcontentloaded", timeout: 60000 }),
+            catch: (cause) => new YandexBrowserError({ message: "Failed to navigate to Yandex page", url: cleanUrl, cause }),
+          });
+
+          const finalUrl = page.url();
+          const finalParsed = new URL(finalUrl);
+          if (!ALLOWED_HOSTS.includes(finalParsed.hostname)) {
+            return yield* Effect.fail(new YandexBrowserError({
+              message: `Redirected to disallowed host: ${finalParsed.hostname}`,
+              url: cleanUrl,
+            }));
+          }
+
+          yield* Effect.promise(() => page.waitForTimeout(3000));
+          return yield* Effect.tryPromise({
+            try: () => page.content(),
+            catch: (cause) => new YandexBrowserError({ message: "Failed to get page content", url: cleanUrl, cause }),
+          });
+        }),
+      );
+
+      yield* Effect.sync(() =>
+        ws.send(
+          JSON.stringify(
+            new StreamEvent({
+              id: request.id,
+              event: { type: "progress", stage: "extract", percent: 50 },
+            }),
+          ),
+        ),
+      );
+
+      const product = parseYandexProduct(html);
+      const images = parseYandexImages(html);
+      const specs = parseYandexSpecs(html);
+      const offers = parseYandexPrices(html);
+
+      const slugify = (text: string): string =>
+        text.toLowerCase().replace(/[^a-z0-9а-яё]+/gi, "-").replace(/^-|-$/g, "");
+
+      const suggestedSlug = product.name ? slugify(product.name) : undefined;
+
+      const prices = offers.map((o) => o.priceMinorUnits / 100);
+      const result = new YandexPreviewResult({
+        success: true,
+        name: product.name,
+        brand: product.brand,
+        suggestedSlug,
+        imageUrls: images.galleryImageUrls,
+        specsCount: specs.length,
+        priceCount: offers.length,
+        minPrice: prices.length > 0 ? Math.min(...prices) : undefined,
+        maxPrice: prices.length > 0 ? Math.max(...prices) : undefined,
+        externalId,
+      });
+
       yield* Effect.sync(() =>
         ws.send(JSON.stringify(new Response({ id: request.id, result }))),
       );
