@@ -13,6 +13,7 @@ import { JobQueueServiceLive } from "../services/job-queue";
 import { DeviceDiscoveryServiceLive } from "../services/device-discovery";
 
 import { DeviceRegistryServiceLive } from "../services/device-registry";
+import { CategoryServiceLive } from "../services/category";
 import { EntityDataServiceLive } from "../services/entity-data";
 import { ScrapeRecordServiceLive } from "../services/scrape-record";
 import { PriceServiceLive } from "../services/price";
@@ -49,6 +50,7 @@ const BaseDataLayer = Layer.mergeAll(
   HtmlCacheServiceLive,
   DeviceDiscoveryServiceLive,
   DeviceRegistryServiceLive,
+  CategoryServiceLive,
   EntityDataServiceLive,
   PriceServiceLive,
   DeviceImageServiceLive,
