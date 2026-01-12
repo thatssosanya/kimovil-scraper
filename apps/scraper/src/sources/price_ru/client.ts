@@ -4,6 +4,10 @@ import type { PriceRuConfig, PriceRuModel, SearchResult, PriceRuSearchResponse }
 
 const BASE_URL = "https://price.ru/v4";
 
+// Filter out to_price offers (redirect through price.ru instead of direct to merchant)
+// Set to false to include all offers again
+export const FILTER_TO_PRICE_OFFERS = true;
+
 export interface PriceRuClient {
   readonly searchOffers: (query: string, perPage?: number) => Effect.Effect<SearchResult, PriceRuError>;
   readonly getModel: (modelId: number) => Effect.Effect<PriceRuModel | null, PriceRuError>;
@@ -59,8 +63,8 @@ export const PriceRuClientLive = Layer.effect(
           `/search/offers?region_id=${config.regionId}&category_id=${config.categoryId}&per_page=${perPage}&partner_pad_id=${config.partnerId}&ref=1`,
           { method: "POST", body: JSON.stringify({ query }) },
         ).pipe(
-          Effect.map((data) => ({
-            items: (data.items ?? []).map((item) => ({
+          Effect.map((data) => {
+            const allItems = (data.items ?? []).map((item) => ({
               id: item.id,
               name: item.name,
               modelId: item.model_id,
@@ -69,9 +73,12 @@ export const PriceRuClientLive = Layer.effect(
               availability: item.availability ?? "unknown",
               redirectTarget: item.redirect_target ?? "to_merchant",
               clickUrl: item.click_url ? `https://price.ru${item.click_url}` : null,
-            })),
-            total: data.total ?? 0,
-          })),
+            }));
+            const items = FILTER_TO_PRICE_OFFERS
+              ? allItems.filter((item) => item.redirectTarget !== "to_price")
+              : allItems;
+            return { items, total: data.total ?? 0 };
+          }),
         ),
 
       getModel: (modelId) =>
