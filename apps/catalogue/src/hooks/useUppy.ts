@@ -15,7 +15,7 @@ interface UseUppyProps {
 
 export const useUppy = ({ onUploadSuccess }: UseUppyProps = {}) => {
   const [uppy] = useState(() =>
-    new Uppy({
+    new Uppy<UppyMeta, UppyBody>({
       restrictions: {
         maxFileSize: 1000000,
         maxNumberOfFiles: 1,
@@ -73,7 +73,12 @@ export const useUppy = ({ onUploadSuccess }: UseUppyProps = {}) => {
 
   useUppyEvent(uppy, "upload-success", (_file, response) => {
     if (response.uploadURL && onUploadSuccess) {
-      onUploadSuccess(response.uploadURL);
+      // Rewrite storage URL to CDN URL
+      const cdnUrl = response.uploadURL.replace(
+        /https:\/\/storage\.yandexcloud\.net\/cod-devices-images/,
+        "https://cdn.click-or-die.ru"
+      );
+      onUploadSuccess(cdnUrl);
     }
   });
 

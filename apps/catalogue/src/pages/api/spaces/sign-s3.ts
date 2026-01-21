@@ -4,7 +4,7 @@ import { type NextApiRequest, type NextApiResponse } from "next";
 function getS3Client() {
   const s3Client = new S3({
     signatureVersion: "v4",
-    endpoint: "https://fra1.digitaloceanspaces.com",
+    endpoint: "https://storage.yandexcloud.net",
     region: process.env.AWS_REGION,
     s3ForcePathStyle: false,
     credentials: new Credentials(
