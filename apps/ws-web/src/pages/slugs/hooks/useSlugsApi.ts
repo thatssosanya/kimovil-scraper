@@ -343,7 +343,7 @@ export function useSlugsApi() {
       const res = await api("/api/process/raw", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug }),
+        body: JSON.stringify({ externalId: slug, source: "kimovil" }),
       });
       const data = await res.json();
       if (data.success) {
@@ -369,7 +369,7 @@ export function useSlugsApi() {
       const res = await api("/api/process/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug }),
+        body: JSON.stringify({ externalId: slug, source: "kimovil" }),
       });
       const data = await res.json();
       if (data.success) {
