@@ -116,6 +116,38 @@ export interface PriceService {
   readonly getOfferCountsByDeviceIds: (
     deviceIds: string[],
   ) => Effect.Effect<Record<string, number>, PriceServiceError>;
+
+  // price.ru URL refresh methods
+  readonly hasPriceRuPrices: (
+    deviceId: string,
+  ) => Effect.Effect<boolean, PriceServiceError>;
+
+  readonly claimUrlRefresh: (params: {
+    deviceId: string;
+    staleThresholdSecs: number;
+    minIntervalSecs: number;
+  }) => Effect.Effect<boolean, PriceServiceError>;
+
+  readonly updatePriceRuUrls: (params: {
+    deviceId: string;
+    offers: Array<{
+      offerId: string;
+      clickUrl: string | null;
+      isAvailable: boolean;
+    }>;
+  }) => Effect.Effect<{ updated: number; added: number; unavailable: number }, PriceServiceError>;
+
+  readonly setUrlRefreshedAt: (
+    deviceId: string,
+  ) => Effect.Effect<void, PriceServiceError>;
+
+  readonly releaseUrlRefreshClaim: (
+    deviceId: string,
+  ) => Effect.Effect<void, PriceServiceError>;
+
+  readonly getSearchQueryForDevice: (
+    deviceId: string,
+  ) => Effect.Effect<string | null, PriceServiceError>;
 }
 
 export const PriceService = Context.GenericTag<PriceService>("PriceService");
@@ -594,6 +626,171 @@ export const PriceServiceLive = Layer.effect(
           Effect.mapError(wrapSqlError),
         );
       },
+
+      hasPriceRuPrices: (deviceId) =>
+        sql<{ cnt: number }>`
+          SELECT COUNT(*) as cnt FROM price_quotes
+          WHERE device_id = ${deviceId} AND source = 'price_ru'
+          LIMIT 1
+        `.pipe(
+          Effect.map((rows) => (rows[0]?.cnt ?? 0) > 0),
+          Effect.mapError(wrapSqlError),
+        ),
+
+      claimUrlRefresh: ({ deviceId, staleThresholdSecs, minIntervalSecs }) =>
+        Effect.gen(function* () {
+          // Atomic claim: UPDATE only if stale AND not recently started
+          yield* sql`
+            UPDATE price_summary
+            SET url_refresh_started_at = unixepoch()
+            WHERE device_id = ${deviceId}
+              AND (url_refreshed_at IS NULL OR url_refreshed_at < unixepoch() - ${staleThresholdSecs})
+              AND (url_refresh_started_at IS NULL OR url_refresh_started_at < unixepoch() - ${minIntervalSecs})
+          `;
+
+          // Check if we actually claimed it
+          const changesRow = yield* sql<{ changes: number }>`SELECT changes() as changes`;
+          return (changesRow[0]?.changes ?? 0) === 1;
+        }).pipe(
+          Effect.tapError((e) =>
+            Effect.logWarning("PriceService.claimUrlRefresh failed").pipe(
+              Effect.annotateLogs({ deviceId, error: e }),
+            ),
+          ),
+          Effect.mapError(wrapSqlError),
+        ),
+
+      updatePriceRuUrls: ({ deviceId, offers }) =>
+        sql.withTransaction(
+          Effect.gen(function* () {
+            let updated = 0;
+            const added = 0;
+            let unavailable = 0;
+
+            // Empty offers = possible API error, don't clear started_at to let backoff apply
+            if (offers.length === 0) {
+              return { updated, added, unavailable };
+            }
+
+            // Get ALL existing offer_ids for this device (not just available)
+            // so previously-unavailable offers can be revived. Use DISTINCT for duplicate rows.
+            const existingRows = yield* sql<{ offer_id: string | null }>`
+              SELECT DISTINCT offer_id FROM price_quotes
+              WHERE device_id = ${deviceId} AND source = 'price_ru'
+            `;
+            const existingOfferIds = new Set(existingRows.map((r) => r.offer_id).filter(Boolean));
+
+            // Track which offers are still present
+            const presentOfferIds = new Set<string>();
+
+            for (const offer of offers) {
+              presentOfferIds.add(offer.offerId);
+
+              if (existingOfferIds.has(offer.offerId)) {
+                // Update existing offer URL and availability
+                yield* sql`
+                  UPDATE price_quotes
+                  SET url = ${offer.clickUrl}, is_available = ${offer.isAvailable ? 1 : 0}
+                  WHERE device_id = ${deviceId}
+                    AND source = 'price_ru'
+                    AND offer_id = ${offer.offerId}
+                    AND (url IS NOT ${offer.clickUrl} OR is_available != ${offer.isAvailable ? 1 : 0})
+                `;
+                // Count all changed rows (handles duplicate offer_id)
+                const changesRow = yield* sql<{ changes: number }>`SELECT changes() as changes`;
+                updated += changesRow[0]?.changes ?? 0;
+              }
+              // Note: we don't add new offers here - that would require full price data
+              // The refresh only updates URLs for existing offers
+            }
+
+            // Mark disappeared offers as unavailable
+            for (const existingId of existingOfferIds) {
+              if (existingId && !presentOfferIds.has(existingId)) {
+                yield* sql`
+                  UPDATE price_quotes
+                  SET is_available = 0
+                  WHERE device_id = ${deviceId}
+                    AND source = 'price_ru'
+                    AND offer_id = ${existingId}
+                    AND is_available = 1
+                `;
+                const changesRow = yield* sql<{ changes: number }>`SELECT changes() as changes`;
+                unavailable += changesRow[0]?.changes ?? 0;
+              }
+            }
+
+            // Update refresh timestamp and clear started_at
+            yield* sql`
+              UPDATE price_summary
+              SET url_refreshed_at = unixepoch(), url_refresh_started_at = NULL
+              WHERE device_id = ${deviceId}
+            `;
+
+            return { updated, added, unavailable };
+          }),
+        ).pipe(
+          Effect.tapError((e) =>
+            Effect.logWarning("PriceService.updatePriceRuUrls failed").pipe(
+              Effect.annotateLogs({ deviceId, error: e }),
+            ),
+          ),
+          Effect.mapError(wrapSqlError),
+        ),
+
+      setUrlRefreshedAt: (deviceId) =>
+        sql`
+          UPDATE price_summary
+          SET url_refreshed_at = unixepoch(), url_refresh_started_at = NULL
+          WHERE device_id = ${deviceId}
+        `.pipe(
+          Effect.asVoid,
+          Effect.mapError(wrapSqlError),
+        ),
+
+      releaseUrlRefreshClaim: (deviceId) =>
+        sql`
+          UPDATE price_summary
+          SET url_refresh_started_at = NULL
+          WHERE device_id = ${deviceId}
+        `.pipe(
+          Effect.asVoid,
+          Effect.mapError(wrapSqlError),
+        ),
+
+      getSearchQueryForDevice: (deviceId) =>
+        Effect.gen(function* () {
+          // Try to get query from device_sources metadata first
+          const metadataRows = yield* sql<{ metadata: string | null }>`
+            SELECT metadata FROM device_sources
+            WHERE device_id = ${deviceId} AND source = 'price_ru'
+            LIMIT 1
+          `;
+
+          const metadata = metadataRows[0]?.metadata;
+          if (metadata) {
+            try {
+              const parsed = JSON.parse(metadata);
+              if (parsed.query) return parsed.query as string;
+            } catch {
+              // Ignore parse errors
+            }
+          }
+
+          // Fallback to device name
+          const deviceRows = yield* sql<{ name: string }>`
+            SELECT name FROM devices WHERE id = ${deviceId}
+          `;
+
+          return deviceRows[0]?.name ?? null;
+        }).pipe(
+          Effect.tapError((e) =>
+            Effect.logWarning("PriceService.getSearchQueryForDevice failed").pipe(
+              Effect.annotateLogs({ deviceId, error: e }),
+            ),
+          ),
+          Effect.mapError(wrapSqlError),
+        ),
     });
   }),
 );

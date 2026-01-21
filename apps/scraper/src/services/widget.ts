@@ -10,6 +10,7 @@ import {
   WidgetTrackingContext,
 } from "./widget-render";
 import { YandexAffiliateService } from "./yandex-affiliate";
+import { PriceUrlRefreshService } from "./price-url-refresh";
 import { ALLOWED_HOSTS } from "../sources/yandex_market/url-utils";
 
 export class WidgetServiceError extends Data.TaggedError("WidgetServiceError")<{
@@ -60,6 +61,7 @@ export const WidgetServiceLive = Layer.effect(
     const sql = yield* SqlClient.SqlClient;
     const widgetDataService = yield* WidgetDataService;
     const affiliateService = yield* YandexAffiliateService;
+    const priceUrlRefreshService = yield* PriceUrlRefreshService;
 
     const cache = new Map<string, CacheEntry>();
     const inflightSlugs = new Set<string>();
@@ -254,6 +256,24 @@ export const WidgetServiceLive = Layer.effect(
                   : data.device.name,
                 data.specs.image,
               );
+            }
+
+            // Trigger price.ru URL refresh if stale (fire-and-forget)
+            const hasPriceRuPrices = data.prices.some((p) => p.source === "price_ru");
+            if (hasPriceRuPrices) {
+              yield* priceUrlRefreshService.triggerRefreshIfStale({
+                deviceId: data.device.id,
+                deviceSlug: data.device.slug,
+                onCacheInvalidate: () =>
+                  Effect.sync(() => {
+                    // Invalidate all cache entries for this slug
+                    for (const key of cache.keys()) {
+                      if (key.startsWith(`${data.device.slug}:`)) {
+                        cache.delete(key);
+                      }
+                    }
+                  }),
+              });
             }
 
             html = renderPriceWidget(data, renderOptions);

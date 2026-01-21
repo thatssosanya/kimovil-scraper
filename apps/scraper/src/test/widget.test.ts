@@ -5,6 +5,9 @@ import { createTestSqlClient } from "./setup";
 import { WidgetService, WidgetServiceLive } from "../services/widget";
 import { WidgetDataService, WidgetDataServiceLive } from "../services/widget-data";
 import { YandexAffiliateServiceLive } from "../services/yandex-affiliate";
+import { PriceUrlRefreshService, PriceUrlRefreshServiceLive } from "../services/price-url-refresh";
+import { PriceServiceLive } from "../services/price";
+import { PriceRuClientLive } from "../sources/price_ru";
 
 const initTestSchema = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -68,9 +71,15 @@ const createTestLayer = () => {
   const SqlWithSchema = Layer.provideMerge(TestSchemaLive, createTestSqlClient());
   const WidgetDataLayer = Layer.provideMerge(WidgetDataServiceLive, SqlWithSchema);
   const YandexAffiliateLayer = Layer.provideMerge(YandexAffiliateServiceLive, SqlWithSchema);
+  const PriceServiceLayer = Layer.provideMerge(PriceServiceLive, SqlWithSchema);
+  const PriceUrlRefreshLayer = PriceUrlRefreshServiceLive.pipe(
+    Layer.provide(PriceServiceLayer),
+    Layer.provide(PriceRuClientLive),
+  );
   const WidgetLayer = WidgetServiceLive.pipe(
     Layer.provide(WidgetDataLayer),
     Layer.provide(YandexAffiliateLayer),
+    Layer.provide(PriceUrlRefreshLayer),
     Layer.provide(SqlWithSchema),
   );
   return Layer.mergeAll(WidgetLayer, WidgetDataLayer, SqlWithSchema);

@@ -1013,6 +1013,10 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     // Add offer_count to price_summary for pre-computed price counts
     yield* ensureColumn(sql, "price_summary", "offer_count", "INTEGER DEFAULT 0");
 
+    // URL refresh tracking for price.ru (URLs expire ~10 min)
+    yield* ensureColumn(sql, "price_summary", "url_refreshed_at", "INTEGER");
+    yield* ensureColumn(sql, "price_summary", "url_refresh_started_at", "INTEGER");
+
     // Backfill offer_count for existing price_summary records
     yield* sql.unsafe(`
       UPDATE price_summary

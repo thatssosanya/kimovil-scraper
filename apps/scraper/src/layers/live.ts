@@ -30,6 +30,7 @@ import { LinkResolverServiceLive } from "../services/link-resolver";
 import { CatalogueLinkServiceLive } from "../services/catalogue-link";
 import { YandexAffiliateServiceLive } from "../services/yandex-affiliate";
 import { StorageServiceLive } from "../services/storage";
+import { PriceUrlRefreshServiceLive } from "../services/price-url-refresh";
 
 const SearchServiceLayer = SearchServiceKimovil.pipe(
   Layer.provide(BrowserServiceLive),
@@ -73,10 +74,17 @@ const WidgetDataLayer = WidgetDataServiceLive.pipe(Layer.provide(SqlLayer));
 // YandexAffiliateService depends only on SQL
 const YandexAffiliateLayer = YandexAffiliateServiceLive.pipe(Layer.provide(SqlLayer));
 
-// WidgetService depends on WidgetDataService, SqlClient, and YandexAffiliateService
+// PriceUrlRefreshService depends on PriceService and PriceRuClient
+const PriceUrlRefreshLayer = PriceUrlRefreshServiceLive.pipe(
+  Layer.provide(BaseDataLayer), // provides PriceService
+  Layer.provide(PriceRuClientLive),
+);
+
+// WidgetService depends on WidgetDataService, SqlClient, YandexAffiliateService, and PriceUrlRefreshService
 const WidgetLayer = WidgetServiceLive.pipe(
   Layer.provide(WidgetDataLayer),
   Layer.provide(YandexAffiliateLayer),
+  Layer.provide(PriceUrlRefreshLayer),
   Layer.provide(SqlLayer),
 );
 
