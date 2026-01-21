@@ -503,7 +503,7 @@ export const createWidgetMappingsRoutes = () =>
           }
 
           // Scrape with browser
-          const html = yield* browserService.withPersistentStealthPage((page) =>
+          const html = yield* browserService.withPersistentStealthPage("yandex_market", (page) =>
             Effect.gen(function* () {
               yield* Effect.tryPromise({
                 try: () => page.goto(cleanUrl, { waitUntil: "domcontentloaded", timeout: 60000 }),

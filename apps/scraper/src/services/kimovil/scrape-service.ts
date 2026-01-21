@@ -913,7 +913,7 @@ export const ScrapeServiceKimovil = Layer.effect(
 
     return ScrapeService.of({
       scrape: (slug: string) => scrapeWithCache(slug, deps),
-      scrapeFast: (slug: string) => scrapeFastImpl(slug, deps),
+      scrapeFast: (slug: string, scrapeId?: number) => scrapeFastImpl(slug, deps, scrapeId),
     });
   }),
 );

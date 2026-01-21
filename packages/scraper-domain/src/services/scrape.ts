@@ -27,6 +27,7 @@ export interface ScrapeService {
   ) => Stream.Stream<ScrapeResult | ScrapeEvent, ScrapeError>;
   readonly scrapeFast: (
     slug: string,
+    scrapeId?: number,
   ) => Stream.Stream<ScrapeEvent, ScrapeError>;
 }
 

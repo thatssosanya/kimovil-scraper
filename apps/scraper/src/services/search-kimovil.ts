@@ -45,7 +45,7 @@ export const SearchServiceKimovil = Layer.effect(
               const attempt = yield* Ref.updateAndGet(attemptRef, (n) => n + 1);
 
               const data = yield* browserService
-                .withPersistentStealthPage((page) =>
+                .withPersistentStealthPage("kimovil", (page) =>
                   Effect.tryPromise({
                     try: async () => {
                       const result = await page.evaluate(async (u: string) => {
