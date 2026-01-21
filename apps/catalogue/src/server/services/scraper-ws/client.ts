@@ -8,16 +8,31 @@ import type {
 import { SCRAPER_TIMEOUTS } from "./types";
 import { logger } from "../logger";
 
+export interface TrackedResult<T> {
+  requestId: string;
+  result: T;
+}
+
 export interface ScrapingService {
   search(
     query: string,
     opts?: { onEvent?: (event: ScraperEvent) => void }
   ): Promise<SearchResult>;
 
+  searchWithTracking(
+    query: string,
+    opts?: { onEvent?: (event: ScraperEvent) => void }
+  ): Promise<TrackedResult<SearchResult>>;
+
   scrape(
     slug: string,
     opts?: { onEvent?: (event: ScraperEvent) => void }
   ): Promise<ScrapeResult>;
+
+  scrapeWithTracking(
+    slug: string,
+    opts?: { onEvent?: (event: ScraperEvent) => void }
+  ): Promise<TrackedResult<ScrapeResult>>;
 
   healthCheck(): Promise<HealthCheckResult>;
 
@@ -35,38 +50,54 @@ export class ScraperWSClient implements ScrapingService {
     query: string,
     opts?: { onEvent?: (event: ScraperEvent) => void }
   ): Promise<SearchResult> {
+    const { result } = await this.searchWithTracking(query, opts);
+    return result;
+  }
+
+  async searchWithTracking(
+    query: string,
+    opts?: { onEvent?: (event: ScraperEvent) => void }
+  ): Promise<TrackedResult<SearchResult>> {
     logger.debug(`Searching for "${query}"`);
 
-    const result = await this.connection.sendRequest(
+    const { id, result } = await this.connection.sendRequest(
       "scrape.search",
       { query },
       SCRAPER_TIMEOUTS.search,
       opts?.onEvent
     );
 
-    return result as SearchResult;
+    return { requestId: id, result: result as SearchResult };
   }
 
   async scrape(
     slug: string,
     opts?: { onEvent?: (event: ScraperEvent) => void }
   ): Promise<ScrapeResult> {
+    const { result } = await this.scrapeWithTracking(slug, opts);
+    return result;
+  }
+
+  async scrapeWithTracking(
+    slug: string,
+    opts?: { onEvent?: (event: ScraperEvent) => void }
+  ): Promise<TrackedResult<ScrapeResult>> {
     logger.debug(`Scraping data for "${slug}"`);
 
-    const result = await this.connection.sendRequest(
+    const { id, result } = await this.connection.sendRequest(
       "scrape.get",
       { slug },
       SCRAPER_TIMEOUTS.scrape,
       opts?.onEvent
     );
 
-    return result as ScrapeResult;
+    return { requestId: id, result: result as ScrapeResult };
   }
 
   async healthCheck(): Promise<HealthCheckResult> {
     logger.debug("Performing health check");
 
-    const result = await this.connection.sendRequest(
+    const { result } = await this.connection.sendRequest(
       "health.check",
       {},
       SCRAPER_TIMEOUTS.healthCheck

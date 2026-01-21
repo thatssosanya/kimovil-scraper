@@ -4,6 +4,12 @@ export type SlugConflictInfo = {
   existingDeviceName: string | null;
 };
 
+export type ExistingMatch = {
+  slug: string;
+  name: string;
+  brand?: string | null;
+};
+
 export type JobStep =
   | "searching"
   | "selecting"
@@ -21,6 +27,7 @@ export type ScrapeJob = {
   deviceName?: string | null;
   slug?: string | null;
   autocompleteOptions?: { name: string; slug: string }[] | null;
+  existingMatches?: ExistingMatch[] | null;
   error?: string | null;
   attempts?: number;
   createdAt?: Date;

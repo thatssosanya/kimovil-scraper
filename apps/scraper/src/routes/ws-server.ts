@@ -776,7 +776,7 @@ const createHandlers = (
       const htmlCache = yield* HtmlCacheService;
       const priceService = yield* PriceService;
       const entityData = yield* EntityDataService;
-      const html = yield* browserService.withPersistentStealthPage((page) =>
+      const html = yield* browserService.withPersistentStealthPage("yandex_market", (page) =>
         Effect.gen(function* () {
           yield* Effect.tryPromise({
             try: () => page.goto(cleanUrl, { waitUntil: "domcontentloaded", timeout: 60000 }),
@@ -953,7 +953,7 @@ const createHandlers = (
       );
 
       const browserService = yield* BrowserService;
-      const html = yield* browserService.withPersistentStealthPage((page) =>
+      const html = yield* browserService.withPersistentStealthPage("yandex_market", (page) =>
         Effect.gen(function* () {
           yield* Effect.tryPromise({
             try: () => page.goto(cleanUrl, { waitUntil: "domcontentloaded", timeout: 60000 }),
@@ -1044,7 +1044,7 @@ const createHandlers = (
 
       // 4. Re-scrape URL (same pattern as yandex.previewSpecs)
       const browserService = yield* BrowserService;
-      const html = yield* browserService.withPersistentStealthPage((page) =>
+      const html = yield* browserService.withPersistentStealthPage("yandex_market", (page) =>
         Effect.gen(function* () {
           yield* Effect.tryPromise({
             try: () => page.goto(cleanUrl, { waitUntil: "domcontentloaded", timeout: 60000 }),
@@ -1218,16 +1218,23 @@ export function createWsServer(
     ).pathname;
 
     if (pathname === "/ws") {
-      // Check auth before upgrading
-      const fakeRequest = new Request("http://localhost/ws", {
-        headers: toWebHeaders(request),
-      });
-      const session = await getSession(fakeRequest);
-      
-      if (!session || (session.user as { role?: string }).role !== "admin") {
-        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-        socket.destroy();
-        return;
+      // Check service token first (for service-to-service calls)
+      const serviceToken = process.env.SCRAPER_SERVICE_TOKEN;
+      const authHeader = request.headers.authorization;
+      const isServiceAuth = serviceToken && authHeader === `Bearer ${serviceToken}`;
+
+      if (!isServiceAuth) {
+        // Fall back to session auth for user connections
+        const fakeRequest = new Request("http://localhost/ws", {
+          headers: toWebHeaders(request),
+        });
+        const session = await getSession(fakeRequest);
+
+        if (!session || (session.user as { role?: string }).role !== "admin") {
+          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+          socket.destroy();
+          return;
+        }
       }
 
       wss.handleUpgrade(request, socket, head, (ws) => {

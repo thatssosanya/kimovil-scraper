@@ -2,7 +2,7 @@ import { db } from "@/src/server/db";
 import { scrapeJob } from "@/src/server/db/schema";
 import { eq, and, lt, inArray } from "drizzle-orm";
 import { logger } from "../logger";
-import type { ScrapeJob, JobUpdate, JobStep, SlugConflictInfo } from "./types";
+import type { ScrapeJob, JobUpdate, JobStep, SlugConflictInfo, ExistingMatch } from "./types";
 import { JOB_RETENTION_MS } from "./types";
 
 type AutocompleteOption = { name: string; slug: string };
@@ -27,6 +27,7 @@ function dbRowToJob(row: typeof scrapeJob.$inferSelect): ScrapeJob {
     autocompleteOptions: parseJson<AutocompleteOption[]>(
       row.autocompleteOptions
     ),
+    existingMatches: parseJson<ExistingMatch[]>(row.existingMatches),
     error: row.error,
     attempts: row.attempts,
     createdAt: row.createdAt,
@@ -36,6 +37,10 @@ function dbRowToJob(row: typeof scrapeJob.$inferSelect): ScrapeJob {
     progressPercent: row.progressPercent,
     lastLog: row.lastLog,
     slugConflict: parseJson<SlugConflictInfo>(row.slugConflict),
+    // Dispatch tracking
+    scraperRequestId: row.scraperRequestId,
+    dispatchedAt: row.dispatchedAt,
+    acknowledgedAt: row.acknowledgedAt,
   };
 }
 
@@ -100,6 +105,11 @@ export class JobStore {
         : existing?.autocompleteOptions
         ? JSON.stringify(existing.autocompleteOptions)
         : null,
+      existingMatches: update.existingMatches
+        ? JSON.stringify(update.existingMatches)
+        : existing?.existingMatches
+        ? JSON.stringify(existing.existingMatches)
+        : null,
       error: update.error ?? existing?.error ?? null,
       attempts: newAttempts,
       progressStage:
@@ -116,6 +126,16 @@ export class JobStore {
         : existing?.slugConflict
         ? JSON.stringify(existing.slugConflict)
         : null,
+      // Dispatch tracking - clear on step change (new dispatch will happen)
+      scraperRequestId: stepChanged
+        ? null
+        : update.scraperRequestId ?? existing?.scraperRequestId ?? null,
+      dispatchedAt: stepChanged
+        ? null
+        : update.dispatchedAt ?? existing?.dispatchedAt ?? null,
+      acknowledgedAt: stepChanged
+        ? null
+        : update.acknowledgedAt ?? existing?.acknowledgedAt ?? null,
       updatedAt: now,
       finishedAt: isTerminal ? update.finishedAt ?? now : null,
       createdAt: existing?.createdAt ?? now,

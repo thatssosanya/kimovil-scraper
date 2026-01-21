@@ -61,7 +61,7 @@ export interface SingleCameraData {
   aperture_fstop: string | null;
   sensor: string | null;
   type: string;
-  features: string;
+  features: string[];
 }
 
 export interface Sku {
@@ -75,29 +75,36 @@ export interface Benchmark {
   score: number;
 }
 
+export interface CpuCoreCluster {
+  count: number;
+  frequency_ghz: number;
+  role: "performance" | "efficiency" | "ultra" | null;
+}
+
 export interface PhoneData {
   slug: string;
   name: string;
   brand: string;
-  aliases: string;
+  aliases: string[];
   releaseDate: string | null;
-  images: string | null;
+  images: string[] | null;
   height_mm: number | null;
   width_mm: number | null;
   thickness_mm: number | null;
   weight_g: number | null;
-  materials: string;
+  materials: string[];
   ipRating: string | null;
-  colors: string;
+  colors: string[];
   size_in: number | null;
   displayType: string | null;
   resolution: string | null;
   aspectRatio: string | null;
   ppi: number | null;
-  displayFeatures: string;
+  displayFeatures: string[];
   cpu: string | null;
   cpuManufacturer: string | null;
-  cpuCores: string | null;
+  cpuCores: string[] | null;
+  cpuCoreClusters: CpuCoreCluster[] | null;
   gpu: string | null;
   sdSlot: boolean | null;
   skus: Sku[];
@@ -105,7 +112,7 @@ export interface PhoneData {
   benchmarks: Benchmark[];
   nfc: boolean | null;
   bluetooth: string | null;
-  sim: string;
+  sim: string[];
   simCount: number;
   usb: "USB-A" | "USB-C" | "Lightning" | null;
   headphoneJack: boolean | null;
@@ -113,11 +120,11 @@ export interface PhoneData {
   batteryFastCharging: boolean | null;
   batteryWattage: number | null;
   cameras: SingleCameraData[];
-  cameraFeatures: string;
+  cameraFeatures: string[];
   os: string | null;
   osSkin: string | null;
   scores: string | null;
-  others: string | null;
+  others: string[] | null;
 }
 
 export interface ScrapeResult {

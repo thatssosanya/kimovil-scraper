@@ -25,9 +25,14 @@ export class ScraperWSConnection {
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private pendingRequests: Map<string, PendingRequest> = new Map();
   private messageHandlers: Map<string, MessageHandler> = new Map();
+  private onReconnectCallbacks: Array<() => void | Promise<void>> = [];
 
   private constructor(url: string) {
     this.url = url;
+  }
+
+  onReconnect(callback: () => void | Promise<void>): void {
+    this.onReconnectCallbacks.push(callback);
   }
 
   static getInstance(url?: string): ScraperWSConnection {
@@ -54,7 +59,9 @@ export class ScraperWSConnection {
 
     return new Promise((resolve, reject) => {
       try {
-        this.ws = new WebSocket(this.url);
+        const token = process.env.SCRAPER_SERVICE_TOKEN;
+        const options = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+        this.ws = new WebSocket(this.url, options);
 
         this.ws.on("open", () => {
           this.state = ConnectionState.CONNECTED;
@@ -171,6 +178,14 @@ export class ScraperWSConnection {
       this.reconnectTimeout = null;
       try {
         await this.connect();
+        // Notify listeners about successful reconnection
+        for (const callback of this.onReconnectCallbacks) {
+          try {
+            await callback();
+          } catch (error) {
+            logger.error("Reconnect callback failed", error);
+          }
+        }
       } catch (error) {
         logger.error("Reconnect failed", error);
         this.scheduleReconnect();
@@ -183,7 +198,7 @@ export class ScraperWSConnection {
     params: unknown,
     timeout: number,
     onEvent?: (event: ScraperEvent) => void
-  ): Promise<unknown> {
+  ): Promise<{ id: string; result: unknown }> {
     return new Promise((resolve, reject) => {
       if (this.state !== ConnectionState.CONNECTED || !this.ws) {
         reject(new Error("WebSocket not connected"));
@@ -198,7 +213,7 @@ export class ScraperWSConnection {
       }, timeout);
 
       this.pendingRequests.set(id, {
-        resolve,
+        resolve: (result) => resolve({ id, result }),
         reject,
         onEvent,
         timeoutHandle,
