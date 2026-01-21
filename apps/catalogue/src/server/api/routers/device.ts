@@ -494,8 +494,8 @@ export const deviceRouter = createTRPCRouter({
         name: z.string().transform((val) => val.trim()),
         type: z.string().transform((val) => val.trim()),
         description: z.string().transform((val) => val.trim()),
-        yandexId: z.string().transform((val) => val.trim()),
-        configs: z.array(z.string()),
+        yandexId: z.string().transform((val) => val.trim()).optional().default(""),
+        configs: z.array(z.string()).optional().default([]),
         imageUrl: z.string().transform((val) => val.trim()),
         skipDuplicateCheck: z.boolean().optional(),
       })
@@ -600,8 +600,13 @@ export const deviceRouter = createTRPCRouter({
         )
         .limit(5);
 
+      const filterNulls = <T extends { name: string | null; type: string | null }>(
+        items: T[]
+      ): (T & { name: string; type: string })[] =>
+        items.filter((d): d is T & { name: string; type: string } => d.name !== null && d.type !== null);
+
       if (exactMatches.length > 0) {
-        return { matches: exactMatches, matchType: "exact" as const };
+        return { matches: filterNulls(exactMatches), matchType: "exact" as const };
       }
 
       const trimmedName = input.name.trim();
@@ -621,7 +626,7 @@ export const deviceRouter = createTRPCRouter({
         )
         .limit(5);
 
-      return { matches: fuzzyMatches, matchType: "fuzzy" as const };
+      return { matches: filterNulls(fuzzyMatches), matchType: "fuzzy" as const };
     }),
 
   /**

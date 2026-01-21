@@ -7,6 +7,7 @@ import { deviceCharacteristics } from "@/src/server/db/schema";
 
 const SCRAPER_API_URL =
   process.env.COD_SCRAPER_API_URL ?? "http://localhost:1488";
+const SCRAPER_SERVICE_TOKEN = process.env.SCRAPER_SERVICE_TOKEN;
 
 // Types matching scraper's API response
 export type ScraperDevice = {
@@ -56,6 +57,7 @@ async function fetchFromScraper<T>(
       ...options,
       headers: {
         "Content-Type": "application/json",
+        ...(SCRAPER_SERVICE_TOKEN && { Authorization: `Bearer ${SCRAPER_SERVICE_TOKEN}` }),
         ...options?.headers,
       },
     });

@@ -16,7 +16,7 @@ const Home: NextPage = () => {
         <meta name="description" content="Dashboard overview" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
-      <main id="main" className="mx-auto h-full bg-zinc-100 dark:bg-zinc-900">
+      <main id="main" className="mx-auto h-full bg-gray-100/80 dark:bg-[hsl(0_0%_7%)]">
         <Layout contentScrollable={true}>
           <DashboardWidgets />
         </Layout>

@@ -139,6 +139,7 @@ export const useScraperClient = () => {
   const startScrapeMutation = api.scraping.startScrape.useMutation();
   const confirmSlugMutation = api.scraping.confirmSlug.useMutation();
   const retryJobMutation = api.scraping.retryJob.useMutation();
+  const importExistingMutation = api.scraping.importExisting.useMutation();
 
   const startScrape = async (searchString: string, deviceId?: string) => {
     if (!deviceId && !selectedDevice) {
@@ -211,11 +212,37 @@ export const useScraperClient = () => {
     }
   };
 
+  const importExisting = async (slug: string, deviceId?: string) => {
+    const targetDeviceId = deviceId || selectedDevice?.id;
+    if (!targetDeviceId) {
+      throw new Error("No device selected");
+    }
+
+    try {
+      addProcessingDevice(targetDeviceId);
+      await importExistingMutation.mutateAsync({
+        deviceId: targetDeviceId,
+        slug,
+      });
+
+      await refetch?.();
+      return true;
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(`Failed to import existing: ${error.message}`);
+      }
+      throw new Error("Failed to import existing");
+    } finally {
+      removeProcessingDevice(targetDeviceId);
+    }
+  };
+
   const isProcessing =
     processingDevices.size > 0 ||
     startScrapeMutation.isPending ||
     confirmSlugMutation.isPending ||
-    retryJobMutation.isPending;
+    retryJobMutation.isPending ||
+    importExistingMutation.isPending;
 
   return {
     scrapeJobs,
@@ -224,6 +251,7 @@ export const useScraperClient = () => {
     startScrape,
     confirmSlugSelection,
     retryJob,
+    importExisting,
     isProcessing,
   };
 };

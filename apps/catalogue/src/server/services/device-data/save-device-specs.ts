@@ -13,6 +13,12 @@ import { logger } from "../logger";
 import type { PhoneData } from "../scraper-ws/types";
 import { SlugConflictError } from "./errors";
 
+const joinArray = (value: unknown, separator = ", "): string => {
+  if (Array.isArray(value)) return value.join(separator);
+  if (typeof value === "string") return value;
+  return "";
+};
+
 const cameraSchema = z.object({
   resolution_mp: z.number(),
   aperture_fstop: z.string(),
@@ -93,24 +99,24 @@ export function phoneDataToDeviceSpecs(
     slug: phone.slug,
     name: phone.name,
     brand: phone.brand,
-    aliases: phone.aliases,
+    aliases: joinArray(phone.aliases),
     releaseDate: phone.releaseDate ?? null,
     height_mm: phone.height_mm,
     width_mm: phone.width_mm,
     thickness_mm: phone.thickness_mm,
     weight_g: phone.weight_g,
-    materials: phone.materials,
+    materials: joinArray(phone.materials),
     ipRating: phone.ipRating,
-    colors: phone.colors,
+    colors: joinArray(phone.colors),
     size_in: phone.size_in,
     displayType: phone.displayType,
     resolution: phone.resolution,
     aspectRatio: phone.aspectRatio,
     ppi: phone.ppi,
-    displayFeatures: phone.displayFeatures,
+    displayFeatures: joinArray(phone.displayFeatures),
     cpu: phone.cpu,
     cpuManufacturer: phone.cpuManufacturer,
-    cpuCores: phone.cpuCores,
+    cpuCores: joinArray(phone.cpuCores) || null,
     gpu: phone.gpu,
     sdSlot: phone.sdSlot,
     skus: phone.skus,
@@ -118,7 +124,7 @@ export function phoneDataToDeviceSpecs(
     benchmarks: phone.benchmarks,
     nfc: phone.nfc,
     bluetooth: phone.bluetooth,
-    sim: phone.sim,
+    sim: joinArray(phone.sim),
     simCount: phone.simCount,
     usb: phone.usb,
     headphoneJack: phone.headphoneJack,
@@ -130,12 +136,12 @@ export function phoneDataToDeviceSpecs(
       aperture_fstop: c.aperture_fstop ?? "",
       sensor: c.sensor,
       type: c.type,
-      features: c.features,
+      features: joinArray(c.features) || null,
     })),
-    cameraFeatures: phone.cameraFeatures,
+    cameraFeatures: joinArray(phone.cameraFeatures),
     os: phone.os,
     osSkin: phone.osSkin,
-    raw: "null",
+    raw: JSON.stringify(phone),
   });
 }
 

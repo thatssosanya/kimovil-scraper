@@ -601,7 +601,12 @@ export const scrapeJob = sqliteTable(
     deviceName: text("deviceName"),
     slug: text("slug"),
     autocompleteOptions: text("autocompleteOptions"), // JSON array
+    existingMatches: text("existingMatches"), // JSON array for fast path
     slugConflict: text("slugConflict"), // JSON object
+    // Dispatch tracking (for resilience to connection issues)
+    scraperRequestId: text("scraperRequestId"),
+    dispatchedAt: datetime("dispatchedAt"),
+    acknowledgedAt: datetime("acknowledgedAt"),
     // Timestamps
     createdAt: datetime("createdAt")
       .notNull()
