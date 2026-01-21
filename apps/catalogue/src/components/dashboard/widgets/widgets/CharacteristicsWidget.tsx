@@ -2,13 +2,13 @@ import { Widget } from "../Widget";
 import { api } from "@/src/utils/api";
 import { cn } from "@/src/lib/utils";
 import type { ManagedWidgetProps } from "../types";
+import { FileText } from "lucide-react";
 
 interface ProgressBarProps {
   label: string;
   value: number;
   total: number;
-  colorClass: string;
-  bgGradient: string;
+  bgColor: string;
   showPercentage?: boolean;
   compact?: boolean;
 }
@@ -17,8 +17,7 @@ function ProgressBar({
   label,
   value,
   total,
-  colorClass: _colorClass,
-  bgGradient,
+  bgColor,
   showPercentage = true,
   compact = false,
 }: ProgressBarProps) {
@@ -27,16 +26,16 @@ function ProgressBar({
 
   if (compact) {
     return (
-      <div className="group space-y-1.5 py-1">
+      <div className="space-y-1 py-1.5">
         <div className="flex items-center justify-between">
-          <span className="text-sm dark:text-gray-300">{label}</span>
-          <span className="text-sm font-semibold tabular-nums dark:text-gray-200">
-            {value}/{total}
+          <span className="text-[13px] text-gray-700 dark:text-gray-300">{label}</span>
+          <span className="text-[13px] font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+            {value}<span className="font-normal text-gray-400 dark:text-gray-600">/{total}</span>
           </span>
         </div>
-        <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800/50">
+        <div className="relative h-1 w-full overflow-hidden rounded-full bg-gray-200/70 dark:bg-gray-800/70">
           <div
-            className={cn("h-full rounded-full transition-all duration-500", bgGradient)}
+            className={cn("h-full rounded-full", bgColor)}
             style={{ width: `${barWidth}%` }}
           />
         </div>
@@ -45,23 +44,23 @@ function ProgressBar({
   }
 
   return (
-    <div className="group space-y-2 py-2">
+    <div className="space-y-1.5 py-2">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium dark:text-gray-200">{label}</span>
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-bold tabular-nums dark:text-gray-200">
-            {value}/{total}
+        <span className="text-[13px] text-gray-700 dark:text-gray-300">{label}</span>
+        <div className="flex items-center gap-2.5">
+          <span className="text-[13px] font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+            {value}<span className="font-normal text-gray-400 dark:text-gray-600">/{total}</span>
           </span>
           {showPercentage && (
-            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 w-14 text-right tabular-nums">
+            <span className="w-12 text-right text-[11px] tabular-nums text-gray-500 dark:text-gray-500">
               {percentage.toFixed(0)}%
             </span>
           )}
         </div>
       </div>
-      <div className="relative h-2.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800/50">
+      <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-gray-200/70 dark:bg-gray-800/70">
         <div
-          className={cn("h-full rounded-full transition-all duration-500", bgGradient)}
+          className={cn("h-full rounded-full", bgColor)}
           style={{ width: `${barWidth}%` }}
         />
       </div>
@@ -77,55 +76,58 @@ const completionLabels = {
 };
 
 const completionColors = {
-  poor: "text-red-600 dark:text-red-400",
-  fair: "text-orange-600 dark:text-orange-400",
-  good: "text-emerald-600 dark:text-emerald-400",
-  excellent: "text-blue-600 dark:text-blue-400",
+  poor: "text-red-500 dark:text-red-400",
+  fair: "text-orange-500 dark:text-orange-400",
+  good: "text-emerald-500 dark:text-emerald-400",
+  excellent: "text-blue-500 dark:text-blue-400",
 };
 
 export function CharacteristicsWidget({ className, expanded, onToggleExpand }: ManagedWidgetProps) {
   const { data, isLoading, error } =
     api.dashboardWidgets.getCharacteristicsCoverage.useQuery();
 
+  const coveragePercent = data && data.totalDevices > 0
+    ? Math.round((data.withCharacteristics / data.totalDevices) * 100)
+    : 0;
+
   return (
     <Widget
       title="Характеристики"
+      subtitle={data ? `${coveragePercent}% покрытие` : undefined}
       loading={isLoading}
       error={error?.message}
       expanded={expanded}
       onToggleExpand={onToggleExpand}
-      className={cn(expanded && "md:col-span-2", className)}
+      className={className}
+      headerAction={
+        <FileText className="h-3.5 w-3.5 text-gray-400 dark:text-gray-600" />
+      }
     >
       {data && (
-        <div className={cn(expanded ? "space-y-4" : "space-y-1")}>
+        <div className={cn(expanded ? "space-y-4" : "space-y-0.5")}>
           {!expanded ? (
             <>
               <ProgressBar
                 label="Покрытие"
                 value={data.withCharacteristics}
                 total={data.totalDevices}
-                colorClass="text-blue-600 dark:text-blue-400"
-                bgGradient="bg-gradient-to-r from-blue-500 to-blue-600 dark:from-blue-400 dark:to-blue-500"
+                bgColor="bg-blue-500"
                 showPercentage={false}
                 compact
               />
-
               <ProgressBar
                 label="Опубликовано"
                 value={data.published}
                 total={data.withCharacteristics}
-                colorClass="text-emerald-600 dark:text-emerald-400"
-                bgGradient="bg-gradient-to-r from-emerald-500 to-emerald-600 dark:from-emerald-400 dark:to-emerald-500"
+                bgColor="bg-emerald-500"
                 showPercentage={false}
                 compact
               />
-
               <ProgressBar
                 label="Черновик"
                 value={data.draft}
                 total={data.withCharacteristics}
-                colorClass="text-yellow-600 dark:text-yellow-400"
-                bgGradient="bg-gradient-to-r from-yellow-500 to-yellow-600 dark:from-yellow-400 dark:to-yellow-500"
+                bgColor="bg-amber-500"
                 showPercentage={false}
                 compact
               />
@@ -133,65 +135,59 @@ export function CharacteristicsWidget({ className, expanded, onToggleExpand }: M
           ) : (
             <>
               <div>
-                <h3 className="mb-3 text-sm font-semibold dark:text-gray-200">
-                  Обзор покрытия
+                <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-500">
+                  Покрытие
                 </h3>
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                   <ProgressBar
                     label="С характеристиками"
                     value={data.withCharacteristics}
                     total={data.totalDevices}
-                    colorClass="text-blue-600 dark:text-blue-400"
-                    bgGradient="bg-gradient-to-r from-blue-500 to-blue-600 dark:from-blue-400 dark:to-blue-500"
+                    bgColor="bg-blue-500"
                   />
                   <ProgressBar
-                    label="Отсутствуют данные"
+                    label="Без данных"
                     value={data.withoutCharacteristics}
                     total={data.totalDevices}
-                    colorClass="text-gray-600 dark:text-gray-400"
-                    bgGradient="bg-gradient-to-r from-gray-400 to-gray-500 dark:from-gray-500 dark:to-gray-600"
+                    bgColor="bg-gray-400 dark:bg-gray-600"
                   />
                 </div>
               </div>
 
               <div>
-                <h3 className="mb-3 text-sm font-semibold dark:text-gray-200">
-                  Распределение по статусу
+                <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-500">
+                  По статусу
                 </h3>
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                   <ProgressBar
                     label="Опубликовано"
                     value={data.published}
                     total={data.withCharacteristics}
-                    colorClass="text-emerald-600 dark:text-emerald-400"
-                    bgGradient="bg-gradient-to-r from-emerald-500 to-emerald-600 dark:from-emerald-400 dark:to-emerald-500"
+                    bgColor="bg-emerald-500"
                   />
                   <ProgressBar
                     label="Черновик"
                     value={data.draft}
                     total={data.withCharacteristics}
-                    colorClass="text-yellow-600 dark:text-yellow-400"
-                    bgGradient="bg-gradient-to-r from-yellow-500 to-yellow-600 dark:from-yellow-400 dark:to-yellow-500"
+                    bgColor="bg-amber-500"
                   />
                 </div>
               </div>
             </>
           )}
 
-          <div className={cn("pt-3 border-t dark:border-gray-800", expanded ? "mt-4" : "mt-3")}>
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                {expanded ? "Общая оценка:" : "Статус:"}
-              </span>
-              <span
-                className={cn(
-                  "text-sm font-bold tabular-nums",
-                  completionColors[data.completionRating]
-                )}
-              >
-                {completionLabels[data.completionRating]}
-              </span>
-            </div>
+          <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-3 dark:border-gray-800">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-gray-400 dark:text-gray-600">
+              {expanded ? "Оценка" : "Статус"}
+            </span>
+            <span
+              className={cn(
+                "text-[13px] font-semibold",
+                completionColors[data.completionRating]
+              )}
+            >
+              {completionLabels[data.completionRating]}
+            </span>
           </div>
         </div>
       )}
