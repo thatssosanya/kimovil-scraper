@@ -262,6 +262,7 @@ const ScrapingProgressPanel = ({
 const SelectionPanel = ({
   job,
   onSlugSelect,
+  onImportExisting,
 }: {
   job: ScrapeJob;
   onSlugSelect: (
@@ -269,10 +270,12 @@ const SelectionPanel = ({
     name: string,
     skipConfirmation?: boolean
   ) => void;
+  onImportExisting: (slug: string, name: string) => void;
 }) => {
   const [selectedSlug, setSelectedSlug] = useState<{
     slug: string;
     name: string;
+    isExisting?: boolean;
   } | null>(null);
   const [customInput, setCustomInput] = useState("");
   const [isCustomInputActive, setIsCustomInputActive] = useState(false);
@@ -280,17 +283,25 @@ const SelectionPanel = ({
   const handleSlugSelect = (
     slug: string,
     name: string,
-    skipConfirmation = false
+    skipConfirmation = false,
+    isExisting = false
   ) => {
-    if (skipConfirmation || selectedSlug?.slug === slug) {
-      onSlugSelect(slug, name, true);
+    if (skipConfirmation || (selectedSlug?.slug === slug && selectedSlug?.isExisting === isExisting)) {
+      if (isExisting) {
+        onImportExisting(slug, name);
+      } else {
+        onSlugSelect(slug, name, true);
+      }
       setSelectedSlug(null);
     } else {
-      setSelectedSlug({ slug, name });
+      setSelectedSlug({ slug, name, isExisting });
     }
   };
 
-  if (!job.autocompleteOptions?.length) {
+  const hasExistingMatches = job.existingMatches && job.existingMatches.length > 0;
+  const hasKimovilOptions = job.autocompleteOptions && job.autocompleteOptions.length > 0;
+
+  if (!hasExistingMatches && !hasKimovilOptions) {
     return (
       <div className="py-2 text-center text-xs text-gray-500 dark:text-gray-400">
         Варианты не найдены. Попробуйте другой запрос.
@@ -299,30 +310,86 @@ const SelectionPanel = ({
   }
 
   return (
-    <div className="space-y-1">
-      {job.autocompleteOptions.map((option) => (
-        <button
-          key={option.slug}
-          onClick={() => handleSlugSelect(option.slug, option.name)}
-          className={[
-            "w-full rounded-md px-3 py-2 text-left text-xs transition-colors",
-            selectedSlug?.slug === option.slug
-              ? "bg-emerald-50 ring-1 ring-emerald-500/50 dark:bg-emerald-900/30"
-              : "hover:bg-gray-50 dark:hover:bg-gray-800/50",
-          ].join(" ")}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-gray-900 dark:text-gray-200">
-              {option.name}
-            </span>
-            {selectedSlug?.slug === option.slug && (
-              <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                Нажмите ещё раз
-              </span>
-            )}
+    <div className="space-y-3">
+      {/* Existing matches - instant import */}
+      {hasExistingMatches && (
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+            <Check className="h-3 w-3" />
+            <span>Готовые данные (мгновенно)</span>
           </div>
-        </button>
-      ))}
+          {job.existingMatches!.map((match) => (
+            <button
+              key={`existing-${match.slug}`}
+              onClick={() => handleSlugSelect(match.slug, match.name, false, true)}
+              className={[
+                "w-full rounded-md px-3 py-2 text-left text-xs transition-colors",
+                selectedSlug?.slug === match.slug && selectedSlug?.isExisting
+                  ? "bg-emerald-100 ring-1 ring-emerald-500 dark:bg-emerald-900/50"
+                  : "bg-emerald-50/50 hover:bg-emerald-100/50 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/30",
+              ].join(" ")}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-gray-900 dark:text-gray-200">
+                  {match.name}
+                  {match.brand && (
+                    <span className="ml-1 text-gray-500 dark:text-gray-400">
+                      ({match.brand})
+                    </span>
+                  )}
+                </span>
+                {selectedSlug?.slug === match.slug && selectedSlug?.isExisting && (
+                  <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                    Нажмите ещё раз
+                  </span>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Kimovil options - full scrape */}
+      {hasKimovilOptions && (
+        <div className="space-y-1">
+          {hasExistingMatches && (
+            <div className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
+              Или выберите из Kimovil:
+            </div>
+          )}
+          {job.autocompleteOptions!.map((option) => (
+            <button
+              key={`kimovil-${option.slug}`}
+              onClick={() => handleSlugSelect(option.slug, option.name)}
+              className={[
+                "w-full rounded-md px-3 py-2 text-left text-xs transition-colors",
+                selectedSlug?.slug === option.slug && !selectedSlug?.isExisting
+                  ? "bg-emerald-50 ring-1 ring-emerald-500/50 dark:bg-emerald-900/30"
+                  : "hover:bg-gray-50 dark:hover:bg-gray-800/50",
+              ].join(" ")}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-gray-900 dark:text-gray-200">
+                  {option.name}
+                </span>
+                {selectedSlug?.slug === option.slug && !selectedSlug?.isExisting && (
+                  <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                    Нажмите ещё раз
+                  </span>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Still searching for Kimovil results */}
+      {!hasKimovilOptions && hasExistingMatches && (
+        <div className="flex items-center gap-2 text-[11px] text-gray-400 dark:text-gray-500">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          <span>Поиск дополнительных вариантов...</span>
+        </div>
+      )}
 
       <div className="pt-2">
         {isCustomInputActive ? (
@@ -566,6 +633,12 @@ const JobStatus = ({ job }: JobStatusProps = {}) => {
     },
   });
 
+  const importExistingMutation = api.scraping.importExisting.useMutation({
+    onSuccess: () => {
+      void utils.scraping.getJobs.invalidate();
+    },
+  });
+
   const handleAiStageStart = useCallback(() => {
     setAiProgress({
       startedAt: Date.now(),
@@ -605,12 +678,23 @@ const JobStatus = ({ job }: JobStatusProps = {}) => {
     }
   };
 
+  const handleImportExisting = (slug: string, _name: string) => {
+    if (!scrapeJob.deviceId) return;
+    importExistingMutation.mutate({ deviceId: scrapeJob.deviceId, slug });
+  };
+
   const handleRefresh = () => {
     void utils.device.getDeviceCharacteristic.invalidate();
   };
 
+  // Show selection panel when:
+  // 1. In "selecting" step (Kimovil search complete)
+  // 2. In "searching" step but has existing matches (fast path ready)
+  const hasExistingMatches = scrapeJob.existingMatches && scrapeJob.existingMatches.length > 0;
+  const showSelection = step === "selecting" || (step === "searching" && hasExistingMatches);
+
   const renderBody = () => {
-    if (step === "error") {
+    if (step === "error" || step === "interrupted") {
       return (
         <ErrorPanel
           job={scrapeJob}
@@ -624,8 +708,14 @@ const JobStatus = ({ job }: JobStatusProps = {}) => {
       return <SlugConflictPanel job={scrapeJob} onCancel={handleCancel} />;
     }
 
-    if (step === "selecting") {
-      return <SelectionPanel job={scrapeJob} onSlugSelect={handleSlugSelect} />;
+    if (showSelection) {
+      return (
+        <SelectionPanel
+          job={scrapeJob}
+          onSlugSelect={handleSlugSelect}
+          onImportExisting={handleImportExisting}
+        />
+      );
     }
 
     if (step === "scraping" || step === "searching") {
@@ -647,12 +737,15 @@ const JobStatus = ({ job }: JobStatusProps = {}) => {
   };
 
   const showStepTimeline =
-    step !== "error" && step !== "slug_conflict" && step !== "done";
+    step !== "error" && step !== "slug_conflict" && step !== "done" && step !== "interrupted";
+
+  // Override step display when showing selection during searching
+  const displayStep = showSelection && step === "searching" ? "selecting" : step;
 
   return (
     <div>
-      <HeaderRow step={step} />
-      {showStepTimeline && <StepTimeline currentStep={step} />}
+      <HeaderRow step={displayStep as CanonicalStep} />
+      {showStepTimeline && <StepTimeline currentStep={displayStep as CanonicalStep} />}
       <div className="mt-4">{renderBody()}</div>
       <FooterMeta job={scrapeJob} step={step} />
     </div>
