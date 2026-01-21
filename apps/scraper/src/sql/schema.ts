@@ -53,6 +53,71 @@ const columnExists = (
     ),
   );
 
+const migrateScrapeVerificationCompositePrimaryKey = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    const exists = yield* tableExists(sql, "scrape_verification");
+    if (!exists) return;
+
+    const rows = (yield* sql.unsafe(
+      `SELECT sql FROM sqlite_master WHERE type='table' AND name='scrape_verification'`,
+    )) as Array<{ sql: string | null }>;
+
+    const createSql = rows[0]?.sql?.toLowerCase() ?? "";
+    const alreadyCompositePk = createSql.includes("primary key (slug, source)") ||
+      createSql.includes("primary key(slug, source)");
+
+    if (alreadyCompositePk) return;
+
+    const hasScrapeId = yield* columnExists(sql, "scrape_verification", "scrape_id");
+
+    yield* Effect.logInfo(
+      "Migrating scrape_verification to composite PRIMARY KEY (slug, source)...",
+    );
+
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        const tmp = `scrape_verification_old_${Date.now()}`;
+
+        yield* sql.unsafe(`ALTER TABLE scrape_verification RENAME TO ${tmp}`);
+
+        yield* sql.unsafe(`
+          CREATE TABLE scrape_verification (
+            slug TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'kimovil',
+            is_corrupted INTEGER NOT NULL DEFAULT 0,
+            verified_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            corruption_reason TEXT
+            ${hasScrapeId ? ", scrape_id INTEGER" : ""},
+            PRIMARY KEY (slug, source)
+          )
+        `);
+
+        yield* sql.unsafe(`
+          INSERT INTO scrape_verification (
+            slug, source, is_corrupted, verified_at, corruption_reason
+            ${hasScrapeId ? ", scrape_id" : ""}
+          )
+          SELECT
+            slug,
+            COALESCE(source, 'kimovil') as source,
+            is_corrupted,
+            verified_at,
+            corruption_reason
+            ${hasScrapeId ? ", scrape_id" : ""}
+          FROM ${tmp}
+        `);
+
+        yield* sql.unsafe(`DROP TABLE ${tmp}`);
+      }),
+    );
+
+    yield* Effect.logInfo(
+      "Migrated scrape_verification to composite PRIMARY KEY (slug, source)",
+    );
+  }).pipe(Effect.mapError((e) => e as SqlError.SqlError));
+
 const migrateWidgetMappingsStatusConstraint = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlError> =>
   Effect.gen(function* () {
     const rows = yield* sql.unsafe(`SELECT sql FROM sqlite_master WHERE type='table' AND name='widget_model_mappings'`);
@@ -841,6 +906,8 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
 
     yield* sql.unsafe(`DROP TABLE IF EXISTS raw_html`);
 
+    yield* migrateScrapeVerificationCompositePrimaryKey(sql);
+
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS scrape_verification (
         slug TEXT NOT NULL,
@@ -909,6 +976,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* ensureColumn(sql, "jobs", "ai_mode", "TEXT");
     yield* ensureColumn(sql, "jobs", "batch_request_id", "TEXT");
     yield* ensureColumn(sql, "jobs", "batch_status", "TEXT");
+    yield* ensureColumn(sql, "jobs", "metadata", "TEXT");
 
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_status ON job_queue(status)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_external_id ON job_queue(external_id)`);
