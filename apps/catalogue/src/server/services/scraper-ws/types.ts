@@ -65,7 +65,7 @@ export interface SingleCameraData {
 }
 
 export interface Sku {
-  marketId: string;
+  marketIds: string[];
   ram_gb: number;
   storage_gb: number;
 }

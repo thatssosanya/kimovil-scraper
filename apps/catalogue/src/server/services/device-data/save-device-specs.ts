@@ -119,7 +119,11 @@ export function phoneDataToDeviceSpecs(
     cpuCores: joinArray(phone.cpuCores) || null,
     gpu: phone.gpu,
     sdSlot: phone.sdSlot,
-    skus: phone.skus,
+    skus: phone.skus.map((s) => ({
+      marketId: joinArray(s.marketIds) || "",
+      ram_gb: s.ram_gb,
+      storage_gb: s.storage_gb,
+    })),
     fingerprintPosition: phone.fingerprintPosition,
     benchmarks: phone.benchmarks,
     nfc: phone.nfc,
