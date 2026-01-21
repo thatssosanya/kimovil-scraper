@@ -382,7 +382,7 @@ export class BulkJobManager {
           if (jobType === "scrape") {
             const stream =
               item.mode === "fast"
-                ? scrapeService.scrapeFast(item.externalId)
+                ? scrapeService.scrapeFast(item.externalId, item.scrapeId ?? undefined)
                 : scrapeService.scrape(item.externalId);
 
             await Effect.runPromise(
@@ -727,7 +727,7 @@ export class BulkJobManager {
       const { jobQueue } = await this.getServices();
       const allJobs = await Effect.runPromise(jobQueue.getAllJobs());
       const stuckJobs = allJobs.filter(
-        (j) => j.status === "running" || j.status === "pausing" || j.status === "paused"
+        (j) => j.status === "running" || j.status === "pausing" || j.status === "paused" || j.status === "pending"
       );
 
       if (stuckJobs.length === 0) {
@@ -763,13 +763,18 @@ export class BulkJobManager {
           );
           const state = this.getJobState(job.id);
           state.paused = true;
+        } else if (job.status === "pending" && stats.pending === 0) {
+          log.info(
+            "Startup",
+            `Skipping pending job ${job.id.slice(0, 8)} with no queue items`
+          );
         } else {
           log.info(
             "Startup",
             `Resuming job ${job.id.slice(
               0,
               8
-            )} (reset ${resetCount} stuck items)`
+            )} (${job.status}, ${stats.pending} pending, reset ${resetCount} stuck items)`
           );
           await Effect.runPromise(jobQueue.updateJobStatus(job.id, "running"));
           void this.runJob(job.id, `startup-${job.id}`);

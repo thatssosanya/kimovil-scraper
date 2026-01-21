@@ -1,9 +1,11 @@
-import { Effect, Layer, Context, Data } from "effect";
+import { Effect, Layer, Context, Data, Cause } from "effect";
 import { SqlClient, SqlError } from "@effect/sql";
 import { Cron } from "croner";
 import { JobQueueService, type JobType, type ScrapeMode } from "./job-queue";
 import { DeviceRegistryService } from "./device-registry";
 import { LatestDeviceCrawlerService } from "./latest-device-crawler";
+import { BrowserService } from "./browser";
+import { getBulkJobManager } from "./bulk-job-manager-instance";
 
 export class SchedulerError extends Data.TaggedError("SchedulerError")<{
   message: string;
@@ -175,6 +177,7 @@ export const SchedulerServiceLive = Layer.effect(
     const jobQueue = yield* JobQueueService;
     const deviceRegistry = yield* DeviceRegistryService;
     const latestDeviceCrawler = yield* LatestDeviceCrawlerService;
+    const browserService = yield* BrowserService;
 
     const self: SchedulerService = {
       listSchedules: () =>
@@ -385,6 +388,7 @@ export const SchedulerServiceLive = Layer.effect(
               Layer.succeed(SchedulerService, self),
               Layer.succeed(JobQueueService, jobQueue),
               Layer.succeed(LatestDeviceCrawlerService, latestDeviceCrawler),
+              Layer.succeed(BrowserService, browserService),
             ),
           ),
         ),
@@ -540,7 +544,7 @@ export const SchedulerServiceLive = Layer.effect(
 export const runScheduleOnce = (
   scheduleId: number,
   options: RunScheduleOnceOptions,
-): Effect.Effect<ScheduleRunResult, SchedulerError, SchedulerService | JobQueueService | LatestDeviceCrawlerService> =>
+): Effect.Effect<ScheduleRunResult, SchedulerError, SchedulerService | JobQueueService | LatestDeviceCrawlerService | BrowserService> =>
   Effect.gen(function* () {
     const scheduler = yield* SchedulerService;
     const jobQueue = yield* JobQueueService;
@@ -600,14 +604,14 @@ export const runScheduleOnce = (
 
     // Special handling for targetless discovery jobs
     if (schedule.jobType === "discover_latest") {
-      const result = yield* Effect.gen(function* () {
-        const crawler = yield* LatestDeviceCrawlerService;
-        const jobId = generateJobId();
+      const crawler = yield* LatestDeviceCrawlerService;
+      const discoverJobId = generateJobId();
 
-        // Create real job row for observability
+      const result = yield* Effect.gen(function* () {
+        // Create discover job for observability
         yield* jobQueue
           .createJob({
-            id: jobId,
+            id: discoverJobId,
             jobType: "discover_latest",
             mode: schedule.mode,
             source: schedule.source,
@@ -615,45 +619,113 @@ export const runScheduleOnce = (
           })
           .pipe(Effect.mapError((e) => new SchedulerError({ message: e.message, cause: e })));
 
-        return yield* crawler
+        const crawlResult = yield* crawler
           .crawl({
-            maxScrolls: 20,
-            stopAfterEmptyScrolls: 3,
-            jobId,
+            maxPages: 20,
+            minPages: 5,
+            stopAfterKnown: 50,
+            jobId: discoverJobId,
           })
           .pipe(
-            Effect.flatMap(() =>
-              jobQueue.updateJobStatus(jobId, "done").pipe(
-                Effect.map(
-                  () =>
-                    ({
-                      status: "success" as const,
-                      jobId,
-                    }) satisfies ScheduleRunResult,
-                ),
-                Effect.mapError((e) => new SchedulerError({ message: e.message, cause: e })),
-              ),
-            ),
-            Effect.catchAll((error) =>
-              jobQueue.updateJobStatus(jobId, "error", String(error)).pipe(
-                Effect.map(
-                  () =>
-                    ({
-                      status: "error" as const,
-                      error: String(error),
-                      jobId,
-                    }) satisfies ScheduleRunResult,
-                ),
-                Effect.catchAll(() =>
-                  Effect.succeed({
-                    status: "error" as const,
-                    error: String(error),
-                    jobId,
-                  } satisfies ScheduleRunResult),
-                ),
-              ),
-            ),
+            Effect.mapError((e) => new SchedulerError({ message: e.message, cause: e })),
           );
+
+        yield* Effect.logInfo("Discovery crawl completed").pipe(
+          Effect.annotateLogs({
+            discoverJobId,
+            discovered: crawlResult.discovered,
+            queued: crawlResult.queued,
+            alreadyScraped: crawlResult.alreadyScraped,
+          }),
+        );
+
+        let scrapeJobId: string | null = null;
+
+        if (crawlResult.queued > 0) {
+          // Create a separate scrape job for the bulk runner
+          scrapeJobId = generateJobId();
+          yield* jobQueue
+            .createJob({
+              id: scrapeJobId,
+              jobType: "scrape",
+              mode: schedule.mode,
+              source: schedule.source,
+              dataKind: schedule.dataKind,
+            })
+            .pipe(Effect.mapError((e) => new SchedulerError({ message: e.message, cause: e })));
+
+          // Reassign pending queue items from discover job to scrape job
+          const reassigned = yield* jobQueue.reassignQueueItems(discoverJobId, scrapeJobId, "pending").pipe(
+            Effect.mapError((e) => new SchedulerError({ message: e.message, cause: e })),
+          );
+
+          // Consolidate orphaned pending items from any previous jobs for same pipeline
+          const consolidated = yield* jobQueue.consolidatePendingQueueItems(
+            scrapeJobId,
+            schedule.source,
+            schedule.dataKind,
+            "scrape",
+          ).pipe(
+            Effect.mapError((e) => new SchedulerError({ message: e.message, cause: e })),
+          );
+
+          yield* Effect.logInfo("Created scrape job for discovered devices").pipe(
+            Effect.annotateLogs({
+              discoverJobId,
+              scrapeJobId,
+              queued: crawlResult.queued,
+              reassigned,
+              consolidatedFromOtherJobs: consolidated.moved,
+              deduped: consolidated.deduped,
+            }),
+          );
+
+          // Drain browser pool to ensure fresh connections for bulk scraper
+          // (Bright Data may have per-session navigation limits)
+          const browserService = yield* BrowserService;
+          yield* browserService.drainPool();
+
+          // Start bulk runner with managed Effect instead of void Promise
+          yield* Effect.tryPromise({
+            try: () => getBulkJobManager().runJob(scrapeJobId!, `discover-${discoverJobId}`),
+            catch: (e) => e,
+          }).pipe(
+            Effect.tapErrorCause((cause) =>
+              Effect.logError("Bulk job runner failed").pipe(
+                Effect.annotateLogs({
+                  discoverJobId,
+                  scrapeJobId,
+                  cause: Cause.pretty(cause),
+                }),
+              ),
+            ),
+            Effect.forkDaemon,
+          );
+        }
+
+        // Store crawl result and spawned job in metadata
+        yield* jobQueue.updateJobMetadata(discoverJobId, {
+          crawlResult: {
+            discovered: crawlResult.discovered,
+            alreadyKnown: crawlResult.alreadyKnown,
+            alreadyScraped: crawlResult.alreadyScraped,
+            queued: crawlResult.queued,
+            pagesScanned: crawlResult.pagesScanned,
+          },
+          spawnedScrapeJobId: scrapeJobId,
+        }).pipe(
+          Effect.mapError((e) => new SchedulerError({ message: e.message, cause: e })),
+        );
+
+        // Mark discover job as done
+        yield* jobQueue.updateJobStatus(discoverJobId, "done").pipe(
+          Effect.mapError((e) => new SchedulerError({ message: e.message, cause: e })),
+        );
+
+        return {
+          status: "success" as const,
+          jobId: discoverJobId,
+        } satisfies ScheduleRunResult;
       }).pipe(
         Effect.catchAll((error: SchedulerError) => {
           if (swallowInternalErrors) {
@@ -666,14 +738,21 @@ export const runScheduleOnce = (
                   error,
                 }),
               );
+              yield* jobQueue.updateJobStatus(discoverJobId, "error", error.message).pipe(
+                Effect.catchAll(() => Effect.void),
+              );
               return {
                 status: "error" as const,
                 error: error.message,
+                jobId: discoverJobId,
               } satisfies ScheduleRunResult;
             });
           }
           // Release lock before failing when not swallowing errors
           return Effect.gen(function* () {
+            yield* jobQueue.updateJobStatus(discoverJobId, "error", error.message).pipe(
+              Effect.catchAll(() => Effect.void),
+            );
             if (claimLock) {
               yield* scheduler.releaseSchedule(scheduleId);
             }

@@ -8,8 +8,8 @@ import { config } from "./config";
 import { log } from "./utils/logger";
 
 import { LiveRuntime } from "./layers/live";
-import { BulkJobManager } from "./services/bulk-job";
 import { runSchedulerLoop } from "./services/scheduler";
+import { getBulkJobManager } from "./services/bulk-job-manager-instance";
 
 import { createApiRoutes } from "./routes/api";
 import { createApiV2Routes } from "./routes/api-v2";
@@ -21,7 +21,7 @@ import { createWidgetMappingsRoutes } from "./routes/widget-mappings";
 import { createDeviceImagesRoutes } from "./routes/device-images";
 import { createWsServer } from "./routes/ws-server";
 
-const bulkJobManager = new BulkJobManager(LiveRuntime);
+export { getBulkJobManager };
 
 // Paths that don't require authentication
 const PUBLIC_PATH_PREFIXES = ["/widget/v1/", "/api/auth/"];
@@ -43,6 +43,16 @@ const app = new Elysia()
     const isPublic = PUBLIC_PATH_PREFIXES.some((prefix) => url.pathname.startsWith(prefix));
     
     if (!isPublic) {
+      // Check service token first (for service-to-service calls from catalogue)
+      const serviceToken = process.env.SCRAPER_SERVICE_TOKEN;
+      const authHeader = request.headers.get("authorization");
+      const isServiceAuth = serviceToken && authHeader === `Bearer ${serviceToken}`;
+      
+      if (isServiceAuth) {
+        return; // Service token valid, allow through
+      }
+      
+      // Fall back to session auth for browser users
       try {
         await requireRole(request, "admin");
       } catch {
@@ -52,8 +62,8 @@ const app = new Elysia()
     }
   })
   .use(createAuthRoutes())
-  .use(createApiRoutes(bulkJobManager))
-  .use(createApiV2Routes(bulkJobManager))
+  .use(createApiRoutes(getBulkJobManager()))
+  .use(createApiV2Routes(getBulkJobManager()))
   .use(createWidgetRoutes())
   .use(createWidgetDebugRoutes())
   .use(createWidgetMappingsRoutes())
@@ -109,11 +119,11 @@ const httpServer = http.createServer((req, res) => {
 });
 
 // Attach WebSocket server to our http.Server (no conflict with Elysia now)
-createWsServer(httpServer, bulkJobManager);
+createWsServer(httpServer, getBulkJobManager());
 
 httpServer.listen(config.port, () => {
   log.banner();
-  bulkJobManager.resumeStuckJobs();
+  getBulkJobManager().resumeStuckJobs();
   
   LiveRuntime.runFork(
     Effect.gen(function* () {
