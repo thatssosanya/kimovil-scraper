@@ -9,13 +9,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PLAYWRIGHT_TIMEOUT = 120_000;
 const DEFAULT_POOL_SIZE = 50;
 const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-const DEFAULT_MAX_USES = 500;
+// Bright Data has per-session navigation limits (~1-2 page.goto calls)
+// Each browser can only be used once before needing a fresh session
+const DEFAULT_MAX_USES = 1;
 const CLEANUP_INTERVAL_MS = 30_000; // Check for idle browsers every 30s
 
 const pagesWithRouteHandler = new WeakSet<Page>();
 
 export class BrowserError extends Error {
   readonly _tag = "BrowserError";
+  readonly cause?: unknown;
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message);
+    if (options?.cause) this.cause = options.cause;
+  }
 }
 
 export interface StealthSession {
@@ -68,12 +75,14 @@ export interface BrowserService {
     page: Page,
   ) => Effect.Effect<void, BrowserError>;
   readonly withPersistentStealthPage: <A, E, R>(
+    source: string,
     use: (page: Page) => Effect.Effect<A, E, R>,
   ) => Effect.Effect<A, E | BrowserError, R>;
   readonly withPooledBrowserPage: <A, E, R>(
     use: (page: Page) => Effect.Effect<A, E, R>,
   ) => Effect.Effect<A, E | BrowserError, R>;
   readonly resizePool: (size: number) => Effect.Effect<void, never>;
+  readonly drainPool: () => Effect.Effect<void, never>;
   readonly getPoolStats: () => Effect.Effect<{
     totalSlots: number;
     inUse: number;
@@ -114,7 +123,7 @@ interface PlaywrightCookie {
   sameSite: "Strict" | "Lax" | "None";
 }
 
-const loadYandexCookies = (): Effect.Effect<PlaywrightCookie[], never, never> =>
+const loadYandexCookies: Effect.Effect<readonly PlaywrightCookie[], never> =
   Effect.gen(function* () {
     if (!existsSync(YANDEX_COOKIES_PATH)) {
       yield* Effect.logDebug("Yandex cookies file not found, continuing without").pipe(
@@ -140,6 +149,10 @@ const loadYandexCookies = (): Effect.Effect<PlaywrightCookie[], never, never> =>
     }
   });
 
+const cookieLoaders: Record<string, Effect.Effect<readonly PlaywrightCookie[], never>> = {
+  yandex_market: loadYandexCookies,
+};
+
 const initStealthSession: Effect.Effect<StealthSession, BrowserError> =
   Effect.gen(function* () {
     yield* logBrowser("Launching stealth browser...");
@@ -164,18 +177,6 @@ const initStealthSession: Effect.Effect<StealthSession, BrowserError> =
             `Failed to create stealth context: ${error instanceof Error ? error.message : String(error)}`,
           ),
       });
-
-      const yandexCookies = yield* loadYandexCookies();
-      if (yandexCookies.length > 0) {
-        yield* Effect.tryPromise({
-          try: () => context.addCookies(yandexCookies),
-          catch: (error) =>
-            new BrowserError(
-              `Failed to add Yandex cookies: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-        });
-        yield* logBrowser(`Loaded ${yandexCookies.length} Yandex cookies`);
-      }
 
       const page = yield* Effect.tryPromise({
         try: () => context.newPage(),
@@ -246,10 +247,16 @@ const makeBrowser = (): Effect.Effect<Browser, BrowserError> =>
       );
     }
 
-    yield* logBrowserDebug(`Attempting CDP connection to: ${wsEndpoint}`);
+    // Add unique session ID to get fresh navigation quota per connection
+    // Bright Data has per-session navigation limits (~1-2 page.goto calls)
+    const sessionId = `pool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const separator = wsEndpoint.includes("?") ? "&" : "?";
+    const endpointWithSession = `${wsEndpoint}${separator}session=${sessionId}`;
+
+    yield* logBrowserDebug(`Attempting CDP connection with session: ${sessionId}`);
     const browser = yield* Effect.tryPromise({
       try: () =>
-        chromium.connectOverCDP(wsEndpoint, {
+        chromium.connectOverCDP(endpointWithSession, {
           timeout: PLAYWRIGHT_TIMEOUT,
           headers: {
             "User-Agent":
@@ -261,7 +268,7 @@ const makeBrowser = (): Effect.Effect<Browser, BrowserError> =>
           `Failed to create browser: ${error instanceof Error ? error.message : String(error)}`,
         ),
     });
-    yield* logBrowserDebug("Connected to Bright Data for pool");
+    yield* logBrowserDebug(`Connected to Bright Data with session: ${sessionId}`);
     return browser;
   });
 
@@ -276,7 +283,34 @@ export const BrowserServiceLive = Layer.scoped(
     const sessionRef = yield* Ref.make<Option.Option<StealthSession>>(
       Option.none(),
     );
+    const loadedCookiesRef = yield* Ref.make<Set<string>>(new Set());
     const stealthLock = yield* Effect.makeSemaphore(1);
+
+    const ensureCookiesForSource = (
+      source: string,
+      context: BrowserContext,
+    ): Effect.Effect<void, BrowserError> =>
+      Effect.gen(function* () {
+        const loaded = yield* Ref.get(loadedCookiesRef);
+        if (loaded.has(source)) return;
+
+        const loader = cookieLoaders[source];
+        if (!loader) return;
+
+        const cookies = yield* loader;
+        if (cookies.length > 0) {
+          yield* Effect.tryPromise({
+            try: () => context.addCookies([...cookies]),
+            catch: (error) =>
+              new BrowserError(
+                `Failed to add ${source} cookies: ${error instanceof Error ? error.message : String(error)}`,
+              ),
+          });
+          yield* logBrowser(`Loaded ${cookies.length} cookies for ${source}`);
+        }
+
+        yield* Ref.update(loadedCookiesRef, (s) => new Set([...s, source]));
+      });
 
     const poolStateRef = yield* Ref.make<BrowserPoolState>({
       slots: new Map(),
@@ -452,10 +486,16 @@ export const BrowserServiceLive = Layer.scoped(
               );
             }
 
-            yield* logBrowser(`Attempting CDP connection to: ${wsEndpoint}`);
+            // Add unique session ID to get fresh navigation quota per connection
+            // Bright Data has per-session navigation limits (~1-2 page.goto calls)
+            const sessionId = `scoped-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const separator = wsEndpoint.includes("?") ? "&" : "?";
+            const endpointWithSession = `${wsEndpoint}${separator}session=${sessionId}`;
+
+            yield* logBrowser(`Attempting CDP connection with session: ${sessionId}`);
             const browser = yield* Effect.tryPromise({
               try: () =>
-                chromium.connectOverCDP(wsEndpoint, {
+                chromium.connectOverCDP(endpointWithSession, {
                   timeout: PLAYWRIGHT_TIMEOUT,
                   headers: {
                     "User-Agent":
@@ -467,7 +507,7 @@ export const BrowserServiceLive = Layer.scoped(
                   `Failed to create browser: ${error instanceof Error ? error.message : String(error)}`,
                 ),
             });
-            yield* logBrowser("Connected to Bright Data (scoped)");
+            yield* logBrowser(`Connected to Bright Data with session: ${sessionId}`);
             return browser;
           }),
           (browser) =>
@@ -520,7 +560,10 @@ export const BrowserServiceLive = Layer.scoped(
         });
       },
 
+      // NOTE: Do not fork fibers that keep using `page` beyond the scope of `use`.
+      // The page is shared and the lock only prevents concurrent entry, not post-scope usage.
       withPersistentStealthPage: <A, E, R>(
+        source: string,
         use: (page: Page) => Effect.Effect<A, E, R>,
       ): Effect.Effect<A, E | BrowserError, R> =>
         stealthLock.withPermits(1)(
@@ -535,33 +578,42 @@ export const BrowserServiceLive = Layer.scoped(
                   return newSession;
                 });
 
-            const result = yield* Effect.catchAll(use(session.page), (error) =>
-              Effect.gen(function* () {
-                const isBrowserError = error instanceof BrowserError;
-                const isPlaywrightError = isBrowserCrashError(error);
+            const resetSession = Effect.gen(function* () {
+              yield* Effect.promise(() => session.browser.close()).pipe(
+                Effect.catchAll((error) =>
+                  Effect.logWarning("Browser close failed during reset").pipe(
+                    Effect.annotateLogs({ error }),
+                  ),
+                ),
+              );
+              yield* Ref.set(sessionRef, Option.none());
+              yield* Ref.set(loadedCookiesRef, new Set());
+            });
 
-                if (isBrowserError || isPlaywrightError) {
+            const handleCrashError = <Err>(error: Err) =>
+              Effect.gen(function* () {
+                const isBrowserErr = error instanceof BrowserError;
+                const isPlaywrightErr = isBrowserCrashError(error);
+
+                if (isBrowserErr || isPlaywrightErr) {
                   yield* logBrowserError(
                     "Browser error detected, resetting session",
                     error,
                   );
-                  yield* Effect.promise(() =>
-                    session.browser.close(),
-                  ).pipe(
-                    Effect.catchAll((error) =>
-                      Effect.logWarning("Browser close failed during reset").pipe(
-                        Effect.annotateLogs({ error }),
-                      ),
-                    ),
-                  );
-                  yield* Ref.set(sessionRef, Option.none());
+                  yield* resetSession;
                 }
 
-                return yield* Effect.fail(error as E);
-              }),
+                return yield* Effect.fail(error);
+              });
+
+            // Cookie loading is inside crash-detection scope
+            yield* ensureCookiesForSource(source, session.context).pipe(
+              Effect.catchAll(handleCrashError),
             );
 
-            return result;
+            return yield* use(session.page).pipe(
+              Effect.catchAll(handleCrashError),
+            );
           }),
         ),
 
@@ -627,6 +679,26 @@ export const BrowserServiceLive = Layer.scoped(
               if (toClose.length > 0) {
                 yield* Effect.all(toClose.map(closeSlot), { concurrency: 5 });
               }
+            }
+          }),
+        ),
+
+      drainPool: (): Effect.Effect<void, never> =>
+        poolLock.withPermits(1)(
+          Effect.gen(function* () {
+            const state = yield* Ref.get(poolStateRef);
+            const toClose: BrowserSlot[] = [];
+
+            for (const [id, slot] of state.slots) {
+              if (!slot.inUse) {
+                toClose.push(slot);
+                state.slots.delete(id);
+              }
+            }
+
+            if (toClose.length > 0) {
+              yield* logBrowser(`Draining pool: closing ${toClose.length} idle slots`);
+              yield* Effect.all(toClose.map(closeSlot), { concurrency: 5 });
             }
           }),
         ),

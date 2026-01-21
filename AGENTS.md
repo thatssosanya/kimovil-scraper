@@ -474,5 +474,11 @@ registerPipeline({
 ## Database File
 - **SQLite file**: `apps/scraper/scraper-cache.sqlite` (not `scraper.db`)
 
+## Bright Data CDP Constraints
+- **Kimovil requires Bright Data**: The site has bot protection that blocks local browsers. Always use Bright Data for Kimovil scraping.
+- **Per-session navigation limit**: Bright Data CDP sessions have a low navigation limit (~1-2 page.goto calls per session)
+- **Session isolation**: Add `?session=<unique-id>` to `BRD_WSENDPOINT` for each CDP connection to get fresh session quotas
+- **Never share sessions**: Each browser connection that needs multiple navigations must use its own unique session ID
+
 ## Known Limitations (Future Work)
 - **Postgres**: SQLite-specific SQL (PRAGMA, INSERT OR REPLACE, last_insert_rowid) needs conversion
