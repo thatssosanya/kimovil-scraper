@@ -8,7 +8,7 @@ import {
   statusPillClass,
   statusLabel,
 } from "./jobViewHelpers";
-import type { JobOutcome, OutcomeStats } from "../../types";
+import type { JobOutcome, OutcomeStats, DiscoveryMetadata } from "../../types";
 
 interface JobItem {
   id: number;
@@ -42,6 +42,7 @@ interface JobSummary {
     batchStatus: string | null;
     source: string;
     dataKind: string;
+    metadata: DiscoveryMetadata | null;
   };
   stats: {
     total: number;
@@ -415,7 +416,7 @@ export function JobDetailModal(props: JobDetailModalProps) {
           </div>
         </div>
 
-        {/* Items List */}
+        {/* Items List / Discovery Stats */}
         <div class="flex-1 overflow-auto min-h-0">
           <Show when={loading()}>
             <div class="flex items-center justify-center py-16">
@@ -423,7 +424,69 @@ export function JobDetailModal(props: JobDetailModalProps) {
             </div>
           </Show>
 
-          <Show when={!loading() && summary()}>
+          {/* Discovery Stats for discover_latest jobs */}
+          <Show when={!loading() && summary() && props.job.job.jobType === "discover_latest" && summary()!.job.metadata?.crawlResult}>
+            <div class="p-6">
+              <div class="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-500/10 dark:to-teal-500/10 rounded-2xl p-6 border border-emerald-200/50 dark:border-emerald-500/20">
+                <h3 class="text-sm font-semibold text-emerald-700 dark:text-emerald-400 mb-4 flex items-center gap-2">
+                  <svg class="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="7" cy="7" r="4" />
+                    <path d="M10 10l4 4" stroke-linecap="round" />
+                    <path d="M7 5v4M5 7h4" stroke-linecap="round" opacity="0.6" />
+                  </svg>
+                  Discovery Results
+                </h3>
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                  <div class="text-center">
+                    <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                      {summary()!.job.metadata!.crawlResult.discovered}
+                    </div>
+                    <div class="text-xs text-emerald-600/70 dark:text-emerald-400/70 mt-1">New Devices</div>
+                  </div>
+                  <div class="text-center">
+                    <div class="text-2xl font-bold text-cyan-600 dark:text-cyan-400">
+                      {summary()!.job.metadata!.crawlResult.queued}
+                    </div>
+                    <div class="text-xs text-cyan-600/70 dark:text-cyan-400/70 mt-1">Queued</div>
+                  </div>
+                  <div class="text-center">
+                    <div class="text-2xl font-bold text-zinc-500 dark:text-slate-400">
+                      {summary()!.job.metadata!.crawlResult.alreadyKnown}
+                    </div>
+                    <div class="text-xs text-zinc-500/70 dark:text-slate-500 mt-1">Already Known</div>
+                  </div>
+                  <div class="text-center">
+                    <div class="text-2xl font-bold text-zinc-400 dark:text-slate-500">
+                      {summary()!.job.metadata!.crawlResult.alreadyScraped}
+                    </div>
+                    <div class="text-xs text-zinc-400/70 dark:text-slate-600 mt-1">Already Scraped</div>
+                  </div>
+                  <div class="text-center">
+                    <div class="text-2xl font-bold text-slate-500 dark:text-slate-400">
+                      {summary()!.job.metadata!.crawlResult.pagesScanned}
+                    </div>
+                    <div class="text-xs text-slate-500/70 dark:text-slate-500 mt-1">Pages Scanned</div>
+                  </div>
+                </div>
+
+                <Show when={summary()!.job.metadata!.spawnedScrapeJobId}>
+                  <div class="mt-6 pt-4 border-t border-emerald-200/50 dark:border-emerald-500/20">
+                    <div class="flex items-center justify-between">
+                      <span class="text-sm text-emerald-700/80 dark:text-emerald-400/80">
+                        Spawned scrape job for {summary()!.job.metadata!.crawlResult.queued} devices
+                      </span>
+                      <span class="font-mono text-xs bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 px-2 py-1 rounded">
+                        {summary()!.job.metadata!.spawnedScrapeJobId!.slice(0, 12)}
+                      </span>
+                    </div>
+                  </div>
+                </Show>
+              </div>
+            </div>
+          </Show>
+
+          {/* Regular items list for non-discovery jobs */}
+          <Show when={!loading() && summary() && props.job.job.jobType !== "discover_latest"}>
             <div class="divide-y divide-zinc-100 dark:divide-slate-800">
               <For each={summary()!.items}>
                 {(item) => (

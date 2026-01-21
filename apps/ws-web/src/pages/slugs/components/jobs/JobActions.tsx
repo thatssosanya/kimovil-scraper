@@ -11,6 +11,14 @@ interface JobActionsProps {
 export function JobActions(props: JobActionsProps) {
   return (
     <>
+      <Show when={props.status === "pending"}>
+        <button
+          class="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-emerald-500/20"
+          onClick={props.onResume}
+        >
+          Start
+        </button>
+      </Show>
       <Show when={props.status === "running"}>
         <button
           class="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border border-amber-500/20"

@@ -264,7 +264,7 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
 
   const startBulkJob = async (
     filterType: "all" | "unscraped" | "needs_extraction" | "needs_ai",
-    jobType: "scrape" | "process_raw" | "process_ai" | "link_priceru" = "scrape",
+    jobType: "scrape" | "process_raw" | "process_ai" | "link_priceru" | "discover_latest" = "scrape",
     options?: { source?: string; dataKind?: string },
   ) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -290,7 +290,7 @@ export function useBulkJobs(options: UseBulkJobsOptions) {
 
   const queueBulk = async (
     slugsToQueue: string[],
-    jobType: "scrape" | "process_raw" | "process_ai" | "link_priceru" = "scrape",
+    jobType: "scrape" | "process_raw" | "process_ai" | "link_priceru" | "discover_latest" = "scrape",
     options?: { source?: string; dataKind?: string },
   ) => {
     if (slugsToQueue.length === 0) {

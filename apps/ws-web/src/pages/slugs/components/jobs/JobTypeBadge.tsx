@@ -52,12 +52,23 @@ function LinkIcon() {
   );
 }
 
+function DiscoverIcon() {
+  return (
+    <svg class="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+      <circle cx="7" cy="7" r="4" />
+      <path d="M10 10l4 4" stroke-linecap="round" />
+      <path d="M7 5v4M5 7h4" stroke-linecap="round" opacity="0.6" />
+    </svg>
+  );
+}
+
 const iconMap = {
   scrape: ScrapeIcon,
   extract: ExtractIcon,
   ai: AIIcon,
   price: PriceIcon,
   link: LinkIcon,
+  discover: DiscoverIcon,
 };
 
 export function JobTypeBadge(props: JobTypeBadgeProps) {

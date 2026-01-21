@@ -64,11 +64,24 @@ export interface PhoneDataResponse<T> {
   data: T | null;
 }
 
-export type JobType = "scrape" | "process_raw" | "process_ai" | "link_priceru";
+export type JobType = "scrape" | "process_raw" | "process_ai" | "link_priceru" | "discover_latest";
 export type SourceType = "kimovil" | "price_ru";
 export type DataKindType = "specs" | "prices" | "price_links";
 export type AiMode = "realtime" | "batch";
 export type JobOutcome = "success" | "not_found" | "no_offers" | "no_data" | "skipped";
+
+export interface DiscoveryCrawlResult {
+  discovered: number;
+  alreadyKnown: number;
+  alreadyScraped: number;
+  queued: number;
+  pagesScanned: number;
+}
+
+export interface DiscoveryMetadata {
+  crawlResult: DiscoveryCrawlResult;
+  spawnedScrapeJobId: string | null;
+}
 
 export interface BulkJobInfo {
   id: string;
@@ -88,6 +101,7 @@ export interface BulkJobInfo {
   batchStatus?: string | null;
   source?: string;
   dataKind?: string;
+  metadata?: DiscoveryMetadata | null;
 }
 
 export interface OutcomeStats {
@@ -127,7 +141,8 @@ export type FilterType =
   | "has_raw"
   | "has_ai"
   | "needs_raw"
-  | "needs_ai";
+  | "needs_ai"
+  | "discovered";
 
 export interface ScrapeStats {
   corrupted: number;
@@ -135,6 +150,7 @@ export interface ScrapeStats {
   scraped: number;
   rawData?: number;
   aiData?: number;
+  discovered?: number;
 }
 
 // Price offer from a seller

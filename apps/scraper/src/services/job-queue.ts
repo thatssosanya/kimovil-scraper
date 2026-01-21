@@ -49,6 +49,7 @@ export interface Job {
   batchStatus: string | null;
   source: string;
   dataKind: string;
+  metadata: Record<string, unknown> | null;
 }
 
 export interface JobStats {
@@ -235,6 +236,24 @@ export interface JobQueueService {
     },
     JobQueueError
   >;
+
+  readonly reassignQueueItems: (
+    fromJobId: string,
+    toJobId: string,
+    status?: ScrapeStatus,
+  ) => Effect.Effect<number, JobQueueError>;
+
+  readonly consolidatePendingQueueItems: (
+    toJobId: string,
+    source: string,
+    dataKind: string,
+    jobType?: JobType,
+  ) => Effect.Effect<{ moved: number; deduped: number }, JobQueueError>;
+
+  readonly updateJobMetadata: (
+    jobId: string,
+    metadata: Record<string, unknown>,
+  ) => Effect.Effect<void, JobQueueError>;
 }
 
 export const JobQueueService =
@@ -305,6 +324,16 @@ type JobRow = {
   batch_status: string | null;
   source: string;
   data_kind: string;
+  metadata: string | null;
+};
+
+const parseMetadata = (raw: string | null): Record<string, unknown> | null => {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 };
 
 const mapJobRow = (row: JobRow): Job => ({
@@ -324,6 +353,7 @@ const mapJobRow = (row: JobRow): Job => ({
   batchStatus: row.batch_status ?? null,
   source: row.source ?? "kimovil",
   dataKind: row.data_kind ?? "specs",
+  metadata: parseMetadata(row.metadata),
 });
 
 const wrapSqlError = (error: SqlError.SqlError): JobQueueError => {
@@ -977,6 +1007,75 @@ export const JobQueueServiceLive = Layer.effect(
 
           return { items, total };
         }).pipe(Effect.mapError(wrapSqlError)),
+
+      reassignQueueItems: (fromJobId, toJobId, status) =>
+        Effect.gen(function* () {
+          if (status) {
+            yield* sql`
+              UPDATE job_queue
+              SET job_id = ${toJobId}, updated_at = unixepoch()
+              WHERE job_id = ${fromJobId} AND status = ${status}
+            `;
+          } else {
+            yield* sql`
+              UPDATE job_queue
+              SET job_id = ${toJobId}, updated_at = unixepoch()
+              WHERE job_id = ${fromJobId}
+            `;
+          }
+          const countRows = yield* sql<{ count: number }>`SELECT changes() as count`;
+          return countRows[0]?.count ?? 0;
+        }).pipe(Effect.mapError(wrapSqlError)),
+
+      consolidatePendingQueueItems: (toJobId, source, dataKind, jobType = "scrape") =>
+        sql.withTransaction(
+          Effect.gen(function* () {
+            // 1) Deduplicate: delete orphan pending items that already exist in target job
+            yield* sql`
+              DELETE FROM job_queue
+              WHERE status = 'pending'
+                AND source = ${source}
+                AND data_kind = ${dataKind}
+                AND job_type = ${jobType}
+                AND job_id IS NOT NULL
+                AND job_id != ${toJobId}
+                AND EXISTS (
+                  SELECT 1 FROM job_queue existing
+                  WHERE existing.job_id = ${toJobId}
+                    AND existing.source = job_queue.source
+                    AND existing.external_id = job_queue.external_id
+                    AND existing.data_kind = job_queue.data_kind
+                    AND existing.job_type = job_queue.job_type
+                )
+            `;
+
+            const dedupeRows = yield* sql<{ count: number }>`SELECT changes() as count`;
+            const deduped = dedupeRows[0]?.count ?? 0;
+
+            // 2) Reassign all remaining pending items to the new job
+            yield* sql`
+              UPDATE job_queue
+              SET job_id = ${toJobId}, updated_at = unixepoch()
+              WHERE status = 'pending'
+                AND source = ${source}
+                AND data_kind = ${dataKind}
+                AND job_type = ${jobType}
+                AND (job_id IS NULL OR job_id != ${toJobId})
+            `;
+
+            const movedRows = yield* sql<{ count: number }>`SELECT changes() as count`;
+            const moved = movedRows[0]?.count ?? 0;
+
+            return { moved, deduped };
+          }),
+        ).pipe(Effect.mapError(wrapSqlError)),
+
+      updateJobMetadata: (jobId, metadata) =>
+        sql`
+          UPDATE jobs
+          SET metadata = ${JSON.stringify(metadata)}, completed_at = unixepoch()
+          WHERE id = ${jobId}
+        `.pipe(Effect.asVoid, Effect.mapError(wrapSqlError)),
     });
   }),
 );

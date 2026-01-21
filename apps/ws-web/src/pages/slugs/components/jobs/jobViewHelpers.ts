@@ -72,7 +72,7 @@ export interface JobTypeBadgeConfig {
   textClass: string;
   borderClass: string;
   glowClass: string;
-  icon: "scrape" | "extract" | "ai" | "price" | "link";
+  icon: "scrape" | "extract" | "ai" | "price" | "link" | "discover";
 }
 
 export function getJobTypeBadgeConfig(jobType: string, source?: string, dataKind?: string): JobTypeBadgeConfig {
@@ -112,6 +112,15 @@ export function getJobTypeBadgeConfig(jobType: string, source?: string, dataKind
       icon: "link",
     };
   }
+  if (jobType === "discover_latest") {
+    return {
+      bgClass: "bg-gradient-to-r from-emerald-500/15 to-teal-500/10",
+      textClass: "text-emerald-600 dark:text-emerald-400",
+      borderClass: "border-emerald-500/30 dark:border-emerald-400/20",
+      glowClass: "shadow-emerald-500/20",
+      icon: "discover",
+    };
+  }
   return {
     bgClass: "bg-gradient-to-r from-violet-500/15 to-fuchsia-500/10",
     textClass: "text-violet-600 dark:text-violet-400",
@@ -131,5 +140,6 @@ export function jobTypeLabel(jobType: string, batchStatus?: string, source?: str
   if (jobType === "scrape") return "Scrape";
   if (jobType === "process_raw") return "Extract";
   if (jobType === "link_priceru") return "price.ru link";
+  if (jobType === "discover_latest") return "Discover";
   return batchStatus ? `AI (${batchStatus})` : "AI";
 }
