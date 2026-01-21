@@ -45,5 +45,18 @@ module.exports = {
       merge_logs: true,
       time: true,
     },
+    {
+      name: "catalogue",
+      cwd: "./apps/catalogue",
+      script: "npm",
+      args: "start",
+      env: {
+        NODE_ENV: "production",
+      },
+      max_memory_restart: "1G",
+      exp_backoff_restart_delay: 100,
+      merge_logs: true,
+      time: true,
+    },
   ],
 };
