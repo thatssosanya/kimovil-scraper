@@ -91,6 +91,9 @@ export interface DeviceRegistryService {
     offset: number,
   ) => Effect.Effect<Device[], DeviceRegistryError>;
   readonly getDeviceCount: () => Effect.Effect<number, DeviceRegistryError>;
+  readonly getDiscoveredDeviceIds: (
+    source: string,
+  ) => Effect.Effect<string[], DeviceRegistryError>;
 }
 
 export const DeviceRegistryService =
@@ -341,6 +344,16 @@ export const DeviceRegistryServiceLive = Layer.effect(
         ),
 
       getDeviceCount: () => getDeviceCountCached,
+
+      getDiscoveredDeviceIds: (source) =>
+        sql<{ device_id: string }>`
+          SELECT device_id FROM device_sources
+          WHERE source = ${source}
+            AND json_extract(metadata, '$.discovered_via') = 'latest_crawler'
+        `.pipe(
+          Effect.map((rows) => rows.map((r) => r.device_id)),
+          Effect.mapError(wrapSqlError),
+        ),
     });
   }),
 );

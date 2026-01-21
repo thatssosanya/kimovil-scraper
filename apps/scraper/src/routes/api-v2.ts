@@ -79,6 +79,7 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
           filter === "needs_ai";
 
         const needsAiSet = includeStats || filter === "has_ai" || filter === "needs_ai";
+        const needsDiscoveredSet = includeStats || filter === "discovered";
 
         let corruptedSlugs: string[] = [];
         let validSlugs: string[] = [];
@@ -104,6 +105,12 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
         if (needsAiSet) {
           const aiDeviceIdsList = yield* entityData.getFinalDataDeviceIds("specs");
           aiDataDeviceIds = new Set(aiDeviceIdsList);
+        }
+
+        let discoveredDeviceIds = new Set<string>();
+        if (needsDiscoveredSet) {
+          const discoveredIdsList = yield* deviceRegistry.getDiscoveredDeviceIds(source);
+          discoveredDeviceIds = new Set(discoveredIdsList);
         }
 
         let filtered: DeviceWithStats[] = devices;
@@ -133,6 +140,8 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
           filtered = filtered.filter((d) => scrapedSet.has(d.slug) && !rawDataDeviceIds.has(d.id));
         } else if (filter === "needs_ai") {
           filtered = filtered.filter((d) => rawDataDeviceIds.has(d.id) && !aiDataDeviceIds.has(d.id));
+        } else if (filter === "discovered") {
+          filtered = filtered.filter((d) => discoveredDeviceIds.has(d.id));
         }
 
         const stats = includeStats
@@ -142,6 +151,7 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
               scraped: scrapedSet.size,
               rawData: rawDataDeviceIds.size,
               aiData: aiDataDeviceIds.size,
+              discovered: discoveredDeviceIds.size,
             }
           : undefined;
 

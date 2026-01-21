@@ -13,27 +13,27 @@ const program = Effect.gen(function* () {
   const args = process.argv.slice(2);
 
   const dryRun = args.includes("--dry-run");
-  const maxScrolls = parseIntSafe(
-    args.find((a) => a.startsWith("--max-scrolls="))?.split("=")[1],
+  const maxPages = parseIntSafe(
+    args.find((a) => a.startsWith("--max-pages="))?.split("=")[1],
     20,
   );
-  const stopAfterEmptyScrolls = parseIntSafe(
-    args.find((a) => a.startsWith("--stop-after-empty="))?.split("=")[1],
-    3,
+  const stopAfterKnown = parseIntSafe(
+    args.find((a) => a.startsWith("--stop-after-known="))?.split("=")[1],
+    50,
   );
 
   yield* Effect.logInfo("Starting discovery crawl").pipe(
-    Effect.annotateLogs({ dryRun, maxScrolls, stopAfterEmptyScrolls }),
+    Effect.annotateLogs({ dryRun, maxPages, stopAfterKnown }),
   );
 
-  const result = yield* crawler.crawl({ dryRun, maxScrolls, stopAfterEmptyScrolls });
+  const result = yield* crawler.crawl({ dryRun, maxPages, stopAfterKnown });
 
   yield* Effect.logInfo("Crawl completed").pipe(
     Effect.annotateLogs({
       discovered: result.discovered,
       alreadyKnown: result.alreadyKnown,
       queued: result.queued,
-      scrollCount: result.scrollCount,
+      pagesScanned: result.pagesScanned,
     }),
   );
 });
