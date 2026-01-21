@@ -123,7 +123,7 @@ export class StreamEvent extends Schema.Class<StreamEvent>("StreamEvent")({
       type: Schema.Literal("bulk.jobUpdate"),
       job: Schema.Struct({
         id: Schema.String,
-        jobType: Schema.optional(Schema.Literal("scrape", "process_raw", "process_ai", "clear_html", "clear_raw", "clear_processed")),
+        jobType: Schema.optional(Schema.Literal("scrape", "process_raw", "process_ai", "clear_html", "clear_raw", "clear_processed", "link_priceru", "discover_latest")),
         status: Schema.Literal("pending", "running", "pausing", "paused", "done", "error"),
         workerCount: Schema.optional(Schema.Number),
         batchStatus: Schema.optional(Schema.NullOr(Schema.String)),
@@ -232,7 +232,7 @@ export class ScrapeResult extends Schema.Class<ScrapeResult>("ScrapeResult")({
 }) {}
 
 // Job type schemas
-export const JobTypeSchema = Schema.Literal("scrape", "process_raw", "process_ai", "clear_html", "clear_raw", "clear_processed", "link_priceru");
+export const JobTypeSchema = Schema.Literal("scrape", "process_raw", "process_ai", "clear_html", "clear_raw", "clear_processed", "link_priceru", "discover_latest");
 export type JobType = typeof JobTypeSchema.Type;
 
 export const AiModeSchema = Schema.Literal("realtime", "batch");

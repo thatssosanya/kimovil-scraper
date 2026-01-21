@@ -340,6 +340,105 @@ const migrateJobTypeConstraint = (
     yield* Effect.logInfo("Successfully migrated jobs/job_queue tables with new job_type CHECK constraint");
   });
 
+const migrateJobTypeAddDiscoverLatest = (
+  sql: SqlClient.SqlClient,
+): Effect.Effect<void, SqlError.SqlError> =>
+  Effect.gen(function* () {
+    // Check if jobs table is missing discover_latest
+    const rows = yield* sql.unsafe(`SELECT sql FROM sqlite_master WHERE type='table' AND name='jobs'`);
+    const createSql = (rows[0] as { sql: string } | undefined)?.sql ?? "";
+    const needsMigration = createSql.includes("job_type") && !createSql.includes("discover_latest");
+
+    if (!needsMigration) return;
+
+    yield* Effect.logInfo("Migrating jobs/job_queue tables to add discover_latest job_type...");
+
+    // Migrate jobs table
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS jobs_new (
+        id TEXT PRIMARY KEY,
+        job_type TEXT NOT NULL DEFAULT 'scrape' CHECK (job_type IN ('scrape', 'process_raw', 'process_ai', 'clear_html', 'clear_raw', 'clear_processed', 'link_priceru', 'discover_latest')),
+        mode TEXT NOT NULL CHECK (mode IN ('fast', 'complex')),
+        ai_mode TEXT CHECK (ai_mode IS NULL OR ai_mode IN ('realtime', 'batch')),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'pausing', 'paused', 'done', 'error')),
+        filter TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        started_at INTEGER,
+        completed_at INTEGER,
+        error_message TEXT,
+        total_count INTEGER,
+        queued_count INTEGER,
+        batch_request_id TEXT,
+        batch_status TEXT,
+        source TEXT NOT NULL DEFAULT 'kimovil',
+        data_kind TEXT NOT NULL DEFAULT 'specs'
+      )
+    `);
+
+    yield* sql.unsafe(`
+      INSERT INTO jobs_new SELECT
+        id, job_type, mode, ai_mode, status, filter, created_at, started_at, completed_at,
+        error_message, total_count, queued_count, batch_request_id, batch_status,
+        COALESCE(source, 'kimovil'), COALESCE(data_kind, 'specs')
+      FROM jobs
+    `);
+
+    yield* sql.unsafe(`DROP TABLE jobs`);
+    yield* sql.unsafe(`ALTER TABLE jobs_new RENAME TO jobs`);
+
+    // Migrate job_queue table
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS job_queue_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        external_id TEXT NOT NULL,
+        device_id TEXT NOT NULL REFERENCES devices(id),
+        job_id TEXT,
+        job_type TEXT NOT NULL DEFAULT 'scrape' CHECK (job_type IN ('scrape', 'process_raw', 'process_ai', 'clear_html', 'clear_raw', 'clear_processed', 'link_priceru', 'discover_latest')),
+        mode TEXT NOT NULL CHECK (mode IN ('fast', 'complex')),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'done', 'error')),
+        attempt INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 5,
+        next_attempt_at INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        started_at INTEGER,
+        completed_at INTEGER,
+        error_message TEXT,
+        last_error_code TEXT,
+        source TEXT NOT NULL DEFAULT 'kimovil',
+        data_kind TEXT NOT NULL DEFAULT 'specs',
+        scrape_id INTEGER,
+        outcome TEXT,
+        outcome_message TEXT
+      )
+    `);
+
+    yield* sql.unsafe(`
+      INSERT INTO job_queue_new SELECT
+        id, external_id, device_id, job_id, job_type, mode, status, attempt, max_attempts,
+        next_attempt_at, created_at, updated_at, started_at, completed_at, error_message,
+        last_error_code, COALESCE(source, 'kimovil'), COALESCE(data_kind, 'specs'), scrape_id,
+        outcome, outcome_message
+      FROM job_queue
+    `);
+
+    yield* sql.unsafe(`DROP TABLE job_queue`);
+    yield* sql.unsafe(`ALTER TABLE job_queue_new RENAME TO job_queue`);
+
+    // Recreate indexes
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_status ON job_queue(status)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_external_id ON job_queue(external_id)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_device_id ON job_queue(device_id)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_job_id ON job_queue(job_id)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_next_attempt ON job_queue(next_attempt_at)`);
+    yield* sql.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS idx_job_queue_job_source_target ON job_queue(job_id, source, external_id)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_job_queue_job_type ON job_queue(job_type)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_jobs_job_type ON jobs(job_type)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_jobs_batch_request ON jobs(batch_request_id)`);
+
+    yield* Effect.logInfo("Successfully migrated jobs/job_queue tables to add discover_latest job_type");
+  });
+
 interface KimovilDeviceRow {
   id: string;
   slug: string;
@@ -761,7 +860,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
         external_id TEXT NOT NULL,
         device_id TEXT NOT NULL REFERENCES devices(id),
         job_id TEXT,
-        job_type TEXT NOT NULL DEFAULT 'scrape' CHECK (job_type IN ('scrape', 'process_raw', 'process_ai', 'clear_html', 'clear_raw', 'clear_processed', 'link_priceru')),
+        job_type TEXT NOT NULL DEFAULT 'scrape' CHECK (job_type IN ('scrape', 'process_raw', 'process_ai', 'clear_html', 'clear_raw', 'clear_processed', 'link_priceru', 'discover_latest')),
         mode TEXT NOT NULL CHECK (mode IN ('fast', 'complex')),
         status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'done', 'error')),
         attempt INTEGER NOT NULL DEFAULT 0,
@@ -779,7 +878,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS jobs (
         id TEXT PRIMARY KEY,
-        job_type TEXT NOT NULL DEFAULT 'scrape' CHECK (job_type IN ('scrape', 'process_raw', 'process_ai', 'clear_html', 'clear_raw', 'clear_processed', 'link_priceru')),
+        job_type TEXT NOT NULL DEFAULT 'scrape' CHECK (job_type IN ('scrape', 'process_raw', 'process_ai', 'clear_html', 'clear_raw', 'clear_processed', 'link_priceru', 'discover_latest')),
         mode TEXT NOT NULL CHECK (mode IN ('fast', 'complex')),
         ai_mode TEXT CHECK (ai_mode IS NULL OR ai_mode IN ('realtime', 'batch')),
         status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'pausing', 'paused', 'done', 'error')),
@@ -829,6 +928,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
 
     // Migrate jobs/job_queue CHECK constraints to include new job_type values
     yield* migrateJobTypeConstraint(sql);
+    yield* migrateJobTypeAddDiscoverLatest(sql);
 
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS kimovil_prefix_state (

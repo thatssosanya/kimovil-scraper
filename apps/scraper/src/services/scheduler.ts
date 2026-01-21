@@ -3,6 +3,7 @@ import { SqlClient, SqlError } from "@effect/sql";
 import { Cron } from "croner";
 import { JobQueueService, type JobType, type ScrapeMode } from "./job-queue";
 import { DeviceRegistryService } from "./device-registry";
+import { LatestDeviceCrawlerService } from "./latest-device-crawler";
 
 export class SchedulerError extends Data.TaggedError("SchedulerError")<{
   message: string;
@@ -173,6 +174,7 @@ export const SchedulerServiceLive = Layer.effect(
     const sql = yield* SqlClient.SqlClient;
     const jobQueue = yield* JobQueueService;
     const deviceRegistry = yield* DeviceRegistryService;
+    const latestDeviceCrawler = yield* LatestDeviceCrawlerService;
 
     const self: SchedulerService = {
       listSchedules: () =>
@@ -382,6 +384,7 @@ export const SchedulerServiceLive = Layer.effect(
             Layer.mergeAll(
               Layer.succeed(SchedulerService, self),
               Layer.succeed(JobQueueService, jobQueue),
+              Layer.succeed(LatestDeviceCrawlerService, latestDeviceCrawler),
             ),
           ),
         ),
@@ -537,7 +540,7 @@ export const SchedulerServiceLive = Layer.effect(
 export const runScheduleOnce = (
   scheduleId: number,
   options: RunScheduleOnceOptions,
-): Effect.Effect<ScheduleRunResult, SchedulerError, SchedulerService | JobQueueService> =>
+): Effect.Effect<ScheduleRunResult, SchedulerError, SchedulerService | JobQueueService | LatestDeviceCrawlerService> =>
   Effect.gen(function* () {
     const scheduler = yield* SchedulerService;
     const jobQueue = yield* JobQueueService;
@@ -593,6 +596,94 @@ export const runScheduleOnce = (
         yield* scheduler.markScheduleResult(scheduleId, { status: "skipped" });
         return { status: "skipped" as const };
       }
+    }
+
+    // Special handling for targetless discovery jobs
+    if (schedule.jobType === "discover_latest") {
+      const result = yield* Effect.gen(function* () {
+        const crawler = yield* LatestDeviceCrawlerService;
+        const jobId = generateJobId();
+
+        // Create real job row for observability
+        yield* jobQueue
+          .createJob({
+            id: jobId,
+            jobType: "discover_latest",
+            mode: schedule.mode,
+            source: schedule.source,
+            dataKind: schedule.dataKind,
+          })
+          .pipe(Effect.mapError((e) => new SchedulerError({ message: e.message, cause: e })));
+
+        return yield* crawler
+          .crawl({
+            maxScrolls: 20,
+            stopAfterEmptyScrolls: 3,
+            jobId,
+          })
+          .pipe(
+            Effect.flatMap(() =>
+              jobQueue.updateJobStatus(jobId, "done").pipe(
+                Effect.map(
+                  () =>
+                    ({
+                      status: "success" as const,
+                      jobId,
+                    }) satisfies ScheduleRunResult,
+                ),
+                Effect.mapError((e) => new SchedulerError({ message: e.message, cause: e })),
+              ),
+            ),
+            Effect.catchAll((error) =>
+              jobQueue.updateJobStatus(jobId, "error", String(error)).pipe(
+                Effect.map(
+                  () =>
+                    ({
+                      status: "error" as const,
+                      error: String(error),
+                      jobId,
+                    }) satisfies ScheduleRunResult,
+                ),
+                Effect.catchAll(() =>
+                  Effect.succeed({
+                    status: "error" as const,
+                    error: String(error),
+                    jobId,
+                  } satisfies ScheduleRunResult),
+                ),
+              ),
+            ),
+          );
+      }).pipe(
+        Effect.catchAll((error: SchedulerError) => {
+          if (swallowInternalErrors) {
+            return Effect.gen(function* () {
+              yield* Effect.logError("runScheduleOnce: discover_latest failed").pipe(
+                Effect.annotateLogs({
+                  scheduleId,
+                  name: schedule.name,
+                  caller: options.caller,
+                  error,
+                }),
+              );
+              return {
+                status: "error" as const,
+                error: error.message,
+              } satisfies ScheduleRunResult;
+            });
+          }
+          // Release lock before failing when not swallowing errors
+          return Effect.gen(function* () {
+            if (claimLock) {
+              yield* scheduler.releaseSchedule(scheduleId);
+            }
+            return yield* Effect.fail(error);
+          });
+        }),
+      );
+
+      yield* scheduler.markScheduleResult(scheduleId, result);
+      return result;
     }
 
     const result = yield* Effect.gen(function* () {

@@ -11,6 +11,7 @@ import { ScrapeServiceKimovil } from "../services/kimovil";
 import { HtmlCacheServiceLive } from "../services/html-cache";
 import { JobQueueServiceLive } from "../services/job-queue";
 import { DeviceDiscoveryServiceLive } from "../services/device-discovery";
+import { LatestDeviceCrawlerServiceLive } from "../services/latest-device-crawler";
 
 import { DeviceRegistryServiceLive } from "../services/device-registry";
 import { CategoryServiceLive } from "../services/category";
@@ -31,10 +32,6 @@ import { CatalogueLinkServiceLive } from "../services/catalogue-link";
 import { YandexAffiliateServiceLive } from "../services/yandex-affiliate";
 import { StorageServiceLive } from "../services/storage";
 import { PriceUrlRefreshServiceLive } from "../services/price-url-refresh";
-
-const SearchServiceLayer = SearchServiceKimovil.pipe(
-  Layer.provide(BrowserServiceLive),
-);
 
 const SqlLayer = SchemaLive.pipe(Layer.provideMerge(SqlClientLive));
 
@@ -62,8 +59,17 @@ const BaseDataLayer = Layer.mergeAll(
   Layer.provideMerge(ScrapeRecordLayer),
 );
 
-// SchedulerService depends on JobQueueService, so layer it on top
+// SearchService needs BrowserService (will be provided at top level)
+const SearchServiceLayer = SearchServiceKimovil;
+
+// LatestDeviceCrawlerService depends on Browser (provided at top), DeviceRegistry, JobQueue
+const LatestDeviceCrawlerLayer = LatestDeviceCrawlerServiceLive.pipe(
+  Layer.provide(BaseDataLayer),
+);
+
+// SchedulerService depends on JobQueueService and LatestDeviceCrawlerService
 const SchedulerLayer = SchedulerServiceLive.pipe(
+  Layer.provide(LatestDeviceCrawlerLayer),
   Layer.provide(BaseDataLayer),
   Layer.provide(SqlLayer),
 );
@@ -110,19 +116,20 @@ const CatalogueLinkLayer = CatalogueLinkServiceLive.pipe(
 // DataLayer is just BaseDataLayer now (PhoneDataService removed)
 const DataLayer = BaseDataLayer;
 
+// ScrapeService depends on Browser (provided at top), Data, Robot
 const ScrapeServiceLayer = ScrapeServiceKimovil.pipe(
-  Layer.provide(BrowserServiceLive),
   Layer.provide(DataLayer),
   Layer.provide(RobotServiceLive),
 );
 
-export const LiveLayer = Layer.mergeAll(
+// Merge all layers first, then provide BrowserService once to all that need it
+const AllServicesLayer = Layer.mergeAll(
   SearchServiceLayer,
   ScrapeServiceLayer,
-  BrowserServiceLive,
   RobotServiceLive,
   DataLayer,
   SchedulerLayer,
+  LatestDeviceCrawlerLayer,
   WidgetLayer,
   WidgetMappingLayer,
   WordPressSyncLayer,
@@ -132,6 +139,11 @@ export const LiveLayer = Layer.mergeAll(
   LinkResolverLayer,
   YandexAffiliateLayer,
   StorageServiceLive,
+);
+
+// Provide BrowserService once to the entire merged layer
+export const LiveLayer = AllServicesLayer.pipe(
+  Layer.provideMerge(BrowserServiceLive),
 );
 
 export type LiveLayerType = typeof LiveLayer;

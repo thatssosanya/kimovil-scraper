@@ -3,7 +3,7 @@ export type SourceStatus = "active" | "missing" | "deleted" | "conflict" | "not_
 export type ScrapeStatus = "pending" | "running" | "done" | "error";
 
 // Job types for bulk operations
-export type JobType = "scrape" | "process_raw" | "process_ai" | "clear_html" | "clear_raw" | "clear_processed" | "link_priceru";
+export type JobType = "scrape" | "process_raw" | "process_ai" | "clear_html" | "clear_raw" | "clear_processed" | "link_priceru" | "discover_latest";
 
 // Job status for bulk job tracking
 export type JobStatus = "pending" | "running" | "pausing" | "paused" | "done" | "error";
