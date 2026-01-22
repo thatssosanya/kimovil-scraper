@@ -283,7 +283,7 @@ const SelectionPanel = ({
     name: string;
     isExisting?: boolean;
   } | null>(null);
-  const [customInput, setCustomInput] = useState("");
+  const [customInput, setCustomInput] = useState(job.deviceName || "");
   const [isCustomInputActive, setIsCustomInputActive] = useState(false);
 
   const handleSlugSelect = (
@@ -305,7 +305,11 @@ const SelectionPanel = ({
   };
 
   const hasExistingMatches = job.existingMatches && job.existingMatches.length > 0;
-  const hasKimovilOptions = job.autocompleteOptions && job.autocompleteOptions.length > 0;
+  
+  // Filter out Kimovil options that duplicate local matches
+  const existingSlugs = new Set(job.existingMatches?.map(m => m.slug) || []);
+  const filteredKimovilOptions = job.autocompleteOptions?.filter(opt => !existingSlugs.has(opt.slug)) || [];
+  const hasKimovilOptions = filteredKimovilOptions.length > 0;
 
   // No local matches and no Kimovil results yet - show search options
   if (!hasExistingMatches && !hasKimovilOptions) {
@@ -403,10 +407,10 @@ const SelectionPanel = ({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {/* Warning banner when Kimovil failed but local options exist */}
       {job.error && hasExistingMatches && (
-        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 dark:border-amber-800/40 dark:bg-amber-900/20">
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-2 dark:border-amber-800/40 dark:bg-amber-900/20">
           <AlertTriangle className="inline h-3.5 w-3.5 text-amber-500 mr-1.5" />
           <span className="text-[11px] text-amber-700 dark:text-amber-300">
             {job.error}
@@ -416,148 +420,141 @@ const SelectionPanel = ({
 
       {/* Existing matches - instant import */}
       {hasExistingMatches && (
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
             <Check className="h-3 w-3" />
             <span>Готовые данные (мгновенно)</span>
           </div>
-          {job.existingMatches!.map((match) => (
-            <button
-              key={`existing-${match.slug}`}
-              onClick={() => handleSlugSelect(match.slug, match.name, false, true)}
-              className={[
-                "w-full rounded-md px-3 py-2 text-left text-xs transition-colors",
-                selectedSlug?.slug === match.slug && selectedSlug?.isExisting
-                  ? "bg-emerald-100 ring-1 ring-emerald-500 dark:bg-emerald-900/50"
-                  : "bg-emerald-50/50 hover:bg-emerald-100/50 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/30",
-              ].join(" ")}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-gray-900 dark:text-gray-200">
-                  {match.name}
-                  {match.brand && (
-                    <span className="ml-1 text-gray-500 dark:text-gray-400">
-                      ({match.brand})
+          <div className="space-y-1.5">
+            {job.existingMatches!.map((match) => (
+              <button
+                key={`existing-${match.slug}`}
+                onClick={() => handleSlugSelect(match.slug, match.name, false, true)}
+                className={[
+                  "w-full rounded-lg border px-3 py-2.5 text-left transition-all",
+                  selectedSlug?.slug === match.slug && selectedSlug?.isExisting
+                    ? "border-emerald-500 bg-emerald-50 shadow-sm dark:border-emerald-400 dark:bg-emerald-900/40"
+                    : "border-gray-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/50 dark:border-gray-700 dark:bg-gray-800/50 dark:hover:border-emerald-600 dark:hover:bg-emerald-900/20",
+                ].join(" ")}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {match.name}
+                    </div>
+                    {match.brand && (
+                      <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                        {match.brand}
+                      </div>
+                    )}
+                  </div>
+                  {selectedSlug?.slug === match.slug && selectedSlug?.isExisting && (
+                    <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                      Нажмите ещё раз
                     </span>
                   )}
-                </span>
-                {selectedSlug?.slug === match.slug && selectedSlug?.isExisting && (
-                  <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                    Нажмите ещё раз
-                  </span>
-                )}
-              </div>
-            </button>
-          ))}
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Kimovil options - full scrape */}
       {hasKimovilOptions && (
-        <div className="space-y-1">
-          {hasExistingMatches && (
-            <div className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
-              Или выберите из Kimovil:
-            </div>
-          )}
-          {job.autocompleteOptions!.map((option) => (
-            <button
-              key={`kimovil-${option.slug}`}
-              onClick={() => handleSlugSelect(option.slug, option.name)}
-              className={[
-                "w-full rounded-md px-3 py-2 text-left text-xs transition-colors",
-                selectedSlug?.slug === option.slug && !selectedSlug?.isExisting
-                  ? "bg-emerald-50 ring-1 ring-emerald-500/50 dark:bg-emerald-900/30"
-                  : "hover:bg-gray-50 dark:hover:bg-gray-800/50",
-              ].join(" ")}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-gray-900 dark:text-gray-200">
-                  {option.name}
-                </span>
-                {selectedSlug?.slug === option.slug && !selectedSlug?.isExisting && (
-                  <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                    Нажмите ещё раз
+        <div className="space-y-2">
+          <div className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
+            {hasExistingMatches ? "Или выберите из Kimovil:" : "Результаты Kimovil:"}
+          </div>
+          <div className="space-y-1.5">
+            {filteredKimovilOptions.map((option) => (
+              <button
+                key={`kimovil-${option.slug}`}
+                onClick={() => handleSlugSelect(option.slug, option.name)}
+                className={[
+                  "w-full rounded-lg border px-3 py-2.5 text-left transition-all",
+                  selectedSlug?.slug === option.slug && !selectedSlug?.isExisting
+                    ? "border-emerald-500 bg-emerald-50 shadow-sm dark:border-emerald-400 dark:bg-emerald-900/40"
+                    : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800/50 dark:hover:border-gray-600 dark:hover:bg-gray-800",
+                ].join(" ")}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm text-gray-900 dark:text-gray-100">
+                    {option.name}
                   </span>
-                )}
-              </div>
-            </button>
-          ))}
+                  {selectedSlug?.slug === option.slug && !selectedSlug?.isExisting && (
+                    <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                      Нажмите ещё раз
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Search Kimovil button (only if not searched yet and no error) */}
-      {!hasKimovilOptions && !job.error && onSearchKimovil && (
-        <button
-          onClick={onSearchKimovil}
-          disabled={isSearchingKimovil}
-          className="w-full rounded-md border border-dashed border-gray-300 px-3 py-2 text-left text-xs text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-600 dark:border-gray-700 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:text-gray-300 disabled:opacity-50"
-        >
-          <div className="flex items-center gap-2">
-            {isSearchingKimovil ? (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin" />
-                <span>Поиск в Kimovil...</span>
-              </>
-            ) : (
-              <>
-                <RefreshCw className="h-3 w-3" />
-                <span>Поиск в Kimovil</span>
-              </>
-            )}
-          </div>
-        </button>
+      {/* Custom input when active */}
+      {isCustomInputActive && (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={customInput}
+            onChange={(e) => setCustomInput(e.target.value)}
+            placeholder="Название устройства"
+            className="flex-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && customInput.trim()) {
+                onCustomSearch?.(customInput.trim());
+                setIsCustomInputActive(false);
+              }
+              if (e.key === "Escape") {
+                setIsCustomInputActive(false);
+              }
+            }}
+          />
+          <Button
+            onClick={() => {
+              if (customInput.trim()) {
+                onCustomSearch?.(customInput.trim());
+                setIsCustomInputActive(false);
+              }
+            }}
+            variant="outline"
+            size="sm"
+            className="text-xs"
+          >
+            Искать
+          </Button>
+        </div>
       )}
 
-      <div className="pt-2">
-        {isCustomInputActive ? (
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={customInput}
-              onChange={(e) => setCustomInput(e.target.value)}
-              placeholder="Название устройства"
-              className="flex-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && customInput.trim()) {
-                  onCustomSearch?.(customInput.trim());
-                  setCustomInput("");
-                  setIsCustomInputActive(false);
-                }
-                if (e.key === "Escape") {
-                  setIsCustomInputActive(false);
-                  setCustomInput("");
-                }
-              }}
-            />
-            <Button
-              onClick={() => {
-                if (customInput.trim()) {
-                  onCustomSearch?.(customInput.trim());
-                  setCustomInput("");
-                  setIsCustomInputActive(false);
-                }
-              }}
-              variant="outline"
-              size="sm"
-              className="text-xs"
-            >
-              OK
-            </Button>
-          </div>
-        ) : (
+      {/* Secondary actions as inline links */}
+      {!isCustomInputActive && (
+        <div className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-500">
+          <span>Не нашли?</span>
+          {!hasKimovilOptions && !job.error && onSearchKimovil && (
+            <>
+              <button
+                onClick={onSearchKimovil}
+                disabled={isSearchingKimovil}
+                className="inline-flex items-center gap-1 text-gray-500 underline decoration-gray-300 underline-offset-2 hover:text-gray-700 hover:decoration-gray-500 dark:text-gray-400 dark:decoration-gray-600 dark:hover:text-gray-300 disabled:opacity-50"
+              >
+                {isSearchingKimovil && <Loader2 className="h-3 w-3 animate-spin" />}
+                {isSearchingKimovil ? "Поиск..." : "Поиск в Kimovil"}
+              </button>
+              <span>·</span>
+            </>
+          )}
           <button
             onClick={() => setIsCustomInputActive(true)}
-            className="w-full rounded-md border border-dashed border-gray-300 px-3 py-2 text-left text-xs text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-600 dark:border-gray-700 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:text-gray-300"
+            className="text-gray-500 underline decoration-gray-300 underline-offset-2 hover:text-gray-700 hover:decoration-gray-500 dark:text-gray-400 dark:decoration-gray-600 dark:hover:text-gray-300"
           >
-            <div className="flex items-center gap-2">
-              <Plus className="h-3 w-3" />
-              <span>Другой запрос</span>
-            </div>
+            Кастомный запрос
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -846,6 +843,10 @@ const JobStatus = ({ job }: JobStatusProps = {}) => {
   };
 
   const handleRefresh = () => {
+    // Clear the job so it doesn't show stale "done" state
+    if (scrapeJob.deviceId) {
+      cancelMutation.mutate({ deviceId: scrapeJob.deviceId });
+    }
     void utils.device.getDeviceCharacteristic.invalidate();
   };
 

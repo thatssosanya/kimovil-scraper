@@ -126,7 +126,7 @@ const QuickFilters = memo(function QuickFilters({
           )}
         >
           {profileState === "all"
-            ? "Импорт устройств"
+            ? "Все устройства"
             : profileState === "with"
             ? "С профилями"
             : "Без профиля"}
@@ -166,6 +166,7 @@ const QuickFilters = memo(function QuickFilters({
                 value={deviceType}
                 onChange={(val) => onDeviceTypeChange?.(val || "")}
                 placeholder="Выберите тип"
+                inline
               />
             </DropdownMenuContent>
           </DropdownMenu>

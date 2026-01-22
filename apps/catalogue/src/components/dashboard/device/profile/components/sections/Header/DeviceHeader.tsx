@@ -159,7 +159,7 @@ export function DeviceHeader({ device, onSave, isLoading }: DeviceHeaderProps) {
                   </PopoverTrigger>
                   <PopoverContent className="w-48 p-1.5" align="start">
                     <div className="space-y-0.5">
-                      {deviceTypes.map((type) => (
+                      {deviceTypes.map(({ type, count }) => (
                         <button
                           key={type}
                           onClick={() => handleTypeSelect(type)}
@@ -173,14 +173,15 @@ export function DeviceHeader({ device, onSave, isLoading }: DeviceHeaderProps) {
                             }
                           }}
                           className={cn(
-                            "w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors",
+                            "w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors flex items-center justify-between",
                             "focus:outline-none focus:ring-2 focus:ring-blue-500/20",
                             device.type === type
                               ? "bg-blue-500/10 text-blue-700 font-medium dark:bg-blue-500/20 dark:text-blue-400"
                               : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800/60"
                           )}
                         >
-                          {type}
+                          <span>{type}</span>
+                          <span className="text-xs text-gray-400 dark:text-gray-500">{count}</span>
                         </button>
                       ))}
                     </div>

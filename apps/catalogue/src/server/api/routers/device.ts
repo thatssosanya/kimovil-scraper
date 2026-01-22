@@ -34,6 +34,7 @@ import {
   camera,
   screen,
   deviceToRating,
+  scrapeJob,
 } from "@/src/server/db/schema";
 import { normalizeDeviceName } from "@/src/server/services/device-data/normalize";
 // Timestamp transformations are now handled by custom Drizzle datetime type
@@ -2247,6 +2248,13 @@ export const deviceRouter = createTRPCRouter({
         .where(eq(deviceCharacteristics.id, input.id))
         .returning();
 
+      // Reset the scrape job so user can re-import
+      if (deleted?.deviceId) {
+        await ctx.db
+          .delete(scrapeJob)
+          .where(eq(scrapeJob.deviceId, deleted.deviceId));
+      }
+
       return deleted;
     }),
 
@@ -2624,14 +2632,18 @@ export const deviceRouter = createTRPCRouter({
    * @returns Array of unique device types
    */
   getDeviceTypes: publicProcedure.query(async ({ ctx }) => {
-    const devices = await ctx.db
-      .selectDistinct({ type: device.type })
+    const result = await ctx.db
+      .select({ 
+        type: device.type,
+        count: sql<number>`count(*)`.as("count"),
+      })
       .from(device)
-      .where(isNotNull(device.type));
+      .where(isNotNull(device.type))
+      .groupBy(device.type)
+      .orderBy(desc(sql`count(*)`));
 
-    return devices
-      .map((d) => d.type)
-      .filter((type): type is string => type !== null && type !== undefined)
-      .sort();
+    return result
+      .filter((r): r is { type: string; count: number } => r.type !== null)
+      .map((r) => ({ type: r.type, count: r.count }));
   }),
 });

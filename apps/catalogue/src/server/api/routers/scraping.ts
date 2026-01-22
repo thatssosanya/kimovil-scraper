@@ -197,8 +197,21 @@ export const scrapingRouter = createTRPCRouter({
         }
 
         // Search existing matches in scraper DB, then transition to selecting
-        void searchExistingMatches(searchString)
-          .then(async (existingMatches) => {
+        // Try full name, then without first word (brand) if no results
+        void (async () => {
+          try {
+            let existingMatches = await searchExistingMatches(searchString);
+            
+            // If no results, try without first word (often brand name)
+            if (existingMatches.length === 0) {
+              const words = searchString.trim().split(/\s+/);
+              if (words.length > 1) {
+                const withoutBrand = words.slice(1).join(" ");
+                logger.info(`No results for "${searchString}", trying "${withoutBrand}"`);
+                existingMatches = await searchExistingMatches(withoutBrand);
+              }
+            }
+            
             await jobManager.updateJob(deviceId, {
               step: "selecting",
               existingMatches: existingMatches.length > 0 ? existingMatches : [],
@@ -206,14 +219,14 @@ export const scrapingRouter = createTRPCRouter({
             logger.info(`Local search done for device ${deviceId}`, {
               matchCount: existingMatches.length,
             });
-          })
-          .catch(async (error) => {
+          } catch (error) {
             logger.warn(`Local search failed for device ${deviceId}`, error);
             await jobManager.updateJob(deviceId, {
               step: "selecting",
               existingMatches: [],
             });
-          });
+          }
+        })();
 
         logger.info(`Scraping started for device ${deviceId}`, {
           userId,
@@ -363,37 +376,44 @@ export const scrapingRouter = createTRPCRouter({
       }
 
       try {
-        const job = await jobManager.retryJob(deviceId, userId);
+        const job = await jobManager.retryJob(deviceId, userId, searchString);
 
         switch (job.step) {
           case "searching":
             {
-              const finalSearchString = searchString || job.deviceName;
+              const finalSearchString = job.deviceName;
               if (finalSearchString) {
-              // Mark dispatch time
-              await jobManager.updateJob(deviceId, { dispatchedAt: new Date() });
-              void service
-                .getClient()
-                .searchWithTracking(finalSearchString, {
-                  onEvent: createEventHandler(deviceId),
-                })
-                .then(async ({ requestId, result }) => {
-                  await jobManager.updateJob(deviceId, { scraperRequestId: requestId });
-                  const options = result.options.map((opt) => ({
-                    name: opt.name,
-                    slug: opt.slug,
-                  }));
-                  await jobManager.handleSearchComplete(deviceId, options);
-                  cleanupAcknowledgementTracking(deviceId);
-                })
-                .catch(async (error) => {
-                  cleanupAcknowledgementTracking(deviceId);
-                  await jobManager.handleScrapeError(
-                    deviceId,
-                    error instanceof Error ? error : new Error(String(error)),
-                    "kimovil"
-                  );
-                });
+                // Do local search first (same as startScrape)
+                // Try full name, then without first word (brand) if no results
+                void (async () => {
+                  try {
+                    let existingMatches = await searchExistingMatches(finalSearchString);
+                    
+                    // If no results, try without first word (often brand name)
+                    if (existingMatches.length === 0) {
+                      const words = finalSearchString.trim().split(/\s+/);
+                      if (words.length > 1) {
+                        const withoutBrand = words.slice(1).join(" ");
+                        logger.info(`No results for "${finalSearchString}", trying "${withoutBrand}"`);
+                        existingMatches = await searchExistingMatches(withoutBrand);
+                      }
+                    }
+                    
+                    await jobManager.updateJob(deviceId, {
+                      step: "selecting",
+                      existingMatches: existingMatches.length > 0 ? existingMatches : [],
+                    });
+                    logger.info(`Local search done for device ${deviceId}`, {
+                      matchCount: existingMatches.length,
+                    });
+                  } catch (error) {
+                    logger.warn(`Local search failed for device ${deviceId}`, error);
+                    await jobManager.updateJob(deviceId, {
+                      step: "selecting",
+                      existingMatches: [],
+                    });
+                  }
+                })();
               }
             }
             break;

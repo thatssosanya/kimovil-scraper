@@ -196,7 +196,7 @@ class JobManager {
     });
   }
 
-  async retryJob(deviceId: string, userId: string): Promise<ScrapeJob> {
+  async retryJob(deviceId: string, userId: string, searchString?: string): Promise<ScrapeJob> {
     const job = await this.jobStore.get(deviceId);
 
     if (!job) {
@@ -210,7 +210,22 @@ class JobManager {
     logger.info(`Retrying job for device ${deviceId}`, {
       currentStep: job.step,
       attempts: job.attempts,
+      searchString,
     });
+
+    // If searchString provided, force a fresh search regardless of current step
+    if (searchString) {
+      return this.jobStore.upsert(deviceId, {
+        step: "searching",
+        userId,
+        deviceName: searchString,
+        // Clear previous results to start fresh
+        autocompleteOptions: [],
+        existingMatches: [],
+        slug: undefined,
+        error: undefined,
+      });
+    }
 
     switch (job.step) {
       case "searching":
