@@ -265,6 +265,7 @@ const SelectionPanel = ({
   onImportExisting,
   onSearchKimovil,
   isSearchingKimovil,
+  onCustomSearch,
 }: {
   job: ScrapeJob;
   onSlugSelect: (
@@ -275,6 +276,7 @@ const SelectionPanel = ({
   onImportExisting: (slug: string, name: string) => void;
   onSearchKimovil?: () => void;
   isSearchingKimovil?: boolean;
+  onCustomSearch?: (searchString: string) => void;
 }) => {
   const [selectedSlug, setSelectedSlug] = useState<{
     slug: string;
@@ -359,8 +361,7 @@ const SelectionPanel = ({
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && customInput.trim()) {
-                    const slug = customInput.toLowerCase().replace(/\s+/g, "-");
-                    handleSlugSelect(slug, customInput, true);
+                    onCustomSearch?.(customInput.trim());
                     setCustomInput("");
                     setIsCustomInputActive(false);
                   }
@@ -373,8 +374,7 @@ const SelectionPanel = ({
               <Button
                 onClick={() => {
                   if (customInput.trim()) {
-                    const slug = customInput.toLowerCase().replace(/\s+/g, "-");
-                    handleSlugSelect(slug, customInput, true);
+                    onCustomSearch?.(customInput.trim());
                     setCustomInput("");
                     setIsCustomInputActive(false);
                   }
@@ -521,8 +521,7 @@ const SelectionPanel = ({
               autoFocus
               onKeyDown={(e) => {
                 if (e.key === "Enter" && customInput.trim()) {
-                  const slug = customInput.toLowerCase().replace(/\s+/g, "-");
-                  handleSlugSelect(slug, customInput, true);
+                  onCustomSearch?.(customInput.trim());
                   setCustomInput("");
                   setIsCustomInputActive(false);
                 }
@@ -535,8 +534,7 @@ const SelectionPanel = ({
             <Button
               onClick={() => {
                 if (customInput.trim()) {
-                  const slug = customInput.toLowerCase().replace(/\s+/g, "-");
-                  handleSlugSelect(slug, customInput, true);
+                  onCustomSearch?.(customInput.trim());
                   setCustomInput("");
                   setIsCustomInputActive(false);
                 }
@@ -555,7 +553,7 @@ const SelectionPanel = ({
           >
             <div className="flex items-center gap-2">
               <Plus className="h-3 w-3" />
-              <span>Свой вариант</span>
+              <span>Другой запрос</span>
             </div>
           </button>
         )}
@@ -894,6 +892,7 @@ const JobStatus = ({ job }: JobStatusProps = {}) => {
           onImportExisting={handleImportExisting}
           onSearchKimovil={handleSearchKimovil}
           isSearchingKimovil={searchKimovilMutation.isPending}
+          onCustomSearch={handleCustomSearch}
         />
       );
     }
