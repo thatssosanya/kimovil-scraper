@@ -196,49 +196,23 @@ export const scrapingRouter = createTRPCRouter({
           return job;
         }
 
-        // Fast path: search existing matches in scraper DB (parallel)
+        // Search existing matches in scraper DB, then transition to selecting
         void searchExistingMatches(searchString)
           .then(async (existingMatches) => {
-            if (existingMatches.length > 0) {
-              await jobManager.updateJob(deviceId, { existingMatches });
-              logger.info(`Found ${existingMatches.length} existing matches for device ${deviceId}`);
-            }
-          })
-          .catch((error) => {
-            logger.warn(`Fast path search failed for device ${deviceId}`, error);
-          });
-
-        // Mark dispatch time before sending
-        await jobManager.updateJob(deviceId, { dispatchedAt: new Date() });
-
-        // Slow path: Kimovil search via WebSocket (with tracking)
-        void service
-          .getClient()
-          .searchWithTracking(searchString, {
-            onEvent: createEventHandler(deviceId),
-          })
-          .then(async ({ requestId, result }) => {
-            // Store request ID for resilience tracking
-            await jobManager.updateJob(deviceId, { scraperRequestId: requestId });
-
-            const options = result.options.map((opt) => ({
-              name: opt.name,
-              slug: opt.slug,
-            }));
-            await jobManager.handleSearchComplete(deviceId, options);
-            cleanupAcknowledgementTracking(deviceId);
-            logger.info(`Search completed for device ${deviceId}`, {
-              optionCount: options.length,
-              requestId,
+            await jobManager.updateJob(deviceId, {
+              step: "selecting",
+              existingMatches: existingMatches.length > 0 ? existingMatches : [],
+            });
+            logger.info(`Local search done for device ${deviceId}`, {
+              matchCount: existingMatches.length,
             });
           })
           .catch(async (error) => {
-            cleanupAcknowledgementTracking(deviceId);
-            logger.error(`Search failed for device ${deviceId}`, error);
-            await jobManager.handleScrapeError(
-              deviceId,
-              error instanceof Error ? error : new Error(String(error))
-            );
+            logger.warn(`Local search failed for device ${deviceId}`, error);
+            await jobManager.updateJob(deviceId, {
+              step: "selecting",
+              existingMatches: [],
+            });
           });
 
         logger.info(`Scraping started for device ${deviceId}`, {
@@ -364,9 +338,12 @@ export const scrapingRouter = createTRPCRouter({
     }),
 
   retryJob: publicProcedure
-    .input(z.object({ deviceId: z.string() }))
+    .input(z.object({
+      deviceId: z.string(),
+      searchString: z.string().optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
-      const { deviceId } = input;
+      const { deviceId, searchString } = input;
       const userId = ctx.auth?.userId;
 
       if (!userId) {
@@ -390,12 +367,14 @@ export const scrapingRouter = createTRPCRouter({
 
         switch (job.step) {
           case "searching":
-            if (job.deviceName) {
+            {
+              const finalSearchString = searchString || job.deviceName;
+              if (finalSearchString) {
               // Mark dispatch time
               await jobManager.updateJob(deviceId, { dispatchedAt: new Date() });
               void service
                 .getClient()
-                .searchWithTracking(job.deviceName, {
+                .searchWithTracking(finalSearchString, {
                   onEvent: createEventHandler(deviceId),
                 })
                 .then(async ({ requestId, result }) => {
@@ -411,9 +390,11 @@ export const scrapingRouter = createTRPCRouter({
                   cleanupAcknowledgementTracking(deviceId);
                   await jobManager.handleScrapeError(
                     deviceId,
-                    error instanceof Error ? error : new Error(String(error))
+                    error instanceof Error ? error : new Error(String(error)),
+                    "kimovil"
                   );
                 });
+              }
             }
             break;
           case "scraping":
@@ -575,6 +556,85 @@ export const scrapingRouter = createTRPCRouter({
           message: error instanceof Error ? error.message : "Import failed",
         });
       }
+    }),
+
+  searchKimovil: publicProcedure
+    .input(z.object({ deviceId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const { deviceId } = input;
+      const userId = ctx.auth?.userId;
+
+      if (!userId) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "You must be logged in to perform this action",
+        });
+      }
+
+      const job = await jobManager.getJob(deviceId);
+      if (!job) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Job not found",
+        });
+      }
+
+      if (job.userId !== userId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You can only search for your own jobs",
+        });
+      }
+
+      const service = getScraperService();
+      if (!service.isReady()) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Scraper service is currently unavailable",
+        });
+      }
+
+      const searchString = job.deviceName;
+      if (!searchString) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "No search string available",
+        });
+      }
+
+      // Mark as searching Kimovil
+      await jobManager.updateJob(deviceId, { dispatchedAt: new Date() });
+
+      void service
+        .getClient()
+        .searchWithTracking(searchString, {
+          onEvent: createEventHandler(deviceId),
+        })
+        .then(async ({ requestId, result }) => {
+          await jobManager.updateJob(deviceId, { scraperRequestId: requestId });
+          const options = result.options.map((opt) => ({
+            name: opt.name,
+            slug: opt.slug,
+          }));
+          await jobManager.handleSearchComplete(deviceId, options);
+          cleanupAcknowledgementTracking(deviceId);
+          logger.info(`Kimovil search completed for device ${deviceId}`, {
+            optionCount: options.length,
+            requestId,
+          });
+        })
+        .catch(async (error) => {
+          cleanupAcknowledgementTracking(deviceId);
+          logger.error(`Kimovil search failed for device ${deviceId}`, error);
+          await jobManager.handleScrapeError(
+            deviceId,
+            error instanceof Error ? error : new Error(String(error)),
+            "kimovil"
+          );
+        });
+
+      logger.info(`Kimovil search started for device ${deviceId}`, { searchString });
+      return { success: true };
     }),
 });
 

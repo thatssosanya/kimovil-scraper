@@ -193,11 +193,12 @@ export const useScraperClient = () => {
     }
   };
 
-  const retryJob = async (deviceId: string) => {
+  const retryJob = async (deviceId: string, searchString?: string) => {
     try {
       addProcessingDevice(deviceId);
       await retryJobMutation.mutateAsync({
         deviceId,
+        searchString,
       });
 
       await refetch?.();

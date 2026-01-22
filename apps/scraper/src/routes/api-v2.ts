@@ -36,7 +36,7 @@ const paginate = <T>(items: readonly T[], { limit, offset }: PaginationParams): 
 export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
   new Elysia({ prefix: "/api/v2" })
     .get("/devices", async ({ query }) => {
-      const search = (query.search as string)?.toLowerCase() || "";
+      const search = (query.search as string)?.toLowerCase().replace(/\s+/g, " ").trim() || "";
       const filter = query.filter as string | undefined;
       const pagination = parsePagination(query);
       const source = (query.source as string) ?? "kimovil";
@@ -116,11 +116,12 @@ export const createApiV2Routes = (bulkJobManager: BulkJobManager) =>
         let filtered: DeviceWithStats[] = devices;
 
         if (search) {
+          const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
           filtered = filtered.filter(
             (d) =>
-              d.name.toLowerCase().includes(search) ||
+              normalize(d.name).includes(search) ||
               d.slug.toLowerCase().includes(search) ||
-              d.brand?.toLowerCase().includes(search),
+              normalize(d.brand ?? "").includes(search),
           );
         }
 

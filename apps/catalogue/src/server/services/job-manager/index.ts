@@ -131,7 +131,8 @@ class JobManager {
 
   async handleScrapeError(
     deviceId: string,
-    error: Error | string
+    error: Error | string,
+    source?: "kimovil" | "other"
   ): Promise<void> {
     const currentJob = await this.jobStore.get(deviceId);
     if (!currentJob) {
@@ -139,9 +140,34 @@ class JobManager {
       return;
     }
 
+    const errorMessage = typeof error === "string" ? error : error.message;
+
+    // Don't overwrite terminal states
+    if (currentJob.step === "done" || currentJob.step === "slug_conflict") {
+      logger.info(`Ignoring error for completed job ${deviceId}`);
+      return;
+    }
+
+    // Don't overwrite scraping with search error
+    if (currentJob.step === "scraping" && source === "kimovil") {
+      logger.info(`Ignoring Kimovil error for job in scraping phase ${deviceId}`);
+      return;
+    }
+
+    // Has local options - store error but keep showing options
+    const hasLocalOptions = (currentJob.existingMatches?.length ?? 0) > 0;
+    if (hasLocalOptions && source === "kimovil") {
+      await this.jobStore.upsert(deviceId, {
+        step: "selecting",
+        error: "Kimovil поиск недоступен",
+      });
+      return;
+    }
+
+    // No fallback - set error state
     await this.jobStore.upsert(deviceId, {
       step: "error",
-      error: typeof error === "string" ? error : error.message,
+      error: errorMessage,
       progressStage: undefined,
       progressPercent: undefined,
     });

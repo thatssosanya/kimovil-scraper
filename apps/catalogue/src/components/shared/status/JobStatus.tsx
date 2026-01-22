@@ -263,6 +263,8 @@ const SelectionPanel = ({
   job,
   onSlugSelect,
   onImportExisting,
+  onSearchKimovil,
+  isSearchingKimovil,
 }: {
   job: ScrapeJob;
   onSlugSelect: (
@@ -271,6 +273,8 @@ const SelectionPanel = ({
     skipConfirmation?: boolean
   ) => void;
   onImportExisting: (slug: string, name: string) => void;
+  onSearchKimovil?: () => void;
+  isSearchingKimovil?: boolean;
 }) => {
   const [selectedSlug, setSelectedSlug] = useState<{
     slug: string;
@@ -301,16 +305,115 @@ const SelectionPanel = ({
   const hasExistingMatches = job.existingMatches && job.existingMatches.length > 0;
   const hasKimovilOptions = job.autocompleteOptions && job.autocompleteOptions.length > 0;
 
+  // No local matches and no Kimovil results yet - show search options
   if (!hasExistingMatches && !hasKimovilOptions) {
     return (
-      <div className="py-2 text-center text-xs text-gray-500 dark:text-gray-400">
-        Варианты не найдены. Попробуйте другой запрос.
+      <div className="space-y-3">
+        <div className="py-2 text-center text-xs text-gray-500 dark:text-gray-400">
+          Совпадений в базе не найдено
+        </div>
+
+        {/* Search Kimovil button */}
+        {!job.error && onSearchKimovil && (
+          <button
+            onClick={onSearchKimovil}
+            disabled={isSearchingKimovil}
+            className="w-full rounded-md border border-dashed border-gray-300 px-3 py-2 text-left text-xs text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-600 dark:border-gray-700 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:text-gray-300 disabled:opacity-50"
+          >
+            <div className="flex items-center gap-2">
+              {isSearchingKimovil ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Поиск в Kimovil...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-3 w-3" />
+                  <span>Поиск в Kimovil</span>
+                </>
+              )}
+            </div>
+          </button>
+        )}
+
+        {/* Error from Kimovil */}
+        {job.error && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-2 dark:border-amber-800/40 dark:bg-amber-900/20">
+            <AlertTriangle className="inline h-3.5 w-3.5 text-amber-500 mr-1.5" />
+            <span className="text-[11px] text-amber-700 dark:text-amber-300">
+              {job.error}
+            </span>
+          </div>
+        )}
+
+        {/* Custom input */}
+        <div className="pt-2">
+          {isCustomInputActive ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={customInput}
+                onChange={(e) => setCustomInput(e.target.value)}
+                placeholder="Название устройства"
+                className="flex-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && customInput.trim()) {
+                    const slug = customInput.toLowerCase().replace(/\s+/g, "-");
+                    handleSlugSelect(slug, customInput, true);
+                    setCustomInput("");
+                    setIsCustomInputActive(false);
+                  }
+                  if (e.key === "Escape") {
+                    setIsCustomInputActive(false);
+                    setCustomInput("");
+                  }
+                }}
+              />
+              <Button
+                onClick={() => {
+                  if (customInput.trim()) {
+                    const slug = customInput.toLowerCase().replace(/\s+/g, "-");
+                    handleSlugSelect(slug, customInput, true);
+                    setCustomInput("");
+                    setIsCustomInputActive(false);
+                  }
+                }}
+                variant="outline"
+                size="sm"
+                className="text-xs"
+              >
+                OK
+              </Button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setIsCustomInputActive(true)}
+              className="w-full rounded-md border border-dashed border-gray-300 px-3 py-2 text-left text-xs text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-600 dark:border-gray-700 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:text-gray-300"
+            >
+              <div className="flex items-center gap-2">
+                <Plus className="h-3 w-3" />
+                <span>Ввести вручную</span>
+              </div>
+            </button>
+          )}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
+      {/* Warning banner when Kimovil failed but local options exist */}
+      {job.error && hasExistingMatches && (
+        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 dark:border-amber-800/40 dark:bg-amber-900/20">
+          <AlertTriangle className="inline h-3.5 w-3.5 text-amber-500 mr-1.5" />
+          <span className="text-[11px] text-amber-700 dark:text-amber-300">
+            {job.error}
+          </span>
+        </div>
+      )}
+
       {/* Existing matches - instant import */}
       {hasExistingMatches && (
         <div className="space-y-1">
@@ -383,12 +486,27 @@ const SelectionPanel = ({
         </div>
       )}
 
-      {/* Still searching for Kimovil results */}
-      {!hasKimovilOptions && hasExistingMatches && (
-        <div className="flex items-center gap-2 text-[11px] text-gray-400 dark:text-gray-500">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          <span>Поиск дополнительных вариантов...</span>
-        </div>
+      {/* Search Kimovil button (only if not searched yet and no error) */}
+      {!hasKimovilOptions && !job.error && onSearchKimovil && (
+        <button
+          onClick={onSearchKimovil}
+          disabled={isSearchingKimovil}
+          className="w-full rounded-md border border-dashed border-gray-300 px-3 py-2 text-left text-xs text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-600 dark:border-gray-700 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:text-gray-300 disabled:opacity-50"
+        >
+          <div className="flex items-center gap-2">
+            {isSearchingKimovil ? (
+              <>
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span>Поиск в Kimovil...</span>
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-3 w-3" />
+                <span>Поиск в Kimovil</span>
+              </>
+            )}
+          </div>
+        </button>
       )}
 
       <div className="pt-2">
@@ -469,13 +587,17 @@ const ErrorPanel = ({
   job,
   onRetry,
   onCancel,
+  onCustomSearch,
 }: {
   job: ScrapeJob;
   onRetry: () => void;
   onCancel: () => void;
+  onCustomSearch?: (searchString: string) => void;
 }) => {
   const [isRetrying, setIsRetrying] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [searchTerm, setSearchTerm] = useState(job.deviceName || "");
+  const [isSearching, setIsSearching] = useState(false);
 
   const handleRetry = () => {
     setIsRetrying(true);
@@ -485,6 +607,12 @@ const ErrorPanel = ({
   const handleCancel = () => {
     setIsCancelling(true);
     onCancel();
+  };
+
+  const handleCustomSearch = () => {
+    if (!searchTerm.trim() || !onCustomSearch) return;
+    setIsSearching(true);
+    onCustomSearch(searchTerm);
   };
 
   return (
@@ -505,6 +633,36 @@ const ErrorPanel = ({
           )}
         </div>
       </div>
+
+      {/* Custom search input */}
+      {onCustomSearch && (
+        <div className="mt-3 pt-3 border-t border-red-200 dark:border-red-800/40">
+          <div className="text-[11px] text-gray-600 dark:text-gray-400 mb-2">
+            Попробуйте другой поисковый запрос:
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Samsung Galaxy S24"
+              className="flex-1 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+              onKeyDown={(e) => e.key === "Enter" && handleCustomSearch()}
+              disabled={isSearching}
+            />
+            <Button
+              onClick={handleCustomSearch}
+              size="sm"
+              variant="outline"
+              className="text-xs"
+              disabled={isSearching || !searchTerm.trim()}
+            >
+              {isSearching ? <Loader2 className="h-3 w-3 animate-spin" /> : "Искать"}
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="mt-3 flex gap-2">
         <Button
           disabled={isRetrying}
@@ -639,6 +797,12 @@ const JobStatus = ({ job }: JobStatusProps = {}) => {
     },
   });
 
+  const searchKimovilMutation = api.scraping.searchKimovil.useMutation({
+    onSuccess: () => {
+      void utils.scraping.getJobs.invalidate();
+    },
+  });
+
   const handleAiStageStart = useCallback(() => {
     setAiProgress({
       startedAt: Date.now(),
@@ -687,6 +851,19 @@ const JobStatus = ({ job }: JobStatusProps = {}) => {
     void utils.device.getDeviceCharacteristic.invalidate();
   };
 
+  const handleCustomSearch = (searchString: string) => {
+    if (!scrapeJob.deviceId) return;
+    retryMutation.mutate({
+      deviceId: scrapeJob.deviceId,
+      searchString,
+    });
+  };
+
+  const handleSearchKimovil = () => {
+    if (!scrapeJob.deviceId) return;
+    searchKimovilMutation.mutate({ deviceId: scrapeJob.deviceId });
+  };
+
   // Show selection panel when:
   // 1. In "selecting" step (Kimovil search complete)
   // 2. In "searching" step but has existing matches (fast path ready)
@@ -700,6 +877,7 @@ const JobStatus = ({ job }: JobStatusProps = {}) => {
           job={scrapeJob}
           onRetry={handleRetry}
           onCancel={handleCancel}
+          onCustomSearch={handleCustomSearch}
         />
       );
     }
@@ -714,6 +892,8 @@ const JobStatus = ({ job }: JobStatusProps = {}) => {
           job={scrapeJob}
           onSlugSelect={handleSlugSelect}
           onImportExisting={handleImportExisting}
+          onSearchKimovil={handleSearchKimovil}
+          isSearchingKimovil={searchKimovilMutation.isPending}
         />
       );
     }
