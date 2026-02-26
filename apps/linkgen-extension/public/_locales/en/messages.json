@@ -1,0 +1,10 @@
+{
+  "extensionDescription": {
+    "description": "Description",
+    "message": "Расширение для генерации партнерских ссылок на товары Яндекс.Маркет, AliExpress и Price.ru"
+  },
+  "extensionName": {
+    "description": "Extension name",
+    "message": "Генератор ссылок для Яндекс.Маркет, AliExpress и Price.ru"
+  }
+}
