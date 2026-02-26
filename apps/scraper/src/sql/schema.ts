@@ -1287,6 +1287,7 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     // Add release_date to devices table (materialized from entity_data_raw JSON)
     yield* ensureColumn(sql, "devices", "release_date", "TEXT");
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_devices_release_date ON devices(release_date DESC, name)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_devices_release_date_order_expr ON devices((CASE WHEN release_date IS NULL THEN 1 ELSE 0 END), release_date DESC, name)`);
 
     // Backfill release_date from entity_data_raw (runs once, skips if already populated)
     yield* sql.unsafe(`
