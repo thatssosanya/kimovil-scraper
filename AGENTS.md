@@ -144,7 +144,7 @@ curl -s -X POST http://localhost:1488/debug/eval \
 ## Architecture
 - **Monorepo**: Turborepo, workspaces in `apps/*` and `packages/*`
 - **Apps**: `scraper` (Elysia + native http.Server + Effect backend), `ws-web` (SolidJS + Vite + Tailwind v4 frontend)
-- **Packages**: `@repo/scraper-protocol` (Effect Schema msgs), `@repo/scraper-domain` (services + domain models), `@repo/typescript-config`
+- **Packages**: `@repo/scraper-protocol` (Effect Schema messages), `@repo/scraper-domain` (services + domain models), `@repo/typescript-config`
 - **Stack**: TypeScript 5.9, Effect 3.x, @effect/sql, ESLint v9, Prettier
 
 ## Database Layer
@@ -164,7 +164,7 @@ curl -s -X POST http://localhost:1488/debug/eval \
 ## Scraper Services
 - **SearchService**: Kimovil autocomplete API search
 - **ScrapeService**: Full phone data scraping via Playwright + Bright Data (or local browser)
-- **OpenAIService**: Data normalization/translation using **gemini-3-flash-preview** (~25s per phone)
+- **RobotService**: Data normalization/translation using **gemini-3-flash-preview** (~25s per phone)
 - **HtmlCacheService**: SQLite cache for raw HTML with verification status
 - **EntityDataService**: Raw + AI-normalized data storage with quarantine fallback
 - **JobQueueService**: Job and queue item management with transactions and race guards
@@ -184,6 +184,13 @@ curl -s -X POST http://localhost:1488/debug/eval \
 - `scrape`: Full scrape (HTML + raw extraction + AI normalization)
 - `process_raw`: Extract raw data from cached HTML
 - `process_ai`: Run AI normalization on raw data
+- `clear_html`: Remove cached HTML artifacts
+- `clear_raw`: Remove raw entity data
+- `clear_processed`: Remove AI-processed entity data
+- `link_priceru`: Link catalogue devices with price.ru offers
+- `discover_latest`: Crawl and enqueue newly discovered devices
+
+Scheduler API currently validates `jobType` as `scrape | process_raw | process_ai` for create/update endpoints.
 
 ## Scheduler
 
@@ -197,17 +204,24 @@ The scheduler enables automated, recurring job execution using cron expressions.
 | `name` | TEXT | Human-readable schedule name |
 | `source` | TEXT | Data source (kimovil, yandex_market, etc.) |
 | `data_kind` | TEXT | Data type (specs, prices) |
-| `cron_expression` | TEXT | Standard 5-field cron expression |
-| `job_type` | TEXT | scrape, process_raw, process_ai |
-| `mode` | TEXT | fast, full (optional) |
+| `job_type` | TEXT | scrape, process_raw, process_ai, clear_html, clear_raw, clear_processed, link_priceru, discover_latest |
+| `mode` | TEXT | fast, complex |
+| `filter` | TEXT / NULL | Optional JSON array filter for specific external IDs |
 | `enabled` | INTEGER | 0=disabled, 1=enabled |
-| `next_run_at` | TEXT | ISO timestamp for next execution |
-| `last_run_at` | TEXT | ISO timestamp of last execution |
-| `created_at` | TEXT | Creation timestamp |
-| `updated_at` | TEXT | Last update timestamp |
+| `run_once` | INTEGER | 0=recurring, 1=disable after successful run |
+| `cron_expression` | TEXT | Standard 5-field cron expression |
+| `timezone` | TEXT | IANA timezone (default: UTC) |
+| `next_run_at` | INTEGER / NULL | Unix epoch seconds for next execution |
+| `last_run_at` | INTEGER / NULL | Unix epoch seconds of last execution |
+| `last_status` | TEXT / NULL | Last run result: success, error, skipped |
+| `last_error` | TEXT / NULL | Last run error message |
+| `last_job_id` | TEXT / NULL | Last created job ID |
+| `locked_until` | INTEGER / NULL | Lock expiration (unix epoch seconds) |
+| `created_at` | INTEGER | Creation timestamp (unix epoch seconds) |
+| `updated_at` | INTEGER | Last update timestamp (unix epoch seconds) |
 
 ### SchedulerService
-- **Tick loop**: Runs every 60 seconds via `Effect.repeat(Schedule.fixed("60 seconds"))`
+- **Tick loop**: Runs continuously with `Effect.delay("10 seconds")` between iterations
 - **Due check**: Queries schedules where `enabled=1 AND next_run_at <= NOW()`
 - **Execution**: Creates a job via `JobQueueService`, populates queue items
 - **Next run**: Calculates next execution from cron expression after job starts
@@ -248,7 +262,7 @@ Standard 5-field cron (minute-level granularity):
 | DELETE | `/api/schedules/:id` | Delete schedule |
 | POST | `/api/schedules/:id/enable` | Enable (sets next_run_at) |
 | POST | `/api/schedules/:id/disable` | Disable schedule |
-| POST | `/api/schedules/:id/trigger` | Manual trigger (runs immediately) |
+| POST | `/api/schedules/:id/trigger` | Manual trigger (runs immediately, returns `jobId`) |
 
 ### Example: Create and Enable a Schedule
 ```bash
@@ -293,7 +307,7 @@ Create `apps/scraper/.env`:
 ```
 GOOGLE_API_KEY=...
 LOCAL_PLAYWRIGHT=true
-BRD_WSENDPOINT=wss://...  # Optional: Bright Data endpoint
+BRD_WSENDPOINT=wss://...  # Required when LOCAL_PLAYWRIGHT is not true
 BULK_CONCURRENCY=2
 BULK_RATE_LIMIT_MS=1500
 BULK_RETRY_BASE_MS=2000
@@ -475,9 +489,9 @@ registerPipeline({
 - **SQLite file**: `apps/scraper/scraper-cache.sqlite` (not `scraper.db`)
 
 ## Bright Data CDP Constraints
-- **Kimovil requires Bright Data**: The site has bot protection that blocks local browsers. Always use Bright Data for Kimovil scraping.
+- **Kimovil in production should use Bright Data**: Local Playwright mode exists (`LOCAL_PLAYWRIGHT=true`) for local debugging, but reliability against bot protection is lower.
 - **Per-session navigation limit**: Bright Data CDP sessions have a low navigation limit (~1-2 page.goto calls per session)
-- **Session isolation**: Add `?session=<unique-id>` to `BRD_WSENDPOINT` for each CDP connection to get fresh session quotas
+- **Session isolation**: Add `?session=<unique-id>` to `BRD_WSENDPOINT` for each CDP connection to get a fresh session quota
 - **Never share sessions**: Each browser connection that needs multiple navigations must use its own unique session ID
 
 ## Known Limitations (Future Work)
