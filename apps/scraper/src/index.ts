@@ -19,12 +19,13 @@ import { createWidgetRoutes } from "./routes/widget";
 import { createWidgetDebugRoutes } from "./routes/widget-debug";
 import { createWidgetMappingsRoutes } from "./routes/widget-mappings";
 import { createDeviceImagesRoutes } from "./routes/device-images";
+import { createExtensionRoutes } from "./routes/extension";
 import { createWsServer } from "./routes/ws-server";
 
 export { getBulkJobManager };
 
 // Paths that don't require authentication
-const PUBLIC_PATH_PREFIXES = ["/widget/v1/", "/api/auth/"];
+const PUBLIC_PATH_PREFIXES = ["/widget/v1/", "/api/auth/", "/api/extension/"];
 
 // Create Elysia app WITHOUT the node adapter - we'll own the http.Server ourselves
 const app = new Elysia()
@@ -67,7 +68,8 @@ const app = new Elysia()
   .use(createWidgetRoutes())
   .use(createWidgetDebugRoutes())
   .use(createWidgetMappingsRoutes())
-  .use(createDeviceImagesRoutes());
+  .use(createDeviceImagesRoutes())
+  .use(createExtensionRoutes());
 
 // Mount debug eval endpoint only in development
 if (config.enableDebugEval) {

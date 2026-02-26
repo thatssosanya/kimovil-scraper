@@ -3,10 +3,14 @@ import type {
   YandexPreviewResult,
   YandexCreateDeviceParams,
   YandexCreateDeviceResult,
+  YandexSearchLinksParams,
+  YandexSearchLinksResult,
 } from "@repo/scraper-protocol";
 
 // TODO: Use env variable for production
 const WS_URL = import.meta.env.VITE_SCRAPER_WS_URL ?? "ws://localhost:1488/ws";
+const API_BASE = import.meta.env.VITE_SCRAPER_API_URL ?? "http://localhost:1488";
+const EXTENSION_SECRET = import.meta.env.VITE_EXTENSION_SECRET;
 
 interface WsResponse<T> {
   id: string;
@@ -100,4 +104,71 @@ export function createDeviceFromYandex(
   params: YandexCreateDeviceParams,
 ): Promise<YandexCreateDeviceResult> {
   return sendWsRequest("yandex.createDeviceFromPreview", params);
+}
+
+export function searchYandexLinks(
+  params: YandexSearchLinksParams,
+): Promise<YandexSearchLinksResult> {
+  return sendWsRequest("yandex.searchLinks", params);
+}
+
+const getExtensionSecret = (): string => {
+  if (!EXTENSION_SECRET) {
+    throw new Error("VITE_EXTENSION_SECRET is not configured");
+  }
+  return EXTENSION_SECRET;
+};
+
+export async function invalidateYandexSearchCacheByPrefix(queryPrefix: string): Promise<{ deleted: number; normalizedPrefix: string }> {
+  const response = await fetch(`${API_BASE}/api/extension/yandex/search-cache/invalidate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      secret: getExtensionSecret(),
+      queryPrefix,
+    }),
+  });
+
+  const payload = await response.json() as {
+    success: boolean;
+    error?: string;
+    data?: { deleted?: number; normalizedPrefix?: string };
+  };
+
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error ?? `HTTP ${response.status}`);
+  }
+
+  return {
+    deleted: payload.data?.deleted ?? 0,
+    normalizedPrefix: payload.data?.normalizedPrefix ?? queryPrefix,
+  };
+}
+
+export async function invalidateYandexSearchCacheAll(): Promise<{ deleted: number }> {
+  const response = await fetch(`${API_BASE}/api/extension/yandex/search-cache/invalidate-all`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      secret: getExtensionSecret(),
+    }),
+  });
+
+  const payload = await response.json() as {
+    success: boolean;
+    error?: string;
+    data?: { deleted?: number };
+  };
+
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error ?? `HTTP ${response.status}`);
+  }
+
+  return {
+    deleted: payload.data?.deleted ?? 0,
+  };
 }

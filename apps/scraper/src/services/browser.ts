@@ -13,6 +13,13 @@ const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 // Each browser can only be used once before needing a fresh session
 const DEFAULT_MAX_USES = 1;
 const CLEANUP_INTERVAL_MS = 30_000; // Check for idle browsers every 30s
+const DEFAULT_POOL_KEY = "__default";
+const POOL_LOCAL_SOURCES = new Set(
+  (process.env.POOL_LOCAL_SOURCES ?? "yandex_market")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
 
 const pagesWithRouteHandler = new WeakSet<Page>();
 
@@ -34,6 +41,7 @@ export interface StealthSession {
 export interface BrowserSlot {
   id: number;
   browser: Browser;
+  poolKey: string;
   useCount: number;
   lastUsedAt: number;
   inUse: boolean;
@@ -79,6 +87,10 @@ export interface BrowserService {
     use: (page: Page) => Effect.Effect<A, E, R>,
   ) => Effect.Effect<A, E | BrowserError, R>;
   readonly withPooledBrowserPage: <A, E, R>(
+    use: (page: Page) => Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E | BrowserError, R>;
+  readonly withPooledBrowserPageForSource: <A, E, R>(
+    source: string,
     use: (page: Page) => Effect.Effect<A, E, R>,
   ) => Effect.Effect<A, E | BrowserError, R>;
   readonly resizePool: (size: number) => Effect.Effect<void, never>;
@@ -153,6 +165,16 @@ const cookieLoaders: Record<string, Effect.Effect<readonly PlaywrightCookie[], n
   yandex_market: loadYandexCookies,
 };
 
+const sourceFromPoolKey = (poolKey: string): string | null => {
+  const match = poolKey.match(/^source:(.+)$/);
+  return match?.[1] ?? null;
+};
+
+const shouldUseLocalPoolForKey = (poolKey: string): boolean => {
+  const source = sourceFromPoolKey(poolKey);
+  return source ? POOL_LOCAL_SOURCES.has(source) : false;
+};
+
 const initStealthSession: Effect.Effect<StealthSession, BrowserError> =
   Effect.gen(function* () {
     yield* logBrowser("Launching stealth browser...");
@@ -224,8 +246,20 @@ const initStealthSession: Effect.Effect<StealthSession, BrowserError> =
     );
   });
 
-const makeBrowser = (): Effect.Effect<Browser, BrowserError> =>
+const makeBrowser = (poolKey: string): Effect.Effect<Browser, BrowserError> =>
   Effect.gen(function* () {
+    if (shouldUseLocalPoolForKey(poolKey)) {
+      const browser = yield* Effect.tryPromise({
+        try: () => chromium.launch({ headless: true }),
+        catch: (error) =>
+          new BrowserError(
+            `Failed to create local browser for ${poolKey}: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      });
+      yield* logBrowser(`Launched local Chromium for poolKey=${poolKey}`);
+      return browser;
+    }
+
     const useLocal =
       (process.env.LOCAL_PLAYWRIGHT ?? "").toLowerCase() === "true";
     if (useLocal) {
@@ -284,6 +318,8 @@ export const BrowserServiceLive = Layer.scoped(
       Option.none(),
     );
     const loadedCookiesRef = yield* Ref.make<Set<string>>(new Set());
+    const pooledContextCookies = new WeakMap<BrowserContext, Set<string>>();
+    const pooledCookieInjectionDisabled = new Set<string>();
     const stealthLock = yield* Effect.makeSemaphore(1);
 
     const ensureCookiesForSource = (
@@ -310,6 +346,96 @@ export const BrowserServiceLive = Layer.scoped(
         }
 
         yield* Ref.update(loadedCookiesRef, (s) => new Set([...s, source]));
+      });
+
+    const ensureCookiesForPooledContext = (
+      source: string,
+      context: BrowserContext,
+    ): Effect.Effect<void, BrowserError> =>
+      Effect.gen(function* () {
+        if (pooledCookieInjectionDisabled.has(source)) {
+          return;
+        }
+
+        const loader = cookieLoaders[source];
+        if (!loader) {
+          return;
+        }
+
+        const loadedForContext = pooledContextCookies.get(context) ?? new Set<string>();
+        if (loadedForContext.has(source)) {
+          return;
+        }
+
+        const cookies = yield* loader;
+        if (cookies.length > 0) {
+          const stats = yield* Effect.tryPromise({
+            try: async () => {
+              const existing = await context.cookies([
+                "https://market.yandex.ru",
+                "https://yandex.ru",
+              ]);
+              const existingKeys = new Set(
+                existing.map((cookie) => `${cookie.name}|${cookie.domain}|${cookie.path}`),
+              );
+
+              const candidates = cookies.filter(
+                (cookie) =>
+                  !existingKeys.has(`${cookie.name}|${cookie.domain}|${cookie.path}`),
+              );
+
+              let added = 0;
+              let forbidden = 0;
+              let failed = 0;
+              let firstFailure: string | null = null;
+
+              for (const cookie of candidates) {
+                try {
+                  await context.addCookies([cookie]);
+                  added += 1;
+                } catch (error) {
+                  const message = error instanceof Error ? error.message : String(error);
+                  if (message.includes("cookies is forbidden")) {
+                    forbidden += 1;
+                  } else {
+                    failed += 1;
+                  }
+                  if (!firstFailure) {
+                    firstFailure = message;
+                  }
+                }
+              }
+
+              return {
+                total: cookies.length,
+                attempted: candidates.length,
+                added,
+                forbidden,
+                failed,
+                skippedExisting: cookies.length - candidates.length,
+                firstFailure,
+              };
+            },
+            catch: (error) =>
+              new BrowserError(
+                `Failed to prepare ${source} cookies for pooled context: ${error instanceof Error ? error.message : String(error)}`,
+              ),
+          });
+
+          yield* logBrowser(
+            `Loaded cookies for ${source} (pooled context): added=${stats.added}/${stats.total}, skippedExisting=${stats.skippedExisting}, forbidden=${stats.forbidden}, failed=${stats.failed}${stats.firstFailure ? `, firstFailure=${stats.firstFailure}` : ""}`,
+          );
+
+          if (stats.attempted > 0 && stats.added === 0 && stats.failed + stats.forbidden === stats.attempted) {
+            pooledCookieInjectionDisabled.add(source);
+            yield* logBrowser(
+              `Disabling pooled cookie injection for ${source}: all cookie writes failed in current runtime`,
+            );
+          }
+        }
+
+        loadedForContext.add(source);
+        pooledContextCookies.set(context, loadedForContext);
       });
 
     const poolStateRef = yield* Ref.make<BrowserPoolState>({
@@ -383,12 +509,16 @@ export const BrowserServiceLive = Layer.scoped(
       }),
     );
 
-    const acquirePooledBrowser = (): Effect.Effect<BrowserSlot, BrowserError> =>
+    const acquirePooledBrowser = (poolKey: string): Effect.Effect<BrowserSlot, BrowserError> =>
       poolLock.withPermits(1)(
         Effect.gen(function* () {
           const state = yield* Ref.get(poolStateRef);
 
           for (const [, slot] of state.slots) {
+            if (slot.poolKey !== poolKey) {
+              continue;
+            }
+
             if (!slot.inUse) {
               if (slot.useCount >= state.maxUses) {
                 yield* logBrowserDebug(`Slot ${slot.id} reached max uses, recycling`);
@@ -415,27 +545,32 @@ export const BrowserServiceLive = Layer.scoped(
               slot.inUse = true;
               slot.useCount++;
               slot.lastUsedAt = Date.now();
+              yield* logBrowser(
+                `Pool slot ${slot.id} acquired (key=${poolKey}, reuse, useCount=${slot.useCount}/${state.maxUses})`,
+              );
               return slot;
             }
           }
 
-          if (state.slots.size >= state.maxSize) {
+          const poolKeySize = Array.from(state.slots.values()).filter((slot) => slot.poolKey === poolKey).length;
+          if (poolKeySize >= state.maxSize) {
             return yield* Effect.fail(
-              new BrowserError("Browser pool exhausted"),
+              new BrowserError(`Browser pool exhausted for key=${poolKey}`),
             );
           }
 
-          const browser = yield* makeBrowser();
+          const browser = yield* makeBrowser(poolKey);
           const slotId = state.nextSlotId++;
           const newSlot: BrowserSlot = {
             id: slotId,
             browser,
+            poolKey,
             useCount: 1,
             lastUsedAt: Date.now(),
             inUse: true,
           };
           state.slots.set(slotId, newSlot);
-          yield* logBrowserDebug(`Created new pool slot ${slotId} (${state.slots.size}/${state.maxSize})`);
+          yield* logBrowser(`Created new pool slot ${slotId} (key=${poolKey}, ${poolKeySize + 1}/${state.maxSize})`);
           return newSlot;
         }),
       );
@@ -457,6 +592,7 @@ export const BrowserServiceLive = Layer.scoped(
           } else {
             existing.inUse = false;
             existing.lastUsedAt = Date.now();
+            yield* logBrowser(`Pool slot ${slot.id} released`);
           }
         }),
       );
@@ -621,7 +757,7 @@ export const BrowserServiceLive = Layer.scoped(
         use: (page: Page) => Effect.Effect<A, E, R>,
       ): Effect.Effect<A, E | BrowserError, R> =>
         Effect.gen(function* () {
-          const slot = yield* acquirePooledBrowser();
+          const slot = yield* acquirePooledBrowser(DEFAULT_POOL_KEY);
           let crashed = false;
 
           const result = yield* Effect.scoped(
@@ -642,6 +778,51 @@ export const BrowserServiceLive = Layer.scoped(
                   ),
               );
 
+              return yield* use(page);
+            }),
+          ).pipe(
+            Effect.catchAll((error) =>
+              Effect.gen(function* () {
+                if (isBrowserCrashError(error)) {
+                  yield* logBrowserDebug(`Browser crash detected in slot ${slot.id}`);
+                  crashed = true;
+                }
+                return yield* Effect.fail(error as E | BrowserError);
+              }),
+            ),
+          );
+
+          yield* releasePooledBrowser(slot, crashed);
+          return result;
+        }),
+
+      withPooledBrowserPageForSource: <A, E, R>(
+        source: string,
+        use: (page: Page) => Effect.Effect<A, E, R>,
+      ): Effect.Effect<A, E | BrowserError, R> =>
+        Effect.gen(function* () {
+          const slot = yield* acquirePooledBrowser(`source:${source}`);
+          let crashed = false;
+
+          const result = yield* Effect.scoped(
+            Effect.gen(function* () {
+              const page = yield* Effect.acquireRelease(
+                Effect.tryPromise({
+                  try: () => slot.browser.newPage(),
+                  catch: (e) =>
+                    new BrowserError(
+                      `Failed to create page: ${e instanceof Error ? e.message : String(e)}`,
+                    ),
+                }),
+                (p) =>
+                  Effect.promise(() => p.close()).pipe(
+                    Effect.catchAll((e) =>
+                      logBrowserError("Error closing pooled page", e),
+                    ),
+                  ),
+              );
+
+              yield* ensureCookiesForPooledContext(source, page.context());
               return yield* use(page);
             }),
           ).pipe(

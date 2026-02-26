@@ -371,6 +371,48 @@ export class YandexLinkResult extends Schema.Class<YandexLinkResult>(
   error: Schema.optional(Schema.String),
 }) {}
 
+export class YandexBonusFromLinkParams extends Schema.Class<YandexBonusFromLinkParams>(
+  "YandexBonusFromLinkParams",
+)({
+  url: Schema.String,
+}) {}
+
+export class YandexBonusFromLinkResult extends Schema.Class<YandexBonusFromLinkResult>(
+  "YandexBonusFromLinkResult",
+)({
+  success: Schema.Boolean,
+  error: Schema.optional(Schema.String),
+  externalId: Schema.optional(Schema.String),
+  bonusRubles: Schema.optional(Schema.Number),
+  matchedText: Schema.optional(Schema.String),
+}) {}
+
+export class YandexSearchLinksParams extends Schema.Class<YandexSearchLinksParams>(
+  "YandexSearchLinksParams",
+)({
+  query: Schema.String,
+  limit: Schema.optional(Schema.Number),
+}) {}
+
+export class YandexSearchLinkItem extends Schema.Class<YandexSearchLinkItem>(
+  "YandexSearchLinkItem",
+)({
+  url: Schema.String,
+  externalId: Schema.String,
+  priceRubles: Schema.optional(Schema.Number),
+  bonusRubles: Schema.optional(Schema.Number),
+  matchedText: Schema.optional(Schema.String),
+}) {}
+
+export class YandexSearchLinksResult extends Schema.Class<YandexSearchLinksResult>(
+  "YandexSearchLinksResult",
+)({
+  success: Schema.Boolean,
+  error: Schema.optional(Schema.String),
+  query: Schema.optional(Schema.String),
+  links: Schema.optional(Schema.Array(YandexSearchLinkItem)),
+}) {}
+
 export class YandexPreviewParams extends Schema.Class<YandexPreviewParams>(
   "YandexPreviewParams",
 )({

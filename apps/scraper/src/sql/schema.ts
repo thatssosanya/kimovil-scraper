@@ -1416,6 +1416,46 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     `);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_catalogue_link_cache_slug ON catalogue_link_cache(slug)`);
 
+    // Shared cache for extension Yandex search results
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS extension_search_cache (
+        cache_key TEXT PRIMARY KEY,
+        normalized_query TEXT NOT NULL,
+        raw_query TEXT NOT NULL,
+        response_json TEXT NOT NULL,
+        is_zero_result INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        last_hit_at INTEGER,
+        hit_count INTEGER NOT NULL DEFAULT 0,
+        schema_version TEXT NOT NULL,
+        filter_version TEXT NOT NULL,
+        source_region TEXT
+      )
+    `);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_extension_search_cache_normalized_query ON extension_search_cache(normalized_query)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_extension_search_cache_expires_at ON extension_search_cache(expires_at)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_extension_search_cache_created_at ON extension_search_cache(created_at)`);
+
+    // Shared cache for extension Yandex card metadata (bonus/price/title)
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS extension_search_card_cache (
+        external_id TEXT PRIMARY KEY,
+        url TEXT NOT NULL,
+        title TEXT,
+        price_rubles INTEGER,
+        bonus_rubles INTEGER,
+        matched_text TEXT,
+        updated_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        last_hit_at INTEGER,
+        hit_count INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_extension_search_card_cache_expires_at ON extension_search_card_cache(expires_at)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_extension_search_card_cache_updated_at ON extension_search_card_cache(updated_at)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_extension_search_card_cache_last_hit ON extension_search_card_cache(last_hit_at)`);
+
     // Widget creatives for Yandex affiliate links (erid/clid per device)
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS widget_creatives (

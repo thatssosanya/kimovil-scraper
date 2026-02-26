@@ -31,6 +31,11 @@ import {
   YandexScrapeResult,
   YandexLinkParams,
   YandexLinkResult,
+  YandexBonusFromLinkParams,
+  YandexBonusFromLinkResult,
+  YandexSearchLinksParams,
+  YandexSearchLinksResult,
+  YandexSearchLinkItem,
   YandexPreviewParams,
   YandexPreviewResult,
   YandexCreateDeviceParams,
@@ -104,6 +109,111 @@ const resolveYandexUrl = (url: string): Effect.Effect<YandexUrlResolution, never
 
     return { valid: true as const, externalId: resolved.externalId, cleanUrl: resolved.resolvedUrl };
   });
+
+type ParsedBonus = { bonusRubles: number; matchedText: string };
+
+const parseRubles = (raw: string): number | null => {
+  const digits = raw.replace(/[^\d]/g, "");
+  if (!digits) {
+    return null;
+  }
+  const value = Number.parseInt(digits, 10);
+  return Number.isFinite(value) && value > 0 ? value : null;
+};
+
+const extractPurpleBonusFromText = (pageText: string): ParsedBonus | null => {
+  const lines = pageText
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    if (!/(балл|бонус|кешб|кэшб|cashback|plus|плюс)/i.test(line)) {
+      continue;
+    }
+
+    const patterns = [
+      /(?:верн[её]т[сяь]|кешб[эе]к|кэшб[эе]к|бонус(?:а|ов)?|балл(?:а|ов)?|plus|плюс)[^\d]{0,24}([\d\s\u00a0\u202f]{2,})/i,
+      /([\d\s\u00a0\u202f]{2,})\s*(?:балл(?:а|ов)?|бонус(?:а|ов)?|кешб[эе]к|кэшб[эе]к)/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = line.match(pattern);
+      if (!match) {
+        continue;
+      }
+      const parsed = parseRubles(match[1]);
+      if (!parsed) {
+        continue;
+      }
+      if (parsed > 200_000) {
+        continue;
+      }
+      return {
+        bonusRubles: parsed,
+        matchedText: line,
+      };
+    }
+  }
+
+  return null;
+};
+
+const extractCardLinksFromSearchHtml = (html: string, limit: number): Array<{ url: string; externalId: string }> => {
+  const links: Array<{ url: string; externalId: string }> = [];
+  const seen = new Set<string>();
+  const hrefRegex = /href="([^"]*\/card\/[^"\s]+\/\d{5,}[^"\s]*)"/g;
+
+  let match: RegExpExecArray | null;
+  while ((match = hrefRegex.exec(html)) !== null) {
+    const rawHref = match[1].replace(/&amp;/g, "&");
+    let parsed: URL;
+    try {
+      parsed = new URL(rawHref, "https://market.yandex.ru");
+    } catch {
+      continue;
+    }
+
+    if (!ALLOWED_HOSTS.includes(parsed.hostname)) {
+      continue;
+    }
+
+    const idMatch = parsed.pathname.match(/\/(\d{5,})(?:\/|$)/);
+    if (!idMatch) {
+      continue;
+    }
+
+    const normalized = `${parsed.origin}${parsed.pathname}${parsed.search}`;
+    if (seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+
+    links.push({ url: normalized, externalId: idMatch[1] });
+    if (links.length >= limit) {
+      break;
+    }
+  }
+
+  return links;
+};
+
+const extractPurpleBonusFromHtml = (html: string): ParsedBonus | null => {
+  const match = html.match(
+    /data-zone-name="referralReward"[\s\S]{0,3000}?<span[^>]*>([\d\s\u00a0\u202f]+)<\/span>/i,
+  );
+  if (!match) {
+    return null;
+  }
+  const parsed = parseRubles(match[1]);
+  if (!parsed) {
+    return null;
+  }
+  return {
+    bonusRubles: parsed,
+    matchedText: `referralReward:${match[1].trim()}`,
+  };
+};
 
 type StreamHandler = (
   request: WsRequest,
@@ -736,6 +846,181 @@ const createHandlers = (
       });
       const response = new Response({ id: request.id, result });
       yield* Effect.sync(() => ws.send(JSON.stringify(response)));
+    }),
+
+  "yandex.bonusFromLink": (request, ws) =>
+    Effect.gen(function* () {
+      const params = yield* Schema.decodeUnknown(YandexBonusFromLinkParams)(request.params);
+
+      const resolved = yield* resolveYandexUrl(params.url);
+      if (!resolved.valid) {
+        const result = new YandexBonusFromLinkResult({
+          success: false,
+          error: resolved.error,
+        });
+        yield* Effect.sync(() => ws.send(JSON.stringify(new Response({ id: request.id, result }))));
+        return;
+      }
+
+      const navigateUrl = validateYandexMarketUrl(params.url).valid ? params.url : resolved.cleanUrl;
+      const browserService = yield* BrowserService;
+
+      const parsedBonus = yield* browserService.withPersistentStealthPage("yandex_market", (page) =>
+        Effect.gen(function* () {
+          yield* Effect.tryPromise({
+            try: () => page.goto(navigateUrl, { waitUntil: "domcontentloaded", timeout: 60000 }),
+            catch: (cause) =>
+              new YandexBrowserError({
+                message: "Failed to navigate to Yandex card",
+                url: navigateUrl,
+                cause,
+              }),
+          });
+          yield* Effect.promise(() => page.waitForTimeout(3000));
+          const html = yield* Effect.tryPromise({
+            try: () => page.content(),
+            catch: (cause) =>
+              new YandexBrowserError({
+                message: "Failed to extract card HTML",
+                url: navigateUrl,
+                cause,
+              }),
+          });
+          const fromHtml = extractPurpleBonusFromHtml(html);
+          if (fromHtml) {
+            return fromHtml;
+          }
+          const text = yield* Effect.tryPromise({
+            try: () => page.evaluate(() => document.body.innerText || ""),
+            catch: (cause) =>
+              new YandexBrowserError({
+                message: "Failed to extract card text",
+                url: navigateUrl,
+                cause,
+              }),
+          });
+          return extractPurpleBonusFromText(text);
+        }),
+      );
+
+      if (!parsedBonus) {
+        const result = new YandexBonusFromLinkResult({
+          success: false,
+          externalId: resolved.externalId,
+          error: "Purple bonus not found on page text",
+        });
+        yield* Effect.sync(() => ws.send(JSON.stringify(new Response({ id: request.id, result }))));
+        return;
+      }
+
+      const result = new YandexBonusFromLinkResult({
+        success: true,
+        externalId: resolved.externalId,
+        bonusRubles: parsedBonus.bonusRubles,
+        matchedText: parsedBonus.matchedText,
+      });
+      yield* Effect.sync(() => ws.send(JSON.stringify(new Response({ id: request.id, result }))));
+    }),
+
+  "yandex.searchLinks": (request, ws) =>
+    Effect.gen(function* () {
+      const params = yield* Schema.decodeUnknown(YandexSearchLinksParams)(request.params);
+      const limit = Math.max(1, Math.min(30, params.limit ?? 10));
+      const searchUrl = `https://market.yandex.ru/search?text=${encodeURIComponent(params.query)}`;
+
+      const browserService = yield* BrowserService;
+
+      const linksWithBonus = yield* browserService.withPersistentStealthPage("yandex_market", (page) =>
+        Effect.gen(function* () {
+          yield* Effect.tryPromise({
+            try: () => page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 60000 }),
+            catch: (cause) =>
+              new YandexBrowserError({
+                message: "Failed to open Yandex search",
+                url: searchUrl,
+                cause,
+              }),
+          });
+
+          yield* Effect.promise(() => page.waitForTimeout(3000));
+          const searchHtml = yield* Effect.tryPromise({
+            try: () => page.content(),
+            catch: (cause) =>
+              new YandexBrowserError({
+                message: "Failed to get search HTML",
+                url: searchUrl,
+                cause,
+              }),
+          });
+
+          const links = extractCardLinksFromSearchHtml(searchHtml, limit);
+          const results: YandexSearchLinkItem[] = [];
+
+          for (const link of links) {
+            let parsedBonus: ParsedBonus | null = null;
+            let priceRubles: number | undefined;
+            yield* Effect.tryPromise({
+              try: () => page.goto(link.url, { waitUntil: "domcontentloaded", timeout: 60000 }),
+              catch: (cause) =>
+                new YandexBrowserError({
+                  message: "Failed to open Yandex card from search",
+                  url: link.url,
+                  cause,
+                }),
+            });
+            yield* Effect.promise(() => page.waitForTimeout(2200));
+            const cardHtml = yield* Effect.tryPromise({
+              try: () => page.content(),
+              catch: (cause) =>
+                new YandexBrowserError({
+                  message: "Failed to extract card HTML",
+                  url: link.url,
+                  cause,
+                }),
+            });
+
+            const cardOffers = parseYandexPrices(cardHtml);
+            const primaryOffer = cardOffers.find((offer) => offer.isPrimary) ?? cardOffers[0];
+            if (primaryOffer) {
+              priceRubles = Math.round(primaryOffer.priceMinorUnits / 100);
+            }
+
+            parsedBonus = extractPurpleBonusFromHtml(cardHtml);
+
+            if (!parsedBonus) {
+              const cardText = yield* Effect.tryPromise({
+                try: () => page.evaluate(() => document.body.innerText || ""),
+                catch: (cause) =>
+                  new YandexBrowserError({
+                    message: "Failed to extract card text",
+                    url: link.url,
+                    cause,
+                  }),
+              });
+              parsedBonus = extractPurpleBonusFromText(cardText);
+            }
+
+            results.push(
+              new YandexSearchLinkItem({
+                url: link.url,
+                externalId: link.externalId,
+                priceRubles,
+                bonusRubles: parsedBonus?.bonusRubles,
+                matchedText: parsedBonus?.matchedText,
+              }),
+            );
+          }
+
+          return results;
+        }),
+      );
+
+      const result = new YandexSearchLinksResult({
+        success: true,
+        query: params.query,
+        links: linksWithBonus,
+      });
+      yield* Effect.sync(() => ws.send(JSON.stringify(new Response({ id: request.id, result }))));
     }),
 
   "yandex.scrape": (request, ws) =>

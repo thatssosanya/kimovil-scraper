@@ -190,7 +190,7 @@ function extractPrimaryOfferId(html: string): string | null {
   return null;
 }
 
-function extractProductTitle(html: string): string | null {
+export function extractProductTitle(html: string): string | null {
   // Try skuTitle from patches first (most accurate for current SKU)
   const skuTitleMatch = html.match(/"skuTitle":\s*"([^"]+)"/);
   if (skuTitleMatch) {
