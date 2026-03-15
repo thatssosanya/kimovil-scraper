@@ -3,8 +3,9 @@ import { Effect } from "effect";
 import { SqlClient } from "@effect/sql";
 import { LiveRuntime } from "../layers/live";
 import { WidgetService } from "../services/widget";
-import { YandexAffiliateService } from "../services/yandex-affiliate";
 import { extractPriceFromMessageText } from "../services/telegram-monitor";
+import { YandexAffiliateService } from "../services/yandex-affiliate";
+import { YourlsService } from "../services/yourls";
 import { requireRole } from "./auth";
 import {
   renderErrorWidget,
@@ -239,6 +240,8 @@ export const createWidgetRoutes = () =>
 
       return html;
     })
+    // Legacy compatibility shim — widget now uses direct kik.cat/affiliate URLs
+    // and tracks clicks client-side via analytics.js. Keep this for stale cached HTML.
     .get("/deals/click/:linkId", async ({ params, set }) => {
       const linkId = parseInt(params.linkId, 10);
       if (isNaN(linkId)) {
@@ -246,7 +249,7 @@ export const createWidgetRoutes = () =>
         return "Invalid link ID";
       }
 
-      // Fast path: affiliate URL already in memory cache
+      // Fast path: URL already in memory cache
       const cached = affiliateUrlCache.get(linkId);
       if (cached) {
         fireClickEvent(linkId, cached);
@@ -256,16 +259,16 @@ export const createWidgetRoutes = () =>
         return "";
       }
 
-      // Cold path: look up from DB, generate affiliate URL, cache in memory
+      // Cold path: look up best available URL from DB (short_url > affiliate_url > resolved_url)
       const program = Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
-        const affiliateService = yield* YandexAffiliateService;
 
         const rows = yield* sql<{
           resolved_url: string;
           affiliate_url: string | null;
+          short_url: string | null;
         }>`
-          SELECT resolved_url, affiliate_url
+          SELECT resolved_url, affiliate_url, short_url
           FROM telegram_feed_item_links
           WHERE id = ${linkId}
             AND processing_state = 'done'
@@ -274,31 +277,8 @@ export const createWidgetRoutes = () =>
 
         if (rows.length === 0) return null;
 
-        const { resolved_url, affiliate_url } = rows[0];
-
-        // Use DB-cached affiliate URL
-        if (affiliate_url) return affiliate_url;
-
-        // Generate affiliate URL, persist to DB (one-time write per link)
-        return yield* affiliateService
-          .buildBasicAffiliateUrl(resolved_url)
-          .pipe(
-            Effect.tap((url) =>
-              sql`
-                UPDATE telegram_feed_item_links
-                SET affiliate_url = ${url}, updated_at = unixepoch()
-                WHERE id = ${linkId}
-              `.pipe(Effect.asVoid),
-            ),
-            Effect.catchAll((error) =>
-              Effect.gen(function* () {
-                yield* Effect.logWarning(
-                  "Affiliate link generation failed, using direct URL",
-                ).pipe(Effect.annotateLogs({ linkId, error }));
-                return resolved_url;
-              }),
-            ),
-          );
+        const { resolved_url, affiliate_url, short_url } = rows[0];
+        return short_url ?? affiliate_url ?? resolved_url;
       });
 
       const redirectUrl = await LiveRuntime.runPromise(program);
@@ -308,7 +288,6 @@ export const createWidgetRoutes = () =>
         return "Link not found";
       }
 
-      // Cache in memory — links don't change, so no expiry needed
       affiliateUrlCache.set(linkId, redirectUrl);
       fireClickEvent(linkId, redirectUrl);
 
@@ -378,6 +357,86 @@ export const createWidgetRoutes = () =>
         }
 
         return { total: rows.length, updated };
+      });
+
+      const result = await LiveRuntime.runPromise(program);
+      return { success: true, ...result };
+    })
+    .post("/deals/backfill-short-urls", async ({ request, set }) => {
+      const authorized = await isWidgetWriteAuthorized(request);
+      if (!authorized) {
+        set.status = 401;
+        return { success: false, error: "Unauthorized" };
+      }
+
+      const program = Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const affiliateService = yield* YandexAffiliateService;
+        const yourlsService = yield* YourlsService;
+
+        // Get all done yandex links that need affiliate_url or short_url
+        const rows = yield* sql<{
+          id: number;
+          resolved_url: string;
+          affiliate_url: string | null;
+          short_url: string | null;
+        }>`
+          SELECT id, resolved_url, affiliate_url, short_url
+          FROM telegram_feed_item_links
+          WHERE processing_state = 'done'
+            AND is_yandex_market = 1
+            AND resolved_url IS NOT NULL
+            AND (affiliate_url IS NULL OR short_url IS NULL)
+        `;
+
+        let affiliateGenerated = 0;
+        let shortened = 0;
+        let errors = 0;
+
+        for (const row of rows) {
+          // Step 1: Generate affiliate URL if missing
+          let affiliateUrl = row.affiliate_url;
+          if (!affiliateUrl) {
+            affiliateUrl = yield* affiliateService
+              .buildBasicAffiliateUrl(row.resolved_url)
+              .pipe(
+                Effect.tap((url) =>
+                  sql`
+                    UPDATE telegram_feed_item_links
+                    SET affiliate_url = ${url}, updated_at = unixepoch()
+                    WHERE id = ${row.id}
+                  `.pipe(Effect.asVoid),
+                ),
+                Effect.catchAll((error) =>
+                  Effect.gen(function* () {
+                    yield* Effect.logWarning("Backfill: affiliate URL failed").pipe(
+                      Effect.annotateLogs({ linkId: row.id, error }),
+                    );
+                    errors++;
+                    return null as string | null;
+                  }),
+                ),
+              );
+          }
+          if (affiliateUrl && !row.affiliate_url) affiliateGenerated++;
+
+          // Step 2: Shorten via YOURLS if missing
+          if (affiliateUrl && !row.short_url) {
+            const shortUrl = yield* yourlsService.shortenAndPersist({
+              linkId: row.id,
+              affiliateUrl,
+            });
+            if (shortUrl) shortened++;
+            else errors++;
+          }
+        }
+
+        return {
+          total: rows.length,
+          affiliateGenerated,
+          shortened,
+          errors,
+        };
       });
 
       const result = await LiveRuntime.runPromise(program);

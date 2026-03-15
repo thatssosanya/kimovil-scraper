@@ -32,6 +32,7 @@ import { CatalogueLinkServiceLive } from "../services/catalogue-link";
 import { YandexAffiliateServiceLive } from "../services/yandex-affiliate";
 import { StorageServiceLive } from "../services/storage";
 import { PriceUrlRefreshServiceLive } from "../services/price-url-refresh";
+import { YourlsServiceLive } from "../services/yourls";
 
 const SqlLayer = SchemaLive.pipe(Layer.provideMerge(SqlClientLive));
 
@@ -79,6 +80,9 @@ const WidgetDataLayer = WidgetDataServiceLive.pipe(Layer.provide(SqlLayer));
 
 // YandexAffiliateService depends only on SQL
 const YandexAffiliateLayer = YandexAffiliateServiceLive.pipe(Layer.provide(SqlLayer));
+
+// YourlsService depends only on SQL (for dedup queries)
+const YourlsLayer = YourlsServiceLive.pipe(Layer.provide(SqlLayer));
 
 // PriceUrlRefreshService depends on PriceService and PriceRuClient
 const PriceUrlRefreshLayer = PriceUrlRefreshServiceLive.pipe(
@@ -138,6 +142,7 @@ const AllServicesLayer = Layer.mergeAll(
   CatalogueLinkLayer,
   LinkResolverLayer,
   YandexAffiliateLayer,
+  YourlsLayer,
   StorageServiceLive,
 );
 

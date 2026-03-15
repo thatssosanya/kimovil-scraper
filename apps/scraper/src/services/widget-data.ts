@@ -61,6 +61,7 @@ export interface TelegramDealItem {
   currency: string;
   imageUrl: string | null;
   resolvedUrl: string;
+  outboundUrl: string;
   yandexExternalId: string;
   postedAt: number;
   channelTitle: string | null;
@@ -283,6 +284,8 @@ export const WidgetDataServiceLive = Layer.effect(
             currency: string;
             image_url: string | null;
             resolved_url: string;
+            affiliate_url: string | null;
+            short_url: string | null;
             yandex_external_id: string;
             posted_at: number;
             channel_title: string | null;
@@ -302,6 +305,8 @@ export const WidgetDataServiceLive = Layer.effect(
               l.currency,
               l.image_url,
               l.resolved_url,
+              l.affiliate_url,
+              l.short_url,
               l.yandex_external_id,
               fi.posted_at,
               c.title AS channel_title,
@@ -425,6 +430,7 @@ export const WidgetDataServiceLive = Layer.effect(
             currency: r.currency ?? "RUB",
             imageUrl: r.image_url,
             resolvedUrl: r.resolved_url,
+            outboundUrl: r.short_url ?? r.affiliate_url ?? r.resolved_url,
             yandexExternalId: r.yandex_external_id,
             postedAt: r.posted_at,
             channelTitle: r.channel_title,

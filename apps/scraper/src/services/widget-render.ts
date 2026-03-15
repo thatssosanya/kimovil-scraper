@@ -381,7 +381,7 @@ export interface DealsWidgetItem {
   bonusMinorUnits: number | null;
   currency: string;
   imageUrl: string | null;
-  resolvedUrl: string;
+  outboundUrl: string;
   channelTitle: string | null;
   channelUsername: string | null;
 }
@@ -404,13 +404,12 @@ function pluralItems(count: number): string {
 // ── Vertical (list) layout ────────────────────────────────────────────
 
 function renderDealRow(item: DealsWidgetItem, position: number): string {
-  const clickUrl = `/widget/v1/deals/click/${item.linkId}`;
-
   return `
-    <a href="${escapeHtml(clickUrl)}" target="_blank" rel="noopener noreferrer"
+    <a href="${escapeHtml(item.outboundUrl)}" target="_blank" rel="noopener noreferrer nofollow"
        class="group flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-3 sm:py-3.5 hover:bg-neutral-50/80 transition-colors"
        data-widget-click data-click-target="deal_link"
-       data-deal-id="${item.linkId}" data-deal-position="${position}">
+       data-deal-id="${item.linkId}" data-position="${position}"
+       data-price="${item.priceMinorUnits}">
 
       <!-- Product image -->
       <div class="w-[44px] h-[44px] sm:w-[52px] sm:h-[52px] bg-neutral-50 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
@@ -443,14 +442,13 @@ function renderDealRow(item: DealsWidgetItem, position: number): string {
 // ── Horizontal (shelf) layout ────────────────────────────────────────
 
 function renderDealCard(item: DealsWidgetItem, position: number): string {
-  const clickUrl = `/widget/v1/deals/click/${item.linkId}`;
-
   return `
-    <a href="${escapeHtml(clickUrl)}" target="_blank" rel="noopener noreferrer"
+    <a href="${escapeHtml(item.outboundUrl)}" target="_blank" rel="noopener noreferrer nofollow"
        class="group block flex-shrink-0 rounded-xl overflow-hidden transition-all hover:shadow-md"
        style="width:148px"
        data-widget-click data-click-target="deal_link"
-       data-deal-id="${item.linkId}" data-deal-position="${position}">
+       data-deal-id="${item.linkId}" data-position="${position}"
+       data-price="${item.priceMinorUnits}">
 
       <!-- Image -->
       <div class="bg-neutral-50 flex items-center justify-center overflow-hidden" style="height:148px">

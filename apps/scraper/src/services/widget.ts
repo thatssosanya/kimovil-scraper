@@ -385,7 +385,7 @@ export const WidgetServiceLive = Layer.effect(
               bonusMinorUnits: item.bonusMinorUnits,
               currency: item.currency,
               imageUrl: item.imageUrl,
-              resolvedUrl: item.resolvedUrl,
+              outboundUrl: item.outboundUrl,
               channelTitle: item.channelTitle,
               channelUsername: item.channelUsername,
             })),

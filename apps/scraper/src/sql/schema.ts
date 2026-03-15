@@ -1624,6 +1624,11 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* ensureColumn(sql, "telegram_feed_item_links", "widget_render_count", "INTEGER NOT NULL DEFAULT 0");
     yield* ensureColumn(sql, "telegram_feed_item_links", "text_price_minor_units", "INTEGER");
 
+    // Deals widget: YOURLS short links (kik.cat)
+    yield* ensureColumn(sql, "telegram_feed_item_links", "short_url", "TEXT");
+    yield* ensureColumn(sql, "telegram_feed_item_links", "short_url_created_at", "INTEGER");
+    yield* ensureColumn(sql, "telegram_feed_item_links", "short_url_error", "TEXT");
+
     yield* Effect.logInfo("Schema initialized");
   });
 

@@ -13,6 +13,8 @@ import {
 } from "../sources/yandex_market/extractor";
 import { YandexBrowserError } from "../sources/yandex_market/errors";
 import { validateYandexMarketUrl } from "../sources/yandex_market/url-utils.js";
+import { YandexAffiliateService } from "./yandex-affiliate";
+import { YourlsService } from "./yourls";
 
 /**
  * Extract price in rubles from telegram message text.
@@ -1373,7 +1375,7 @@ const resolveYandexCardViaBrowser = (
 
 const processPendingLinksBatch = (
   sql: SqlClient.SqlClient,
-): Effect.Effect<number, unknown, BrowserService | LinkResolverService> =>
+): Effect.Effect<number, unknown, BrowserService | LinkResolverService | YandexAffiliateService | YourlsService> =>
   Effect.gen(function* () {
     const now = Math.floor(Date.now() / 1000);
     const rows = yield* sql<PendingLinkRow>`
@@ -1589,6 +1591,37 @@ const processPendingLinksBatch = (
               title: result.snapshot.title,
             }),
           );
+
+          // Generate affiliate URL + YOURLS short link (fire-and-forget)
+          yield* Effect.forkDaemon(
+            Effect.gen(function* () {
+              const affiliateService = yield* YandexAffiliateService;
+              const yourlsService = yield* YourlsService;
+
+              const affiliateUrl = yield* affiliateService.buildBasicAffiliateUrl(result.resolvedUrl);
+              yield* sql`
+                UPDATE telegram_feed_item_links
+                SET affiliate_url = ${affiliateUrl}
+                WHERE id = ${row.id} AND affiliate_url IS NULL
+              `.pipe(Effect.asVoid);
+
+              yield* yourlsService.shortenAndPersist({
+                linkId: row.id,
+                affiliateUrl,
+              });
+
+              yield* Effect.logInfo("telegram monitor affiliate + short URL generated").pipe(
+                Effect.annotateLogs({ linkId: row.id }),
+              );
+            }).pipe(
+              Effect.catchAll((error) =>
+                Effect.logWarning("telegram monitor affiliate/short URL generation failed").pipe(
+                  Effect.annotateLogs({ linkId: row.id, error }),
+                ),
+              ),
+            ),
+          );
+
           continue;
         }
 

@@ -346,6 +346,7 @@
           var shopName = target.dataset.shopName || null;
           var price = parseInt(target.dataset.price, 10);
           var position = parseInt(target.dataset.position, 10);
+          var dealId = parseInt(target.dataset.dealId, 10);
 
           trackEvent('widget_click', {
             mapping_id: isNaN(mappingId) ? null : mappingId,
@@ -356,6 +357,7 @@
             shop_name: shopName,
             price: isNaN(price) ? null : price,
             position: isNaN(position) ? null : position,
+            deal_link_id: isNaN(dealId) ? null : dealId,
             destination_url: target.href || null
           });
 
