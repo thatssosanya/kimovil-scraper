@@ -15,6 +15,7 @@ import { YandexBrowserError } from "../sources/yandex_market/errors";
 import { validateYandexMarketUrl } from "../sources/yandex_market/url-utils.js";
 import { YandexAffiliateService } from "./yandex-affiliate";
 import { YourlsService } from "./yourls";
+import { StorageService } from "./storage";
 
 /**
  * Extract price in rubles from telegram message text.
@@ -1375,7 +1376,7 @@ const resolveYandexCardViaBrowser = (
 
 const processPendingLinksBatch = (
   sql: SqlClient.SqlClient,
-): Effect.Effect<number, unknown, BrowserService | LinkResolverService | YandexAffiliateService | YourlsService> =>
+): Effect.Effect<number, unknown, BrowserService | LinkResolverService | YandexAffiliateService | YourlsService | StorageService> =>
   Effect.gen(function* () {
     const now = Math.floor(Date.now() / 1000);
     const rows = yield* sql<PendingLinkRow>`
@@ -1621,6 +1622,53 @@ const processPendingLinksBatch = (
               ),
             ),
           );
+
+          // Upload product image to CDN (fire-and-forget)
+          const imageUrl = result.snapshot.imageUrl;
+          if (imageUrl) {
+            yield* Effect.forkDaemon(
+              Effect.gen(function* () {
+                const storage = yield* StorageService;
+
+                const resp = yield* Effect.tryPromise({
+                  try: () => fetch(imageUrl),
+                  catch: (e) => new Error(`Fetch failed: ${e}`),
+                });
+                if (!resp.ok) return;
+
+                const contentType = resp.headers.get("content-type") ?? "";
+                if (!contentType.startsWith("image/")) return;
+
+                const buffer = Buffer.from(yield* Effect.tryPromise({
+                  try: () => resp.arrayBuffer(),
+                  catch: (e) => new Error(`Buffer read failed: ${e}`),
+                }));
+
+                const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+                const key = `telegram-deals/${row.id}.${ext}`;
+                yield* storage.putObject({ key, contentType, body: buffer }).pipe(
+                  Effect.mapError((e) => new Error(`Upload failed: ${e}`)),
+                );
+                const cdnUrl = storage.publicUrl(key);
+
+                yield* sql`
+                  UPDATE telegram_feed_item_links
+                  SET cdn_image_url = ${cdnUrl}
+                  WHERE id = ${row.id}
+                `.pipe(Effect.asVoid);
+
+                yield* Effect.logInfo("telegram monitor CDN image uploaded").pipe(
+                  Effect.annotateLogs({ linkId: row.id, cdnUrl }),
+                );
+              }).pipe(
+                Effect.catchAll((error) =>
+                  Effect.logWarning("telegram monitor CDN image upload failed").pipe(
+                    Effect.annotateLogs({ linkId: row.id, error }),
+                  ),
+                ),
+              ),
+            );
+          }
 
           continue;
         }

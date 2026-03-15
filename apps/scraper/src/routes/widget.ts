@@ -6,6 +6,7 @@ import { WidgetService } from "../services/widget";
 import { extractPriceFromMessageText } from "../services/telegram-monitor";
 import { YandexAffiliateService } from "../services/yandex-affiliate";
 import { YourlsService } from "../services/yourls";
+import { StorageService } from "../services/storage";
 import { requireRole } from "./auth";
 import {
   renderErrorWidget,
@@ -435,6 +436,82 @@ export const createWidgetRoutes = () =>
           shortened,
           errors,
         };
+      });
+
+      const result = await LiveRuntime.runPromise(program);
+      return { success: true, ...result };
+    })
+    .post("/deals/backfill-cdn-images", async ({ query, set }) => {
+      if (query?.secret !== "12211221") {
+        set.status = 401;
+        return { success: false, error: "Unauthorized" };
+      }
+
+      const program = Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const storage = yield* StorageService;
+
+        const rows = yield* sql<{
+          id: number;
+          image_url: string;
+        }>`
+          SELECT id, image_url
+          FROM telegram_feed_item_links
+          WHERE processing_state = 'done'
+            AND is_yandex_market = 1
+            AND image_url IS NOT NULL
+            AND cdn_image_url IS NULL
+        `;
+
+        let uploaded = 0;
+        let errors = 0;
+
+        for (const row of rows) {
+          const result = yield* Effect.gen(function* () {
+            const resp = yield* Effect.tryPromise({
+              try: () => fetch(row.image_url),
+              catch: (e) => new Error(`Fetch failed: ${e}`),
+            });
+            if (!resp.ok) return null;
+
+            const contentType = resp.headers.get("content-type") ?? "";
+            if (!contentType.startsWith("image/")) return null;
+
+            const buffer = Buffer.from(yield* Effect.tryPromise({
+              try: () => resp.arrayBuffer(),
+              catch: (e) => new Error(`Buffer read failed: ${e}`),
+            }));
+
+            const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+            const key = `telegram-deals/${row.id}.${ext}`;
+            yield* storage.putObject({ key, contentType, body: buffer }).pipe(
+              Effect.mapError((e) => new Error(`Upload failed: ${e}`)),
+            );
+            return storage.publicUrl(key);
+          }).pipe(
+            Effect.catchAll((error) =>
+              Effect.gen(function* () {
+                yield* Effect.logWarning("Backfill: CDN image upload failed").pipe(
+                  Effect.annotateLogs({ linkId: row.id, error }),
+                );
+                return null;
+              }),
+            ),
+          );
+
+          if (result) {
+            yield* sql`
+              UPDATE telegram_feed_item_links
+              SET cdn_image_url = ${result}
+              WHERE id = ${row.id}
+            `.pipe(Effect.asVoid);
+            uploaded++;
+          } else {
+            errors++;
+          }
+        }
+
+        return { total: rows.length, uploaded, errors };
       });
 
       const result = await LiveRuntime.runPromise(program);

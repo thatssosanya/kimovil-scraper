@@ -283,6 +283,7 @@ export const WidgetDataServiceLive = Layer.effect(
             bonus_minor_units: number | null;
             currency: string;
             image_url: string | null;
+            cdn_image_url: string | null;
             resolved_url: string;
             affiliate_url: string | null;
             short_url: string | null;
@@ -304,6 +305,7 @@ export const WidgetDataServiceLive = Layer.effect(
               l.bonus_minor_units,
               l.currency,
               l.image_url,
+              l.cdn_image_url,
               l.resolved_url,
               l.affiliate_url,
               l.short_url,
@@ -428,7 +430,7 @@ export const WidgetDataServiceLive = Layer.effect(
               r.text_price_minor_units ?? r.price_minor_units ?? 0,
             bonusMinorUnits: r.bonus_minor_units,
             currency: r.currency ?? "RUB",
-            imageUrl: r.image_url,
+            imageUrl: r.cdn_image_url ?? r.image_url,
             resolvedUrl: r.resolved_url,
             outboundUrl: r.short_url ?? r.affiliate_url ?? r.resolved_url,
             yandexExternalId: r.yandex_external_id,

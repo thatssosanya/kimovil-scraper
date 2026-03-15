@@ -1629,6 +1629,9 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* ensureColumn(sql, "telegram_feed_item_links", "short_url_created_at", "INTEGER");
     yield* ensureColumn(sql, "telegram_feed_item_links", "short_url_error", "TEXT");
 
+    // Deals widget: CDN-hosted product images
+    yield* ensureColumn(sql, "telegram_feed_item_links", "cdn_image_url", "TEXT");
+
     yield* Effect.logInfo("Schema initialized");
   });
 
