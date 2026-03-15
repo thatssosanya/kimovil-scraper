@@ -14,6 +14,41 @@ import {
 import { YandexBrowserError } from "../sources/yandex_market/errors";
 import { validateYandexMarketUrl } from "../sources/yandex_market/url-utils.js";
 
+/**
+ * Extract price in rubles from telegram message text.
+ * Returns minor units (kopecks) or null.
+ * Patterns: "за 23 019 рублей", "1 762 ₽", "цена: 999 руб"
+ */
+export function extractPriceFromMessageText(text: string | null | undefined): number | null {
+  if (!text) return null;
+
+  const patterns = [
+    // "за 23 019 рублей" / "за 425 рубля" / "за 999 руб"
+    /за\s+([\d][\d\s]*\d|[\d]+)\s*(?:рубл|руб)/i,
+    // "всего 5894 рубля" / "всего 999 руб"
+    /всего\s+([\d][\d\s]*\d|[\d]+)\s*(?:рубл|руб)/i,
+    // "стоит 999 рублей"
+    /стоит\s+([\d][\d\s]*\d|[\d]+)\s*(?:рубл|руб)/i,
+    // "цена: 999" / "цена — 999"
+    /цена[\s:—–-]+([\d][\d\s]*\d|[\d]+)/i,
+    // "12 345 ₽"
+    /([\d][\d\s]*\d|[\d]+)\s*₽/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      const cleaned = match[1].replace(/\s/g, "");
+      const rubles = parseInt(cleaned, 10);
+      if (!isNaN(rubles) && rubles > 0 && rubles < 10_000_000) {
+        return rubles * 100; // minor units (kopecks)
+      }
+    }
+  }
+
+  return null;
+}
+
 const TELEGRAM_STATE_KEY_OFFSET = "telegram:bot_api:offset";
 const TELEGRAM_STATE_LOCK_SECONDS = 90;
 const TELEGRAM_YANDEX_SCRAPE_SOURCE = "telegram_yandex_market";
@@ -1509,6 +1544,15 @@ const processPendingLinksBatch = (
             }
           })();
 
+          // Extract price from telegram message text (personalized price)
+          const msgTextRows = yield* sql<{ text: string | null; caption: string | null }>`
+            SELECT fi.text, fi.caption FROM telegram_feed_items fi
+            JOIN telegram_feed_item_links l ON l.feed_item_id = fi.id
+            WHERE l.id = ${row.id}
+          `.pipe(Effect.catchAll(() => Effect.succeed([] as { text: string | null; caption: string | null }[])));
+          const msgText = msgTextRows[0]?.text ?? msgTextRows[0]?.caption ?? null;
+          const textPrice = extractPriceFromMessageText(msgText);
+
           yield* sql`
             UPDATE telegram_feed_item_links
             SET
@@ -1523,6 +1567,7 @@ const processPendingLinksBatch = (
               currency = ${result.snapshot.currency ?? "RUB"},
               image_url = ${result.snapshot.imageUrl ?? null},
               product_payload_json = ${result.snapshot.payloadJson},
+              text_price_minor_units = ${textPrice},
               scraped_at = ${updatedAt},
               next_attempt_at = NULL,
               locked_until = NULL,
@@ -1537,6 +1582,7 @@ const processPendingLinksBatch = (
               externalId: result.externalId,
               resolvedHost,
               priceMinorUnits: result.snapshot.priceMinorUnits,
+              textPriceMinorUnits: textPrice,
               bonusMinorUnits: result.snapshot.bonusMinorUnits,
               title: result.snapshot.title,
             }),

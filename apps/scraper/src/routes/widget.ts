@@ -4,6 +4,7 @@ import { SqlClient } from "@effect/sql";
 import { LiveRuntime } from "../layers/live";
 import { WidgetService } from "../services/widget";
 import { YandexAffiliateService } from "../services/yandex-affiliate";
+import { extractPriceFromMessageText } from "../services/telegram-monitor";
 import {
   renderNotFoundWidget,
   type ArrowVariant,
@@ -243,4 +244,42 @@ export const createWidgetRoutes = () =>
       await LiveRuntime.runPromise(program);
 
       return { success: true, message: "All widget caches invalidated" };
+    })
+    .post("/deals/backfill-text-prices", async () => {
+      const program = Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+
+        // Get all done yandex links that have no text_price yet
+        const rows = yield* sql<{
+          link_id: number;
+          text: string | null;
+          caption: string | null;
+        }>`
+          SELECT l.id as link_id, fi.text, fi.caption
+          FROM telegram_feed_item_links l
+          JOIN telegram_feed_items fi ON fi.id = l.feed_item_id
+          WHERE l.processing_state = 'done'
+            AND l.is_yandex_market = 1
+            AND l.text_price_minor_units IS NULL
+        `;
+
+        let updated = 0;
+        for (const row of rows) {
+          const msgText = row.text ?? row.caption ?? null;
+          const textPrice = extractPriceFromMessageText(msgText);
+          if (textPrice !== null) {
+            yield* sql`
+              UPDATE telegram_feed_item_links
+              SET text_price_minor_units = ${textPrice}, updated_at = unixepoch()
+              WHERE id = ${row.link_id}
+            `.pipe(Effect.asVoid);
+            updated++;
+          }
+        }
+
+        return { total: rows.length, updated };
+      });
+
+      const result = await LiveRuntime.runPromise(program);
+      return { success: true, ...result };
     });
