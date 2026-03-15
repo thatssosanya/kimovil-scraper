@@ -27,6 +27,11 @@
 @source inline("group hover:bg-neutral-50/80 transition-colors transition-all tabular-nums block");
 @source inline("group-hover:translate-x-0.5 group-hover:-translate-y-0.5");
 
+/* Deals widget safelist */
+@source inline("widget-deals-container w-[44px] h-[44px] sm:w-[52px] sm:h-[52px]");
+@source inline("text-[#2AABEE] hover:underline");
+@source inline("hover:shadow-md pt-2.5 overflow-x-auto");
+
 @font-face {
   font-family: "Instrument Serif";
   src: url("https://fonts.gstatic.com/s/instrumentserif/v4/jizBRFtNs2ka5fXjeivQ4LroWlx-2zIZj1bIkNo.woff2")
