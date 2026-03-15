@@ -280,11 +280,11 @@ export const WidgetDataServiceLive = Layer.effect(
             posted_at: number;
             channel_title: string | null;
             channel_username: string | null;
+            widget_render_count: number;
+            widget_click_count: number;
           };
 
-          // Fetch more than needed for JS-side dedup + filtering
-          const fetchLimit = params.limit * 3;
-
+          // Fetch all eligible items for rotation
           const rows = yield* sql<DealRow>`
             SELECT
               l.id,
@@ -298,7 +298,9 @@ export const WidgetDataServiceLive = Layer.effect(
               l.yandex_external_id,
               fi.posted_at,
               c.title AS channel_title,
-              c.username AS channel_username
+              c.username AS channel_username,
+              l.widget_render_count,
+              l.widget_click_count
             FROM telegram_feed_item_links l
             JOIN telegram_feed_items fi ON fi.id = l.feed_item_id
             JOIN telegram_channels c ON c.id = fi.channel_id
@@ -307,7 +309,6 @@ export const WidgetDataServiceLive = Layer.effect(
               AND l.title IS NOT NULL
               AND l.price_minor_units IS NOT NULL
             ORDER BY fi.posted_at DESC
-            LIMIT ${fetchLimit}
           `;
 
           // Dedup by yandex_external_id (keep newest)
@@ -336,17 +337,70 @@ export const WidgetDataServiceLive = Layer.effect(
             );
           }
 
-          // Sort (newest is default from SQL)
+          // ── Rotation selection ──
+          // Configurable render target: once all items reach this, switch to exploitation
+          const RENDER_TARGET = 50; // ~5000 impressions at ~100 views/cache-hit
+          const EXPLORATION_SLOTS = 2; // slots reserved for under-shown items in exploitation
+
+          const allExplored = items.length > 0 &&
+            items.every((r) => r.widget_render_count >= RENDER_TARGET);
+
+          let selected: DealRow[];
+
+          if (allExplored && items.length > params.limit) {
+            // Phase 2: Exploitation — pick by CTR, keep exploration slots
+            const exploitSlots = Math.max(1, params.limit - EXPLORATION_SLOTS);
+            const exploreSlots = params.limit - exploitSlots;
+
+            // Sort by CTR desc (avoid division by zero)
+            const byCtr = [...items].sort((a, b) => {
+              const ctrA = a.widget_render_count > 0
+                ? a.widget_click_count / a.widget_render_count : 0;
+              const ctrB = b.widget_render_count > 0
+                ? b.widget_click_count / b.widget_render_count : 0;
+              return ctrB - ctrA;
+            });
+
+            const topPerformers = byCtr.slice(0, exploitSlots);
+            const topIds = new Set(topPerformers.map((r) => r.id));
+
+            // Exploration: pick random items not in top performers
+            const remaining = items.filter((r) => !topIds.has(r.id));
+            // Deterministic shuffle using epoch seed for cache consistency
+            const epoch = Math.floor(Date.now() / 1_800_000);
+            const shuffled = remaining
+              .map((r) => ({ r, sort: ((r.id * 2654435761 + epoch) >>> 0) }))
+              .sort((a, b) => a.sort - b.sort)
+              .map((x) => x.r);
+            const explorePicks = shuffled.slice(0, exploreSlots);
+
+            selected = [...topPerformers, ...explorePicks];
+          } else {
+            // Phase 1: Exploration — prioritize least-shown items
+            const byRenderCount = [...items].sort(
+              (a, b) => a.widget_render_count - b.widget_render_count,
+            );
+            selected = byRenderCount.slice(0, params.limit);
+          }
+
+          // Apply user's sort within selected items
           if (params.sort === "cheapest") {
-            items.sort((a, b) => a.price_minor_units - b.price_minor_units);
+            selected.sort(
+              (a, b) =>
+                (a.text_price_minor_units ?? a.price_minor_units) -
+                (b.text_price_minor_units ?? b.price_minor_units),
+            );
           } else if (params.sort === "hottest") {
-            items.sort(
+            selected.sort(
               (a, b) =>
                 (b.bonus_minor_units ?? 0) - (a.bonus_minor_units ?? 0),
             );
+          } else {
+            // newest
+            selected.sort((a, b) => b.posted_at - a.posted_at);
           }
 
-          return items.slice(0, params.limit).map((r) => ({
+          return selected.map((r) => ({
             id: r.id,
             title: r.title,
             priceMinorUnits: r.text_price_minor_units ?? r.price_minor_units,

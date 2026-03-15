@@ -75,7 +75,9 @@ function makeDealsCacheKey(params: DealsWidgetParams): string {
   const minBonus = params.minBonus ?? 0;
   const channel = params.channel ?? "";
   const layout = params.layout ?? "vertical";
-  return `__deals__:${limit}:${sort}:${theme}:${minBonus}:${channel}:${layout}`;
+  // 30-min epoch ensures rotation even with same params
+  const epoch = Math.floor(Date.now() / 1_800_000);
+  return `__deals__:${epoch}:${limit}:${sort}:${theme}:${minBonus}:${channel}:${layout}`;
 }
 
 type QuoteNeedingAffiliate = {
@@ -333,6 +335,17 @@ export const WidgetServiceLive = Layer.effect(
             minBonusMinorUnits: params.minBonus ? params.minBonus * 100 : undefined,
             channel: params.channel,
           });
+
+          // Increment render counts for selected items (fire-and-forget)
+          if (items.length > 0) {
+            const ids = items.map((i) => i.id);
+            yield* sql`
+              UPDATE telegram_feed_item_links
+              SET widget_render_count = widget_render_count + 1,
+                  updated_at = unixepoch()
+              WHERE id IN ${sql.in(ids)}
+            `.pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
+          }
 
           const html = renderDealsWidget(
             items.map((item) => ({
