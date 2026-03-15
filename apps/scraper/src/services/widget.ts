@@ -366,7 +366,11 @@ export const WidgetServiceLive = Layer.effect(
           cache.set(cacheKey, { html, createdAt: Date.now() });
 
           return html;
-        }),
+        }).pipe(
+          Effect.mapError(
+            (e) => new WidgetServiceError({ message: String(e), cause: e }),
+          ),
+        ),
 
       invalidateSlug: (slug) =>
         Effect.sync(() => {
