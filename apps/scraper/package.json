@@ -8,7 +8,8 @@
     "check-types": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rm -rf dist node_modules"
+    "clean": "rm -rf dist node_modules",
+    "telegram:session": "tsx scripts/generate-mt-session.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.49",
@@ -34,6 +35,7 @@
     "elysia": "^1.4.0",
     "openai": "^4.77.0",
     "playwright": "^1.49.1",
+    "telegram": "^2.26.22",
     "ws": "^8.18.3",
     "zod": "^4.2.1"
   },

@@ -9,6 +9,21 @@ import { ScrapeRecordService } from "../services/scrape-record";
 import { BulkJobManager } from "../services/bulk-job";
 import { DeviceRegistryService } from "../services/device-registry";
 import { SchedulerService } from "../services/scheduler";
+import {
+  createTelegramBackfillJob,
+  getTelegramBackfillJob,
+  getTelegramBackfillReadiness,
+  listTelegramBackfillJobs,
+  runTelegramBackfillJob,
+  TelegramBackfillError,
+} from "../services/telegram-backfill";
+import {
+  listRecentTelegramFeedItems,
+  listRecentTelegramFeedLinks,
+  reprocessTelegramLinks,
+  TELEGRAM_LINK_PROCESSING_STATES,
+  TelegramMonitorError,
+} from "../services/telegram-monitor";
 import { log } from "../utils/logger";
 import { LiveRuntime } from "../layers/live";
 
@@ -42,7 +57,10 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           source,
           dataKind: "specs",
           externalId,
-          url: source === "kimovil" ? `https://www.kimovil.com/en/where-to-buy-${externalId}` : undefined,
+          url:
+            source === "kimovil"
+              ? `https://www.kimovil.com/en/where-to-buy-${externalId}`
+              : undefined,
         });
 
         return yield* jobQueue.queueScrape(externalId, device.id, mode, {
@@ -64,10 +82,21 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           const deviceRegistry = yield* DeviceRegistryService;
           const jobQueue = yield* JobQueueService;
           const scrapeService = yield* ScrapeService;
-          return { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService };
+          return {
+            htmlCache,
+            entityData,
+            deviceRegistry,
+            jobQueue,
+            scrapeService,
+          };
         });
-        const { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService } =
-          await LiveRuntime.runPromise(servicesProgram);
+        const {
+          htmlCache,
+          entityData,
+          deviceRegistry,
+          jobQueue,
+          scrapeService,
+        } = await LiveRuntime.runPromise(servicesProgram);
         await LiveRuntime.runPromise(jobQueue.startQueueItem(item.id));
         await bulkJobManager.runQueueItem(
           item,
@@ -82,9 +111,9 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
       const { source, externalId } = params;
       const program = Effect.gen(function* () {
         const htmlCache = yield* HtmlCacheService;
-        const html = yield* htmlCache.getHtmlBySlug(externalId, source, "specs").pipe(
-          Effect.catchAll(() => Effect.succeed(null))
-        );
+        const html = yield* htmlCache
+          .getHtmlBySlug(externalId, source, "specs")
+          .pipe(Effect.catchAll(() => Effect.succeed(null)));
         return { source, externalId, html };
       });
       return LiveRuntime.runPromise(program);
@@ -124,14 +153,25 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         > = {};
 
         for (const externalId of externalIds) {
-          const hasHtml = yield* htmlCache.hasHtmlForSlug(externalId, source, "specs");
+          const hasHtml = yield* htmlCache.hasHtmlForSlug(
+            externalId,
+            source,
+            "specs",
+          );
           const device = yield* deviceRegistry.lookupDevice(source, externalId);
           let hasRawData = false;
           let hasAiData = false;
           if (device) {
-            const rawData = yield* entityData.getRawData(device.id, source, "specs");
+            const rawData = yield* entityData.getRawData(
+              device.id,
+              source,
+              "specs",
+            );
             hasRawData = rawData !== null;
-            const finalData = yield* entityData.getFinalData(device.id, "specs");
+            const finalData = yield* entityData.getFinalData(
+              device.id,
+              "specs",
+            );
             hasAiData = finalData !== null;
           }
           const queueItem = yield* jobQueue.getQueueItemByTarget(
@@ -163,7 +203,11 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         externalIds: string[];
       };
       const resolvedSource = source || "kimovil";
-      if (!externalIds || !Array.isArray(externalIds) || externalIds.length === 0) {
+      if (
+        !externalIds ||
+        !Array.isArray(externalIds) ||
+        externalIds.length === 0
+      ) {
         return { error: "externalIds array required" };
       }
 
@@ -175,7 +219,10 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         > = {};
 
         for (const externalId of externalIds) {
-          const result = yield* htmlCache.verifyHtml(externalId, resolvedSource);
+          const result = yield* htmlCache.verifyHtml(
+            externalId,
+            resolvedSource,
+          );
           results[externalId] = result;
         }
 
@@ -228,7 +275,11 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         if (!device) {
           return { slug: params.slug, data: null };
         }
-        const data = yield* entityData.getRawData(device.id, "kimovil", "specs");
+        const data = yield* entityData.getRawData(
+          device.id,
+          "kimovil",
+          "specs",
+        );
         return { slug: params.slug, data };
       });
 
@@ -242,7 +293,11 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         if (!device) {
           return { success: false, slug: params.slug, deleted: false };
         }
-        const deleted = yield* entityData.deleteRawData(device.id, "kimovil", "specs");
+        const deleted = yield* entityData.deleteRawData(
+          device.id,
+          "kimovil",
+          "specs",
+        );
         return { success: true, slug: params.slug, deleted };
       });
       return LiveRuntime.runPromise(program);
@@ -310,7 +365,13 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         const deviceRegistry = yield* DeviceRegistryService;
         const jobQueue = yield* JobQueueService;
         const scrapeService = yield* ScrapeService;
-        return { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService };
+        return {
+          htmlCache,
+          entityData,
+          deviceRegistry,
+          jobQueue,
+          scrapeService,
+        };
       });
       const { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService } =
         await LiveRuntime.runPromise(servicesProgram);
@@ -342,10 +403,21 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           const deviceRegistry = yield* DeviceRegistryService;
           const jobQueue = yield* JobQueueService;
           const scrapeService = yield* ScrapeService;
-          return { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService };
+          return {
+            htmlCache,
+            entityData,
+            deviceRegistry,
+            jobQueue,
+            scrapeService,
+          };
         });
-        const { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService } =
-          await LiveRuntime.runPromise(program);
+        const {
+          htmlCache,
+          entityData,
+          deviceRegistry,
+          jobQueue,
+          scrapeService,
+        } = await LiveRuntime.runPromise(program);
 
         const hasHtml = await LiveRuntime.runPromise(
           htmlCache.hasHtmlForSlug(externalId, resolvedSource, "specs"),
@@ -409,14 +481,31 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           const deviceRegistry = yield* DeviceRegistryService;
           const jobQueue = yield* JobQueueService;
           const scrapeService = yield* ScrapeService;
-          return { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService };
+          return {
+            htmlCache,
+            entityData,
+            deviceRegistry,
+            jobQueue,
+            scrapeService,
+          };
         });
-        const { htmlCache, entityData, deviceRegistry, jobQueue, scrapeService } =
-          await LiveRuntime.runPromise(program);
+        const {
+          htmlCache,
+          entityData,
+          deviceRegistry,
+          jobQueue,
+          scrapeService,
+        } = await LiveRuntime.runPromise(program);
 
-        const device = await LiveRuntime.runPromise(deviceRegistry.getDeviceBySlug(externalId));
+        const device = await LiveRuntime.runPromise(
+          deviceRegistry.getDeviceBySlug(externalId),
+        );
         const hasRaw = device
-          ? await LiveRuntime.runPromise(entityData.getRawData(device.id, resolvedSource, "specs").pipe(Effect.map((d) => d !== null)))
+          ? await LiveRuntime.runPromise(
+              entityData
+                .getRawData(device.id, resolvedSource, "specs")
+                .pipe(Effect.map((d) => d !== null)),
+            )
           : false;
         if (!hasRaw) {
           return {
@@ -464,12 +553,12 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
       const program = Effect.gen(function* () {
         const deviceRegistry = yield* DeviceRegistryService;
         const priceService = yield* PriceService;
-        
+
         const device = yield* deviceRegistry.getDeviceBySlug(params.slug);
         if (!device) {
           return null;
         }
-        
+
         return yield* priceService.getCurrentPrices(device.id);
       });
       return LiveRuntime.runPromise(program);
@@ -481,12 +570,12 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
       const program = Effect.gen(function* () {
         const deviceRegistry = yield* DeviceRegistryService;
         const priceService = yield* PriceService;
-        
+
         const device = yield* deviceRegistry.getDeviceBySlug(params.slug);
         if (!device) {
           return [];
         }
-        
+
         return yield* priceService.getPriceHistory({
           deviceId: device.id,
           days,
@@ -539,6 +628,205 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
 
       return LiveRuntime.runPromise(program);
     })
+    .get("/telegram/backfill/readiness", async () => {
+      return getTelegramBackfillReadiness();
+    })
+    .get("/telegram/backfill/jobs", async ({ query }) => {
+      const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
+      return LiveRuntime.runPromise(listTelegramBackfillJobs(limit));
+    })
+    .get("/telegram/backfill/jobs/:id", async ({ params, set }) => {
+      const id = Number(params.id);
+      if (Number.isNaN(id) || id < 1) {
+        set.status = 400;
+        return { error: "Invalid backfill job ID" };
+      }
+
+      const job = await LiveRuntime.runPromise(getTelegramBackfillJob(id));
+      if (!job) {
+        set.status = 404;
+        return { error: "Backfill job not found" };
+      }
+
+      return job;
+    })
+    .post("/telegram/backfill/start", async ({ body, set }) => {
+      const input = body as {
+        channels?: string[];
+        maxPostsPerChannel?: number;
+        sinceTs?: number | null;
+        untilTs?: number | null;
+      };
+
+      const channels = Array.isArray(input.channels)
+        ? input.channels.map((channel) => channel.trim()).filter(Boolean)
+        : [];
+
+      if (channels.length === 0) {
+        set.status = 400;
+        return { error: "channels must be a non-empty array" };
+      }
+
+      const maxPostsPerChannel = Math.max(
+        1,
+        Math.min(5000, Number(input.maxPostsPerChannel ?? 500) || 500),
+      );
+
+      const sinceTs =
+        typeof input.sinceTs === "number" && Number.isFinite(input.sinceTs)
+          ? Math.floor(input.sinceTs)
+          : null;
+      const untilTs =
+        typeof input.untilTs === "number" && Number.isFinite(input.untilTs)
+          ? Math.floor(input.untilTs)
+          : null;
+
+      if (sinceTs !== null && untilTs !== null && sinceTs > untilTs) {
+        set.status = 400;
+        return { error: "sinceTs cannot be greater than untilTs" };
+      }
+
+      const jobIdEither = await LiveRuntime.runPromise(
+        createTelegramBackfillJob({
+          channels,
+          maxPostsPerChannel,
+          sinceTs,
+          untilTs,
+        }).pipe(Effect.either),
+      );
+
+      if (jobIdEither._tag === "Left") {
+        const error = jobIdEither.left;
+        if (error instanceof TelegramBackfillError) {
+          set.status =
+            error.message.includes("already running") ||
+            error.message.includes("Missing Telegram MTProto config")
+              ? 409
+              : 400;
+          return { error: error.message };
+        }
+
+        set.status = 400;
+        return {
+          error: "Failed to create Telegram backfill job",
+        };
+      }
+
+      const jobId = jobIdEither.right;
+
+      LiveRuntime.runFork(runTelegramBackfillJob(jobId));
+
+      return {
+        success: true,
+        jobId,
+      };
+    })
+    .get("/telegram/feed/items", async ({ query }) => {
+      const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
+      return LiveRuntime.runPromise(listRecentTelegramFeedItems(limit));
+    })
+    .get("/telegram/feed/links", async ({ query, set }) => {
+      const limit = Math.min(200, Math.max(1, Number(query.limit) || 40));
+      const stateParam =
+        typeof query.state === "string" && query.state.trim().length > 0
+          ? query.state.trim()
+          : null;
+
+      if (
+        stateParam !== null &&
+        !TELEGRAM_LINK_PROCESSING_STATES.includes(
+          stateParam as (typeof TELEGRAM_LINK_PROCESSING_STATES)[number],
+        )
+      ) {
+        set.status = 400;
+        return {
+          error: `Invalid state. Must be one of: ${TELEGRAM_LINK_PROCESSING_STATES.join(", ")}`,
+        };
+      }
+
+      return LiveRuntime.runPromise(
+        listRecentTelegramFeedLinks({
+          limit,
+          state: stateParam as
+            | (typeof TELEGRAM_LINK_PROCESSING_STATES)[number]
+            | null,
+        }),
+      );
+    })
+    .post("/telegram/reprocess", async ({ body, set }) => {
+      const input = body as {
+        linkIds?: number[];
+        states?: string[];
+        resetAttempts?: boolean;
+      };
+
+      const linkIds = Array.isArray(input.linkIds)
+        ? [
+            ...new Set(
+              input.linkIds
+                .filter((id) => Number.isInteger(id))
+                .map((id) => Number(id))
+                .filter((id) => id > 0),
+            ),
+          ]
+        : [];
+
+      const statesInput = Array.isArray(input.states)
+        ? [
+            ...new Set(
+              input.states
+                .map((state) => state.trim())
+                .filter((state) => state.length > 0),
+            ),
+          ]
+        : [];
+
+      const invalidStates = statesInput.filter(
+        (state) =>
+          !TELEGRAM_LINK_PROCESSING_STATES.includes(
+            state as (typeof TELEGRAM_LINK_PROCESSING_STATES)[number],
+          ),
+      );
+
+      if (invalidStates.length > 0) {
+        set.status = 400;
+        return {
+          error: `Invalid states: ${invalidStates.join(", ")}. Allowed states: ${TELEGRAM_LINK_PROCESSING_STATES.join(", ")}`,
+        };
+      }
+
+      const fallbackStates =
+        linkIds.length === 0 && statesInput.length === 0
+          ? ["error", "ignored"]
+          : [];
+      const states = [...statesInput, ...fallbackStates] as Array<
+        (typeof TELEGRAM_LINK_PROCESSING_STATES)[number]
+      >;
+
+      const resultEither = await LiveRuntime.runPromise(
+        reprocessTelegramLinks({
+          linkIds,
+          states,
+          resetAttempts: input.resetAttempts === true,
+        }).pipe(Effect.either),
+      );
+
+      if (resultEither._tag === "Left") {
+        const error = resultEither.left;
+        set.status = error instanceof TelegramMonitorError ? 400 : 500;
+        return {
+          error:
+            error instanceof TelegramMonitorError
+              ? error.message
+              : "Failed to reprocess Telegram links",
+        };
+      }
+
+      return {
+        success: true,
+        ...resultEither.right,
+      };
+    })
     .get("/schedules", async () => {
       const schedules = await LiveRuntime.runPromise(
         SchedulerService.pipe(Effect.flatMap((s) => s.listSchedules())),
@@ -552,9 +840,7 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         return { error: "Invalid schedule ID" };
       }
       const schedule = await LiveRuntime.runPromise(
-        SchedulerService.pipe(
-          Effect.flatMap((s) => s.getSchedule(id)),
-        ),
+        SchedulerService.pipe(Effect.flatMap((s) => s.getSchedule(id))),
       );
       if (!schedule) {
         set.status = 404;
@@ -574,20 +860,31 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         runOnce?: boolean;
         timezone?: string;
       };
-      if (!input.name || !input.source || !input.dataKind || !input.cronExpression) {
+      if (
+        !input.name ||
+        !input.source ||
+        !input.dataKind ||
+        !input.cronExpression
+      ) {
         set.status = 400;
-        return { error: "name, source, dataKind, and cronExpression are required" };
+        return {
+          error: "name, source, dataKind, and cronExpression are required",
+        };
       }
       // Validate jobType and mode if provided
       const validJobTypes = ["scrape", "process_raw", "process_ai"];
       const validModes = ["fast", "complex"];
       if (input.jobType && !validJobTypes.includes(input.jobType)) {
         set.status = 400;
-        return { error: `Invalid jobType. Must be one of: ${validJobTypes.join(", ")}` };
+        return {
+          error: `Invalid jobType. Must be one of: ${validJobTypes.join(", ")}`,
+        };
       }
       if (input.mode && !validModes.includes(input.mode)) {
         set.status = 400;
-        return { error: `Invalid mode. Must be one of: ${validModes.join(", ")}` };
+        return {
+          error: `Invalid mode. Must be one of: ${validModes.join(", ")}`,
+        };
       }
       const schedule = await LiveRuntime.runPromise(
         SchedulerService.pipe(
@@ -597,7 +894,11 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
               source: input.source,
               dataKind: input.dataKind,
               cronExpression: input.cronExpression,
-              jobType: input.jobType as "scrape" | "process_raw" | "process_ai" | undefined,
+              jobType: input.jobType as
+                | "scrape"
+                | "process_raw"
+                | "process_ai"
+                | undefined,
               mode: input.mode as "fast" | "complex" | undefined,
               filter: input.filter,
               runOnce: input.runOnce,
@@ -626,25 +927,34 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         runOnce?: boolean;
         timezone?: string;
       };
-      if (!input.name || !input.source || !input.dataKind || !input.cronExpression) {
+      if (
+        !input.name ||
+        !input.source ||
+        !input.dataKind ||
+        !input.cronExpression
+      ) {
         set.status = 400;
-        return { error: "name, source, dataKind, and cronExpression are required" };
+        return {
+          error: "name, source, dataKind, and cronExpression are required",
+        };
       }
       // Validate jobType and mode if provided
       const validJobTypes = ["scrape", "process_raw", "process_ai"];
       const validModes = ["fast", "complex"];
       if (input.jobType && !validJobTypes.includes(input.jobType)) {
         set.status = 400;
-        return { error: `Invalid jobType. Must be one of: ${validJobTypes.join(", ")}` };
+        return {
+          error: `Invalid jobType. Must be one of: ${validJobTypes.join(", ")}`,
+        };
       }
       if (input.mode && !validModes.includes(input.mode)) {
         set.status = 400;
-        return { error: `Invalid mode. Must be one of: ${validModes.join(", ")}` };
+        return {
+          error: `Invalid mode. Must be one of: ${validModes.join(", ")}`,
+        };
       }
       const existing = await LiveRuntime.runPromise(
-        SchedulerService.pipe(
-          Effect.flatMap((s) => s.getSchedule(id)),
-        ),
+        SchedulerService.pipe(Effect.flatMap((s) => s.getSchedule(id))),
       );
       if (!existing) {
         set.status = 404;
@@ -659,7 +969,11 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
               source: input.source,
               dataKind: input.dataKind,
               cronExpression: input.cronExpression,
-              jobType: input.jobType as "scrape" | "process_raw" | "process_ai" | undefined,
+              jobType: input.jobType as
+                | "scrape"
+                | "process_raw"
+                | "process_ai"
+                | undefined,
               mode: input.mode as "fast" | "complex" | undefined,
               filter: input.filter,
               runOnce: input.runOnce,
@@ -677,18 +991,14 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         return { error: "Invalid schedule ID" };
       }
       const existing = await LiveRuntime.runPromise(
-        SchedulerService.pipe(
-          Effect.flatMap((s) => s.getSchedule(id)),
-        ),
+        SchedulerService.pipe(Effect.flatMap((s) => s.getSchedule(id))),
       );
       if (!existing) {
         set.status = 404;
         return { error: "Schedule not found" };
       }
       await LiveRuntime.runPromise(
-        SchedulerService.pipe(
-          Effect.flatMap((s) => s.deleteSchedule(id)),
-        ),
+        SchedulerService.pipe(Effect.flatMap((s) => s.deleteSchedule(id))),
       );
       set.status = 204;
       return null;
@@ -700,18 +1010,14 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         return { error: "Invalid schedule ID" };
       }
       const existing = await LiveRuntime.runPromise(
-        SchedulerService.pipe(
-          Effect.flatMap((s) => s.getSchedule(id)),
-        ),
+        SchedulerService.pipe(Effect.flatMap((s) => s.getSchedule(id))),
       );
       if (!existing) {
         set.status = 404;
         return { error: "Schedule not found" };
       }
       await LiveRuntime.runPromise(
-        SchedulerService.pipe(
-          Effect.flatMap((s) => s.enableSchedule(id)),
-        ),
+        SchedulerService.pipe(Effect.flatMap((s) => s.enableSchedule(id))),
       );
       return { success: true };
     })
@@ -722,18 +1028,14 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         return { error: "Invalid schedule ID" };
       }
       const existing = await LiveRuntime.runPromise(
-        SchedulerService.pipe(
-          Effect.flatMap((s) => s.getSchedule(id)),
-        ),
+        SchedulerService.pipe(Effect.flatMap((s) => s.getSchedule(id))),
       );
       if (!existing) {
         set.status = 404;
         return { error: "Schedule not found" };
       }
       await LiveRuntime.runPromise(
-        SchedulerService.pipe(
-          Effect.flatMap((s) => s.disableSchedule(id)),
-        ),
+        SchedulerService.pipe(Effect.flatMap((s) => s.disableSchedule(id))),
       );
       return { success: true };
     })
@@ -744,24 +1046,25 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
         return { error: "Invalid schedule ID" };
       }
       const existing = await LiveRuntime.runPromise(
-        SchedulerService.pipe(
-          Effect.flatMap((s) => s.getSchedule(id)),
-        ),
+        SchedulerService.pipe(Effect.flatMap((s) => s.getSchedule(id))),
       );
       if (!existing) {
         set.status = 404;
         return { error: "Schedule not found" };
       }
       const jobId = await LiveRuntime.runPromise(
-        SchedulerService.pipe(
-          Effect.flatMap((s) => s.triggerNow(id)),
-        ),
+        SchedulerService.pipe(Effect.flatMap((s) => s.triggerNow(id))),
       );
       return { jobId };
     })
     .get("/jobs/:jobId/summary", async ({ params, query, set }) => {
       const { jobId } = params;
-      const status = query.status as "pending" | "running" | "done" | "error" | undefined;
+      const status = query.status as
+        | "pending"
+        | "running"
+        | "done"
+        | "error"
+        | undefined;
       const limit = Math.min(Number(query.limit) || 100, 500);
       const offset = Number(query.offset) || 0;
 
@@ -773,12 +1076,13 @@ export const createApiRoutes = (bulkJobManager: BulkJobManager) =>
           return { error: "Job not found" };
         }
 
-        const [stats, timeoutStats, outcomeStats, itemsResult] = yield* Effect.all([
-          jobQueue.getJobStats(jobId),
-          jobQueue.getTimeoutStats(jobId),
-          jobQueue.getOutcomeStats(jobId),
-          jobQueue.getJobItemsWithDevice(jobId, { status, limit, offset }),
-        ]);
+        const [stats, timeoutStats, outcomeStats, itemsResult] =
+          yield* Effect.all([
+            jobQueue.getJobStats(jobId),
+            jobQueue.getTimeoutStats(jobId),
+            jobQueue.getOutcomeStats(jobId),
+            jobQueue.getJobItemsWithDevice(jobId, { status, limit, offset }),
+          ]);
 
         return {
           job,

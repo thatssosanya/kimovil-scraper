@@ -1457,6 +1457,114 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_extension_search_card_cache_updated_at ON extension_search_card_cache(updated_at)`);
     yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_extension_search_card_cache_last_hit ON extension_search_card_cache(last_hit_at)`);
 
+    // Telegram channel feed ingestion (Bot API)
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS telegram_channels (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transport TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        access_kind TEXT NOT NULL DEFAULT 'controlled',
+        username TEXT,
+        title TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        UNIQUE(transport, chat_id)
+      )
+    `);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_telegram_channels_active ON telegram_channels(is_active, updated_at)`);
+
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS telegram_feed_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        channel_id INTEGER NOT NULL REFERENCES telegram_channels(id),
+        message_id INTEGER NOT NULL,
+        media_group_id TEXT,
+        posted_at INTEGER NOT NULL,
+        edited_at INTEGER,
+        deleted_at INTEGER,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        text TEXT,
+        caption TEXT,
+        author_signature TEXT,
+        content_hash TEXT NOT NULL,
+        has_candidate_links INTEGER NOT NULL DEFAULT 0,
+        raw_message_json TEXT,
+        first_seen_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        last_seen_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        UNIQUE(channel_id, message_id)
+      )
+    `);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_telegram_feed_items_channel_posted ON telegram_feed_items(channel_id, posted_at DESC)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_telegram_feed_items_has_links ON telegram_feed_items(has_candidate_links, posted_at DESC)`);
+
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS telegram_feed_item_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        feed_item_id INTEGER NOT NULL REFERENCES telegram_feed_items(id) ON DELETE CASCADE,
+        occurrence_index INTEGER NOT NULL,
+        source_field TEXT NOT NULL CHECK (source_field IN ('text', 'caption', 'button')),
+        original_url TEXT NOT NULL,
+        normalized_url TEXT NOT NULL,
+        normalized_url_hash TEXT NOT NULL,
+        resolved_url TEXT,
+        resolved_host TEXT,
+        is_yandex_market INTEGER NOT NULL DEFAULT 0,
+        yandex_external_id TEXT,
+        processing_state TEXT NOT NULL DEFAULT 'pending' CHECK (processing_state IN ('pending', 'processing', 'done', 'error', 'ignored')),
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER,
+        locked_until INTEGER,
+        last_error TEXT,
+        title TEXT,
+        price_minor_units INTEGER,
+        bonus_minor_units INTEGER,
+        currency TEXT,
+        image_url TEXT,
+        product_payload_json TEXT,
+        scraped_at INTEGER,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        UNIQUE(feed_item_id, normalized_url_hash)
+      )
+    `);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_telegram_links_feed_item ON telegram_feed_item_links(feed_item_id)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_telegram_links_state_due ON telegram_feed_item_links(processing_state, next_attempt_at)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_telegram_links_locked_until ON telegram_feed_item_links(locked_until)`);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_telegram_links_yandex_external_id ON telegram_feed_item_links(yandex_external_id)`);
+
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS telegram_ingestion_state (
+        state_key TEXT PRIMARY KEY,
+        state_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )
+    `);
+
+    yield* sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS telegram_backfill_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'done', 'error')),
+        channels_json TEXT NOT NULL,
+        since_ts INTEGER,
+        until_ts INTEGER,
+        max_posts_per_channel INTEGER NOT NULL,
+        processed_messages INTEGER NOT NULL DEFAULT 0,
+        inserted_messages INTEGER NOT NULL DEFAULT 0,
+        updated_messages INTEGER NOT NULL DEFAULT 0,
+        skipped_messages INTEGER NOT NULL DEFAULT 0,
+        metadata_json TEXT,
+        error_message TEXT,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        started_at INTEGER,
+        completed_at INTEGER,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      )
+    `);
+    yield* sql.unsafe(`CREATE INDEX IF NOT EXISTS idx_telegram_backfill_jobs_status ON telegram_backfill_jobs(status, created_at DESC)`);
+
     // Widget creatives for Yandex affiliate links (erid/clid per device)
     yield* sql.unsafe(`
       CREATE TABLE IF NOT EXISTS widget_creatives (

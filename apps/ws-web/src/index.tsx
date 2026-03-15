@@ -11,6 +11,7 @@ import Analytics from "./pages/analytics/Analytics.tsx";
 import Login from "./pages/auth/Login.tsx";
 import Register from "./pages/auth/Register.tsx";
 import YandexLinks from "./pages/yandex-links/YandexLinks.tsx";
+import TelegramBackfill from "./pages/telegram/TelegramBackfill.tsx";
 
 const root = document.getElementById("root");
 
@@ -23,9 +24,10 @@ render(
       <Route path="/widgets/debug" component={WidgetDebug} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/yandex-links" component={YandexLinks} />
+      <Route path="/telegram" component={TelegramBackfill} />
       <Route path="/auth/login" component={Login} />
       <Route path="/auth/register" component={Register} />
     </Router>
   ),
-  root!
+  root!,
 );

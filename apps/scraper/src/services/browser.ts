@@ -163,7 +163,13 @@ const loadYandexCookies: Effect.Effect<readonly PlaywrightCookie[], never> =
 
 const cookieLoaders: Record<string, Effect.Effect<readonly PlaywrightCookie[], never>> = {
   yandex_market: loadYandexCookies,
+  telegram_yandex_market: loadYandexCookies,
+  telegram_yandex_resolve: loadYandexCookies,
 };
+
+// Bright Data/CDP rejects overriding some Yandex marketing cookies
+// (notably `cpa-pof`) and can fail the whole cookie-add sequence.
+const POOLED_COOKIE_NAME_BLOCKLIST = new Set(["cpa-pof"]);
 
 const sourceFromPoolKey = (poolKey: string): string | null => {
   const match = poolKey.match(/^source:(.+)$/);
@@ -379,10 +385,18 @@ export const BrowserServiceLive = Layer.scoped(
                 existing.map((cookie) => `${cookie.name}|${cookie.domain}|${cookie.path}`),
               );
 
-              const candidates = cookies.filter(
+              const notExisting = cookies.filter(
                 (cookie) =>
                   !existingKeys.has(`${cookie.name}|${cookie.domain}|${cookie.path}`),
               );
+              const blocked = notExisting.filter((cookie) =>
+                POOLED_COOKIE_NAME_BLOCKLIST.has(cookie.name),
+              );
+              const candidates = notExisting.filter(
+                (cookie) => !POOLED_COOKIE_NAME_BLOCKLIST.has(cookie.name),
+              );
+              const skippedExisting = cookies.length - notExisting.length;
+              const skippedBlocked = blocked.length;
 
               let added = 0;
               let forbidden = 0;
@@ -395,7 +409,10 @@ export const BrowserServiceLive = Layer.scoped(
                   added += 1;
                 } catch (error) {
                   const message = error instanceof Error ? error.message : String(error);
-                  if (message.includes("cookies is forbidden")) {
+                  if (
+                    message.includes("cookies is forbidden") ||
+                    message.includes("cookie is forbidden")
+                  ) {
                     forbidden += 1;
                   } else {
                     failed += 1;
@@ -412,7 +429,8 @@ export const BrowserServiceLive = Layer.scoped(
                 added,
                 forbidden,
                 failed,
-                skippedExisting: cookies.length - candidates.length,
+                skippedExisting,
+                skippedBlocked,
                 firstFailure,
               };
             },
@@ -423,7 +441,7 @@ export const BrowserServiceLive = Layer.scoped(
           });
 
           yield* logBrowser(
-            `Loaded cookies for ${source} (pooled context): added=${stats.added}/${stats.total}, skippedExisting=${stats.skippedExisting}, forbidden=${stats.forbidden}, failed=${stats.failed}${stats.firstFailure ? `, firstFailure=${stats.firstFailure}` : ""}`,
+            `Loaded cookies for ${source} (pooled context): added=${stats.added}/${stats.total}, skippedExisting=${stats.skippedExisting}, skippedBlocked=${stats.skippedBlocked}, forbidden=${stats.forbidden}, failed=${stats.failed}${stats.firstFailure ? `, firstFailure=${stats.firstFailure}` : ""}`,
           );
 
           if (stats.attempted > 0 && stats.added === 0 && stats.failed + stats.forbidden === stats.attempted) {
