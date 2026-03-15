@@ -1618,6 +1618,12 @@ const initSchema = (sql: SqlClient.SqlClient): Effect.Effect<void, SqlError.SqlE
       )
     `);
 
+    // Deals widget: affiliate links, click/impression tracking, text prices
+    yield* ensureColumn(sql, "telegram_feed_item_links", "affiliate_url", "TEXT");
+    yield* ensureColumn(sql, "telegram_feed_item_links", "widget_click_count", "INTEGER NOT NULL DEFAULT 0");
+    yield* ensureColumn(sql, "telegram_feed_item_links", "widget_render_count", "INTEGER NOT NULL DEFAULT 0");
+    yield* ensureColumn(sql, "telegram_feed_item_links", "text_price_minor_units", "INTEGER");
+
     yield* Effect.logInfo("Schema initialized");
   });
 

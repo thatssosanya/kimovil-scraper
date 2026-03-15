@@ -375,6 +375,7 @@ export function renderNotFoundWidget(
 // ── Deals Widget ──────────────────────────────────────────────────────
 
 export interface DealsWidgetItem {
+  linkId: number;
   title: string;
   priceMinorUnits: number;
   bonusMinorUnits: number | null;
@@ -402,13 +403,14 @@ function pluralItems(count: number): string {
 
 // ── Vertical (list) layout ────────────────────────────────────────────
 
-function renderDealRow(item: DealsWidgetItem): string {
-  const url = sanitizeUrl(item.resolvedUrl);
+function renderDealRow(item: DealsWidgetItem, position: number): string {
+  const clickUrl = `/widget/v1/deals/click/${item.linkId}`;
 
   return `
-    <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"
+    <a href="${escapeHtml(clickUrl)}" target="_blank" rel="noopener noreferrer"
        class="group flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-3 sm:py-3.5 hover:bg-neutral-50/80 transition-colors"
-       data-widget-click data-click-target="deal_link">
+       data-widget-click data-click-target="deal_link"
+       data-deal-id="${item.linkId}" data-deal-position="${position}">
 
       <!-- Product image -->
       <div class="w-[44px] h-[44px] sm:w-[52px] sm:h-[52px] bg-neutral-50 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
@@ -440,14 +442,15 @@ function renderDealRow(item: DealsWidgetItem): string {
 
 // ── Horizontal (shelf) layout ────────────────────────────────────────
 
-function renderDealCard(item: DealsWidgetItem): string {
-  const url = sanitizeUrl(item.resolvedUrl);
+function renderDealCard(item: DealsWidgetItem, position: number): string {
+  const clickUrl = `/widget/v1/deals/click/${item.linkId}`;
 
   return `
-    <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"
+    <a href="${escapeHtml(clickUrl)}" target="_blank" rel="noopener noreferrer"
        class="group block flex-shrink-0 rounded-xl overflow-hidden transition-all hover:shadow-md"
        style="width:148px"
-       data-widget-click data-click-target="deal_link">
+       data-widget-click data-click-target="deal_link"
+       data-deal-id="${item.linkId}" data-deal-position="${position}">
 
       <!-- Image -->
       <div class="bg-neutral-50 flex items-center justify-center overflow-hidden" style="height:148px">
@@ -482,7 +485,7 @@ const DEALS_EMPTY_HTML = `<div class="widget-deals-container w-full max-w-[680px
 const DEALS_HEADER_HTML = `
     <div class="p-4 pb-4 sm:p-6 sm:pb-5">
       <h2 class="text-[18px] sm:text-[22px] font-semibold text-neutral-900 leading-tight tracking-[-0.02em]">
-        Лучшее из <a href="https://t.me/firstotdel" target="_blank" rel="noopener noreferrer" class="text-[#2AABEE] hover:underline">Первого скидочного отдела</a>
+        Лучшее из <a href="https://t.me/firstotdel" target="_blank" rel="noopener noreferrer" class="text-[#2AABEE] hover:underline">канала со скидками</a>
       </h2>
     </div>`;
 
@@ -512,7 +515,7 @@ ${DEALS_HEADER_HTML}
 
     <!-- Horizontal shelf -->
     <div class="wdhs flex gap-3 px-4 sm:px-6 py-4 sm:py-5 overflow-x-auto">
-      ${items.map((item) => renderDealCard(item)).join("\n      ")}
+      ${items.map((item, i) => renderDealCard(item, i + 1)).join("\n      ")}
     </div>
 ${DEALS_FOOTER_HTML}
   </div>
@@ -527,7 +530,7 @@ ${DEALS_HEADER_HTML}
 
     <!-- Vertical list -->
     <div class="py-2">
-      ${items.map((item) => renderDealRow(item)).join("\n")}
+      ${items.map((item, i) => renderDealRow(item, i + 1)).join("\n")}
     </div>
 ${DEALS_FOOTER_HTML}
   </div>

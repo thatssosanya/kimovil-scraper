@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { SqlClient } from "@effect/sql";
 import { LiveRuntime } from "../layers/live";
 import { WidgetService } from "../services/widget";
+import { YandexAffiliateService } from "../services/yandex-affiliate";
 import {
   renderNotFoundWidget,
   type ArrowVariant,
@@ -150,6 +151,76 @@ export const createWidgetRoutes = () =>
       set.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=86400";
 
       return html;
+    })
+    .get("/deals/click/:linkId", async ({ params, set }) => {
+      const linkId = parseInt(params.linkId, 10);
+      if (isNaN(linkId)) {
+        set.status = 400;
+        return "Invalid link ID";
+      }
+
+      const program = Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const affiliateService = yield* YandexAffiliateService;
+
+        // Get the link and increment click count atomically
+        const rows = yield* sql<{
+          resolved_url: string;
+          affiliate_url: string | null;
+        }>`
+          UPDATE telegram_feed_item_links
+          SET widget_click_count = widget_click_count + 1,
+              updated_at = unixepoch()
+          WHERE id = ${linkId}
+            AND processing_state = 'done'
+            AND is_yandex_market = 1
+          RETURNING resolved_url, affiliate_url
+        `;
+
+        if (rows.length === 0) {
+          return null;
+        }
+
+        const { resolved_url, affiliate_url } = rows[0];
+
+        // Return cached affiliate URL if available
+        if (affiliate_url) return affiliate_url;
+
+        // Generate affiliate URL on-demand, cache it
+        const affUrl = yield* affiliateService
+          .buildBasicAffiliateUrl(resolved_url)
+          .pipe(
+            Effect.tap((url) =>
+              sql`
+                UPDATE telegram_feed_item_links
+                SET affiliate_url = ${url}, updated_at = unixepoch()
+                WHERE id = ${linkId}
+              `.pipe(Effect.asVoid),
+            ),
+            Effect.catchAll((error) =>
+              Effect.gen(function* () {
+                yield* Effect.logWarning("Affiliate link generation failed, using direct URL").pipe(
+                  Effect.annotateLogs({ linkId, error }),
+                );
+                return resolved_url;
+              }),
+            ),
+          );
+
+        return affUrl;
+      });
+
+      const redirectUrl = await LiveRuntime.runPromise(program);
+
+      if (!redirectUrl) {
+        set.status = 404;
+        return "Link not found";
+      }
+
+      set.status = 302;
+      set.headers["Location"] = redirectUrl;
+      set.headers["Cache-Control"] = "no-store";
+      return "";
     })
     .post("/invalidate/:slug", async ({ params }) => {
       const { slug } = params;

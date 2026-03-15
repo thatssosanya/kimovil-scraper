@@ -271,6 +271,7 @@ export const WidgetDataServiceLive = Layer.effect(
             id: number;
             title: string;
             price_minor_units: number;
+            text_price_minor_units: number | null;
             bonus_minor_units: number | null;
             currency: string;
             image_url: string | null;
@@ -289,6 +290,7 @@ export const WidgetDataServiceLive = Layer.effect(
               l.id,
               l.title,
               l.price_minor_units,
+              l.text_price_minor_units,
               l.bonus_minor_units,
               l.currency,
               l.image_url,
@@ -347,7 +349,7 @@ export const WidgetDataServiceLive = Layer.effect(
           return items.slice(0, params.limit).map((r) => ({
             id: r.id,
             title: r.title,
-            priceMinorUnits: r.price_minor_units,
+            priceMinorUnits: r.text_price_minor_units ?? r.price_minor_units,
             bonusMinorUnits: r.bonus_minor_units,
             currency: r.currency ?? "RUB",
             imageUrl: r.image_url,

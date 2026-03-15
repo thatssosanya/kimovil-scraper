@@ -336,6 +336,7 @@ export const WidgetServiceLive = Layer.effect(
 
           const html = renderDealsWidget(
             items.map((item) => ({
+              linkId: item.id,
               title: item.title,
               priceMinorUnits: item.priceMinorUnits,
               bonusMinorUnits: item.bonusMinorUnits,
