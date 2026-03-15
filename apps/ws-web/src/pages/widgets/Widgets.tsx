@@ -1,4 +1,11 @@
-import { createSignal, createEffect, Show, For, onCleanup, type Accessor } from "solid-js";
+import {
+  createSignal,
+  createEffect,
+  Show,
+  For,
+  onCleanup,
+  type Accessor,
+} from "solid-js";
 import { Header } from "../../components/Header";
 import { api } from "../../api/client";
 
@@ -6,6 +13,12 @@ type ArrowVariant = "neutral" | "up" | "down" | "hot" | "new";
 type WidgetTab = "price" | "deals";
 type DealsSortOrder = "newest" | "cheapest" | "hottest";
 type DealsLayout = "vertical" | "horizontal";
+
+const isAbortError = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  "name" in error &&
+  error.name === "AbortError";
 
 interface DeviceOption {
   slug: string;
@@ -36,14 +49,18 @@ function WidgetConfig(props: WidgetConfigProps) {
 
     setLoading(true);
     try {
-      const res = await api(`/api/v2/devices?search=${encodeURIComponent(query)}&limit=8`);
+      const res = await api(
+        `/api/v2/devices?search=${encodeURIComponent(query)}&limit=8`,
+      );
       if (res.ok) {
         const data = await res.json();
-        setSuggestions(data.devices.map((d: any) => ({
-          slug: d.slug,
-          name: d.name,
-          brand: d.brand,
-        })));
+        setSuggestions(
+          data.devices.map((d: any) => ({
+            slug: d.slug,
+            name: d.name,
+            brand: d.brand,
+          })),
+        );
       }
     } catch (e) {
       console.error("Search failed:", e);
@@ -57,7 +74,10 @@ function WidgetConfig(props: WidgetConfigProps) {
     setShowSuggestions(true);
 
     if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => searchDevices(value), 200) as unknown as number;
+    debounceTimer = setTimeout(
+      () => searchDevices(value),
+      200,
+    ) as unknown as number;
   };
 
   const selectDevice = (device: DeviceOption) => {
@@ -83,13 +103,17 @@ function WidgetConfig(props: WidgetConfigProps) {
     <div class="mb-6 p-4 bg-white rounded-xl border border-neutral-200/60 space-y-4">
       {/* Device search */}
       <div>
-        <div class="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">Device</div>
+        <div class="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">
+          Device
+        </div>
         <div class="relative">
           <input
             type="text"
             value={searchQuery()}
             onInput={(e) => handleInput(e.currentTarget.value)}
-            onFocus={() => searchQuery().length >= 2 && setShowSuggestions(true)}
+            onFocus={() =>
+              searchQuery().length >= 2 && setShowSuggestions(true)
+            }
             onKeyDown={(e) => {
               if (e.key === "Enter" && searchQuery()) {
                 props.setSlug(searchQuery());
@@ -120,9 +144,12 @@ function WidgetConfig(props: WidgetConfigProps) {
                   >
                     <div class="flex-1 min-w-0">
                       <div class="text-sm font-medium text-neutral-900 truncate">
-                        {device.brand ? `${device.brand} ` : ""}{device.name}
+                        {device.brand ? `${device.brand} ` : ""}
+                        {device.name}
                       </div>
-                      <div class="text-xs text-neutral-400 truncate">{device.slug}</div>
+                      <div class="text-xs text-neutral-400 truncate">
+                        {device.slug}
+                      </div>
                     </div>
                   </button>
                 )}
@@ -134,7 +161,9 @@ function WidgetConfig(props: WidgetConfigProps) {
 
       {/* Price indicator style */}
       <div>
-        <div class="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">Price Indicator</div>
+        <div class="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">
+          Price Indicator
+        </div>
         <div class="flex gap-2">
           <For each={variants}>
             {(variant) => (
@@ -146,9 +175,10 @@ function WidgetConfig(props: WidgetConfigProps) {
                     : "hover:bg-neutral-100"
                 }`}
                 style={{
-                  background: props.arrowVariant() === variant.id && variant.color
-                    ? `${variant.color}15`
-                    : undefined,
+                  background:
+                    props.arrowVariant() === variant.id && variant.color
+                      ? `${variant.color}15`
+                      : undefined,
                   color: variant.color || "inherit",
                 }}
               >
@@ -191,7 +221,9 @@ function DealsConfig(props: DealsConfigProps) {
     <div class="mb-6 p-4 bg-white rounded-xl border border-neutral-200/60 space-y-4">
       {/* Layout */}
       <div>
-        <div class="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">Layout</div>
+        <div class="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">
+          Layout
+        </div>
         <div class="flex gap-2">
           <For each={layoutOptions}>
             {(opt) => (
@@ -212,7 +244,9 @@ function DealsConfig(props: DealsConfigProps) {
 
       {/* Sort */}
       <div>
-        <div class="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">Sort</div>
+        <div class="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">
+          Sort
+        </div>
         <div class="flex gap-2">
           <For each={sortOptions}>
             {(opt) => (
@@ -233,7 +267,9 @@ function DealsConfig(props: DealsConfigProps) {
 
       {/* Limit */}
       <div>
-        <div class="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">Limit</div>
+        <div class="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">
+          Limit
+        </div>
         <div class="flex gap-2">
           <For each={limitOptions}>
             {(n) => (
@@ -254,11 +290,15 @@ function DealsConfig(props: DealsConfigProps) {
 
       {/* Min bonus */}
       <div>
-        <div class="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">Min Bonus (rubles, 0 = all)</div>
+        <div class="text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">
+          Min Bonus (rubles, 0 = all)
+        </div>
         <input
           type="number"
           value={props.minBonus()}
-          onInput={(e) => props.setMinBonus(parseInt(e.currentTarget.value || "0", 10))}
+          onInput={(e) =>
+            props.setMinBonus(parseInt(e.currentTarget.value || "0", 10))
+          }
           placeholder="0"
           class="w-full px-3 py-2 text-sm bg-neutral-50 border border-neutral-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
         />
@@ -267,7 +307,11 @@ function DealsConfig(props: DealsConfigProps) {
   );
 }
 
-function WidgetPreview(props: { html: string | null; loading: boolean; error: string | null }) {
+function WidgetPreview(props: {
+  html: string | null;
+  loading: boolean;
+  error: string | null;
+}) {
   return (
     <>
       <Show when={props.loading}>
@@ -313,18 +357,39 @@ export default function Widgets() {
     if (tab() !== "price") return;
     const currentSlug = slug();
     const currentVariant = arrowVariant();
+    const controller = new AbortController();
+    let isCurrent = true;
+
+    onCleanup(() => {
+      isCurrent = false;
+      controller.abort();
+    });
 
     setPriceLoading(true);
     setPriceError(null);
 
-    api(`/widget/v1/price/${encodeURIComponent(currentSlug)}?arrowVariant=${currentVariant}`)
+    api(
+      `/widget/v1/price/${encodeURIComponent(currentSlug)}?arrowVariant=${currentVariant}`,
+      {
+        signal: controller.signal,
+      },
+    )
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.text();
       })
-      .then((text) => setPriceHtml(text))
-      .catch((e) => setPriceError(e instanceof Error ? e.message : "Failed to load widget"))
-      .finally(() => setPriceLoading(false));
+      .then((text) => {
+        if (!isCurrent) return;
+        setPriceHtml(text);
+      })
+      .catch((e) => {
+        if (!isCurrent || isAbortError(e)) return;
+        setPriceError(e instanceof Error ? e.message : "Failed to load widget");
+      })
+      .finally(() => {
+        if (!isCurrent) return;
+        setPriceLoading(false);
+      });
   });
 
   // Fetch deals widget
@@ -334,6 +399,13 @@ export default function Widgets() {
     const sort = dealsSort();
     const minBonus = dealsMinBonus();
     const layout = dealsLayout();
+    const controller = new AbortController();
+    let isCurrent = true;
+
+    onCleanup(() => {
+      isCurrent = false;
+      controller.abort();
+    });
 
     setDealsLoading(true);
     setDealsError(null);
@@ -345,14 +417,23 @@ export default function Widgets() {
       layout,
     });
 
-    api(`/widget/v1/deals?${params}`)
+    api(`/widget/v1/deals?${params}`, { signal: controller.signal })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.text();
       })
-      .then((text) => setDealsHtml(text))
-      .catch((e) => setDealsError(e instanceof Error ? e.message : "Failed to load widget"))
-      .finally(() => setDealsLoading(false));
+      .then((text) => {
+        if (!isCurrent) return;
+        setDealsHtml(text);
+      })
+      .catch((e) => {
+        if (!isCurrent || isAbortError(e)) return;
+        setDealsError(e instanceof Error ? e.message : "Failed to load widget");
+      })
+      .finally(() => {
+        if (!isCurrent) return;
+        setDealsLoading(false);
+      });
   });
 
   const tabs: { id: WidgetTab; label: string }[] = [
@@ -391,7 +472,11 @@ export default function Widgets() {
               slug={slug}
               setSlug={setSlug}
             />
-            <WidgetPreview html={priceHtml()} loading={priceLoading()} error={priceError()} />
+            <WidgetPreview
+              html={priceHtml()}
+              loading={priceLoading()}
+              error={priceError()}
+            />
           </Show>
 
           {/* Deals widget tab */}
@@ -406,7 +491,11 @@ export default function Widgets() {
               layout={dealsLayout}
               setLayout={setDealsLayout}
             />
-            <WidgetPreview html={dealsHtml()} loading={dealsLoading()} error={dealsError()} />
+            <WidgetPreview
+              html={dealsHtml()}
+              loading={dealsLoading()}
+              error={dealsError()}
+            />
           </Show>
         </div>
       </div>

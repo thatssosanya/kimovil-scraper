@@ -1,14 +1,10 @@
 import { Effect, Layer, Context, Data } from "effect";
 import { SqlClient } from "@effect/sql";
-import {
-  WidgetDataService,
-  type TelegramDealsSortOrder,
-} from "./widget-data";
+import { WidgetDataService, type TelegramDealsSortOrder } from "./widget-data";
 import {
   renderPriceWidget,
   renderEmptyWidget,
   renderNotFoundWidget,
-  renderErrorWidget,
   renderDealsWidget,
   ArrowVariant,
   WidgetTrackingContext,
@@ -80,6 +76,19 @@ function makeDealsCacheKey(params: DealsWidgetParams): string {
   return `__deals__:${epoch}:${limit}:${sort}:${theme}:${minBonus}:${channel}:${layout}`;
 }
 
+const toErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return String(error);
+};
+
 type QuoteNeedingAffiliate = {
   id: number;
   url: string;
@@ -142,9 +151,9 @@ export const WidgetServiceLive = Layer.effect(
           );
 
           // Check for existing ERID (never auto-create)
-          const erid = yield* affiliateService.getErid(deviceId).pipe(
-            Effect.catchAll(() => Effect.succeed(null)),
-          );
+          const erid = yield* affiliateService
+            .getErid(deviceId)
+            .pipe(Effect.catchAll(() => Effect.succeed(null)));
 
           // Create affiliate links for each quote
           for (const quote of quotes) {
@@ -153,13 +162,16 @@ export const WidgetServiceLive = Layer.effect(
 
               if (erid) {
                 // Use full API with ERID
-                affiliateUrl = yield* affiliateService.createAffiliateLinkWithErid({
-                  url: quote.url,
-                  erid,
-                });
+                affiliateUrl =
+                  yield* affiliateService.createAffiliateLinkWithErid({
+                    url: quote.url,
+                    erid,
+                  });
               } else {
                 // Fallback to CLID-only URL (no API call)
-                affiliateUrl = yield* affiliateService.buildBasicAffiliateUrl(quote.url);
+                affiliateUrl = yield* affiliateService.buildBasicAffiliateUrl(
+                  quote.url,
+                );
               }
 
               yield* sql`
@@ -191,7 +203,12 @@ export const WidgetServiceLive = Layer.effect(
           }
 
           yield* Effect.logInfo("Affiliate backfill completed").pipe(
-            Effect.annotateLogs({ slug, deviceId, quoteCount: quotes.length, hasErid: !!erid }),
+            Effect.annotateLogs({
+              slug,
+              deviceId,
+              quoteCount: quotes.length,
+              hasErid: !!erid,
+            }),
           );
         }).pipe(
           Effect.catchAll((error) =>
@@ -235,7 +252,8 @@ export const WidgetServiceLive = Layer.effect(
     return WidgetService.of({
       getWidgetHtml: (params) =>
         Effect.gen(function* () {
-          const hasTracking = params.tracking?.mappingId || params.tracking?.postId;
+          const hasTracking =
+            params.tracking?.mappingId || params.tracking?.postId;
           const cacheKey = makeCacheKey(params);
 
           // Skip cache when tracking context is present (tracking attrs are per-request)
@@ -249,18 +267,16 @@ export const WidgetServiceLive = Layer.effect(
             }
           }
 
-          const data = yield* widgetDataService
-            .getWidgetData(params.slug)
-            .pipe(
-              Effect.catchAll((error) =>
-                Effect.gen(function* () {
-                  yield* Effect.logWarning(
-                    "WidgetService: failed to get widget data",
-                  ).pipe(Effect.annotateLogs({ slug: params.slug, error }));
-                  return null;
-                }),
-              ),
-            );
+          const data = yield* widgetDataService.getWidgetData(params.slug).pipe(
+            Effect.catchAll((error) =>
+              Effect.gen(function* () {
+                yield* Effect.logWarning(
+                  "WidgetService: failed to get widget data",
+                ).pipe(Effect.annotateLogs({ slug: params.slug, error }));
+                return null;
+              }),
+            ),
+          );
 
           let html: string;
           const renderOptions = {
@@ -276,12 +292,15 @@ export const WidgetServiceLive = Layer.effect(
             html = renderEmptyWidget(data.device.slug, renderOptions);
           } else {
             // Check if we need to backfill affiliate links (fire-and-forget)
-            const hasYandexPrices = data.prices.some((p) => p.source === "yandex_market");
+            const hasYandexPrices = data.prices.some(
+              (p) => p.source === "yandex_market",
+            );
             if (hasYandexPrices) {
               yield* triggerAffiliateBackfill(
                 params.slug,
                 data.device.id,
-                data.device.brand && !data.device.name.startsWith(data.device.brand)
+                data.device.brand &&
+                  !data.device.name.startsWith(data.device.brand)
                   ? `${data.device.brand} ${data.device.name}`
                   : data.device.name,
                 data.specs.image,
@@ -289,7 +308,9 @@ export const WidgetServiceLive = Layer.effect(
             }
 
             // Trigger price.ru URL refresh if stale (fire-and-forget)
-            const hasPriceRuPrices = data.prices.some((p) => p.source === "price_ru");
+            const hasPriceRuPrices = data.prices.some(
+              (p) => p.source === "price_ru",
+            );
             if (hasPriceRuPrices) {
               yield* priceUrlRefreshService.triggerRefreshIfStale({
                 deviceId: data.device.id,
@@ -332,7 +353,9 @@ export const WidgetServiceLive = Layer.effect(
           const items = yield* widgetDataService.getTelegramDealsData({
             limit: Math.min(params.limit ?? 6, 12),
             sort: params.sort ?? "newest",
-            minBonusMinorUnits: params.minBonus ? params.minBonus * 100 : undefined,
+            minBonusMinorUnits: params.minBonus
+              ? params.minBonus * 100
+              : undefined,
             channel: params.channel,
           });
 
@@ -344,7 +367,14 @@ export const WidgetServiceLive = Layer.effect(
               SET widget_render_count = widget_render_count + 1,
                   updated_at = unixepoch()
               WHERE id IN ${sql.in(ids)}
-            `.pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
+            `.pipe(
+              Effect.asVoid,
+              Effect.catchAll((error) =>
+                Effect.logWarning(
+                  "Failed to increment deals widget render counts",
+                ).pipe(Effect.annotateLogs({ ids, error })),
+              ),
+            );
           }
 
           const html = renderDealsWidget(
@@ -368,7 +398,8 @@ export const WidgetServiceLive = Layer.effect(
           return html;
         }).pipe(
           Effect.mapError(
-            (e) => new WidgetServiceError({ message: String(e), cause: e }),
+            (e) =>
+              new WidgetServiceError({ message: toErrorMessage(e), cause: e }),
           ),
         ),
 

@@ -1,5 +1,5 @@
 import { Effect, Layer, Context, Data } from "effect";
-import { SqlClient, SqlError } from "@effect/sql";
+import { SqlClient } from "@effect/sql";
 import { safeParseJson } from "./shared/json";
 
 export class WidgetDataError extends Data.TaggedError("WidgetDataError")<{
@@ -114,8 +114,11 @@ interface RawSpecs {
   images?: string[];
 }
 
-const wrapSqlError = (error: SqlError.SqlError): WidgetDataError =>
-  new WidgetDataError({ message: error.message, cause: error });
+const toWidgetDataError = (error: unknown): WidgetDataError =>
+  new WidgetDataError({
+    message: error instanceof Error ? error.message : String(error),
+    cause: error,
+  });
 
 export const WidgetDataServiceLive = Layer.effect(
   WidgetDataService,
@@ -205,7 +208,9 @@ export const WidgetDataServiceLive = Layer.effect(
               price: offer.price_minor_units,
               url: offer.affiliate_url ?? offer.url ?? undefined,
               isAvailable: offer.is_available === 1,
-              redirectType: (offer.redirect_type as "to_merchant" | "to_price") ?? undefined,
+              redirectType:
+                (offer.redirect_type as "to_merchant" | "to_price") ??
+                undefined,
             });
             offersBySource.set(offer.source, sourceOffers);
           }
@@ -233,7 +238,9 @@ export const WidgetDataServiceLive = Layer.effect(
           };
 
           if (deviceRow.specs_data) {
-            const rawSpecs = safeParseJson(deviceRow.specs_data) as RawSpecs | null;
+            const rawSpecs = safeParseJson(
+              deviceRow.specs_data,
+            ) as RawSpecs | null;
             if (rawSpecs) {
               specs = {
                 screenSize: rawSpecs.size_in ?? null,
@@ -261,7 +268,7 @@ export const WidgetDataServiceLive = Layer.effect(
             ),
           ),
           Effect.mapError((e) =>
-            e instanceof WidgetDataError ? e : wrapSqlError(e),
+            e instanceof WidgetDataError ? e : toWidgetDataError(e),
           ),
         ),
 
@@ -270,7 +277,7 @@ export const WidgetDataServiceLive = Layer.effect(
           type DealRow = {
             id: number;
             title: string;
-            price_minor_units: number;
+            price_minor_units: number | null;
             text_price_minor_units: number | null;
             bonus_minor_units: number | null;
             currency: string;
@@ -307,7 +314,7 @@ export const WidgetDataServiceLive = Layer.effect(
             WHERE l.processing_state = 'done'
               AND l.is_yandex_market = 1
               AND l.title IS NOT NULL
-              AND l.price_minor_units IS NOT NULL
+              AND (l.text_price_minor_units IS NOT NULL OR l.price_minor_units IS NOT NULL)
             ORDER BY fi.posted_at DESC
           `;
 
@@ -315,7 +322,8 @@ export const WidgetDataServiceLive = Layer.effect(
           const seen = new Set<string>();
           let items: DealRow[] = [];
           for (const row of rows) {
-            if (row.yandex_external_id && seen.has(row.yandex_external_id)) continue;
+            if (row.yandex_external_id && seen.has(row.yandex_external_id))
+              continue;
             if (row.yandex_external_id) seen.add(row.yandex_external_id);
             items.push(row);
           }
@@ -342,7 +350,8 @@ export const WidgetDataServiceLive = Layer.effect(
           const RENDER_TARGET = 50; // ~5000 impressions at ~100 views/cache-hit
           const EXPLORATION_SLOTS = 2; // slots reserved for under-shown items in exploitation
 
-          const allExplored = items.length > 0 &&
+          const allExplored =
+            items.length > 0 &&
             items.every((r) => r.widget_render_count >= RENDER_TARGET);
 
           let selected: DealRow[];
@@ -354,10 +363,14 @@ export const WidgetDataServiceLive = Layer.effect(
 
             // Sort by CTR desc (avoid division by zero)
             const byCtr = [...items].sort((a, b) => {
-              const ctrA = a.widget_render_count > 0
-                ? a.widget_click_count / a.widget_render_count : 0;
-              const ctrB = b.widget_render_count > 0
-                ? b.widget_click_count / b.widget_render_count : 0;
+              const ctrA =
+                a.widget_render_count > 0
+                  ? a.widget_click_count / a.widget_render_count
+                  : 0;
+              const ctrB =
+                b.widget_render_count > 0
+                  ? b.widget_click_count / b.widget_render_count
+                  : 0;
               return ctrB - ctrA;
             });
 
@@ -369,7 +382,7 @@ export const WidgetDataServiceLive = Layer.effect(
             // Deterministic shuffle using epoch seed for cache consistency
             const epoch = Math.floor(Date.now() / 1_800_000);
             const shuffled = remaining
-              .map((r) => ({ r, sort: ((r.id * 2654435761 + epoch) >>> 0) }))
+              .map((r) => ({ r, sort: (r.id * 2654435761 + epoch) >>> 0 }))
               .sort((a, b) => a.sort - b.sort)
               .map((x) => x.r);
             const explorePicks = shuffled.slice(0, exploreSlots);
@@ -387,13 +400,16 @@ export const WidgetDataServiceLive = Layer.effect(
           if (params.sort === "cheapest") {
             selected.sort(
               (a, b) =>
-                (a.text_price_minor_units ?? a.price_minor_units) -
-                (b.text_price_minor_units ?? b.price_minor_units),
+                (a.text_price_minor_units ??
+                  a.price_minor_units ??
+                  Number.POSITIVE_INFINITY) -
+                (b.text_price_minor_units ??
+                  b.price_minor_units ??
+                  Number.POSITIVE_INFINITY),
             );
           } else if (params.sort === "hottest") {
             selected.sort(
-              (a, b) =>
-                (b.bonus_minor_units ?? 0) - (a.bonus_minor_units ?? 0),
+              (a, b) => (b.bonus_minor_units ?? 0) - (a.bonus_minor_units ?? 0),
             );
           } else {
             // newest
@@ -403,7 +419,8 @@ export const WidgetDataServiceLive = Layer.effect(
           return selected.map((r) => ({
             id: r.id,
             title: r.title,
-            priceMinorUnits: r.text_price_minor_units ?? r.price_minor_units,
+            priceMinorUnits:
+              r.text_price_minor_units ?? r.price_minor_units ?? 0,
             bonusMinorUnits: r.bonus_minor_units,
             currency: r.currency ?? "RUB",
             imageUrl: r.image_url,
@@ -419,8 +436,8 @@ export const WidgetDataServiceLive = Layer.effect(
               "WidgetDataService.getTelegramDealsData failed",
             ).pipe(Effect.annotateLogs({ error: e })),
           ),
-          Effect.catchAll(() =>
-            Effect.succeed([] as TelegramDealItem[]),
+          Effect.mapError((e) =>
+            e instanceof WidgetDataError ? e : toWidgetDataError(e),
           ),
         ),
     });

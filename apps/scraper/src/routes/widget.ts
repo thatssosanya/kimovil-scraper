@@ -5,7 +5,9 @@ import { LiveRuntime } from "../layers/live";
 import { WidgetService } from "../services/widget";
 import { YandexAffiliateService } from "../services/yandex-affiliate";
 import { extractPriceFromMessageText } from "../services/telegram-monitor";
+import { requireRole } from "./auth";
 import {
+  renderErrorWidget,
   renderNotFoundWidget,
   type ArrowVariant,
   type WidgetTrackingContext,
@@ -19,7 +21,8 @@ function parseWidgetParams(query: Record<string, string | undefined>) {
   const themeParam = query.theme;
 
   const arrowVariant: ArrowVariant =
-    arrowVariantParam && VALID_ARROW_VARIANTS.includes(arrowVariantParam as ArrowVariant)
+    arrowVariantParam &&
+    VALID_ARROW_VARIANTS.includes(arrowVariantParam as ArrowVariant)
       ? (arrowVariantParam as ArrowVariant)
       : "neutral";
 
@@ -31,11 +34,58 @@ function parseWidgetParams(query: Record<string, string | undefined>) {
   return { arrowVariant, theme };
 }
 
-function parsePostIdHeader(headers: Record<string, string | undefined>): number | undefined {
+function parsePostIdHeader(
+  headers: Record<string, string | undefined>,
+): number | undefined {
   const postIdStr = headers["x-post-id"];
   if (!postIdStr) return undefined;
   const parsed = parseInt(postIdStr, 10);
   return isNaN(parsed) ? undefined : parsed;
+}
+
+async function isWidgetWriteAuthorized(request: Request): Promise<boolean> {
+  const serviceToken = process.env.SCRAPER_SERVICE_TOKEN;
+  const authHeader = request.headers.get("authorization");
+  if (serviceToken && authHeader === `Bearer ${serviceToken}`) {
+    return true;
+  }
+
+  try {
+    await requireRole(request, "admin");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ── In-memory affiliate URL cache ──
+// Affiliate URLs cached so the redirect hot path is zero DB access after warmup.
+// Click tracking goes to ClickHouse via analytics service (fire-and-forget POST).
+const affiliateUrlCache = new Map<number, string>(); // linkId → affiliate URL
+const ANALYTICS_URL = process.env.ANALYTICS_URL || "http://localhost:1489";
+
+function fireClickEvent(linkId: number, destinationUrl: string) {
+  fetch(`${ANALYTICS_URL}/v1/events`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Source": "scraper" },
+    body: JSON.stringify({
+      events: [
+        {
+          event_type: "widget_click",
+          occurred_at: new Date().toISOString(),
+          session_id: `deal-click-${Date.now()}`,
+          visitor_id: "server-redirect",
+          source: "deals_widget",
+          properties: {
+            deal_link_id: linkId,
+            click_target: "deal_link",
+            destination_url: destinationUrl,
+          },
+        },
+      ],
+    }),
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => {}); // fire-and-forget
 }
 
 export const createWidgetRoutes = () =>
@@ -49,7 +99,9 @@ export const createWidgetRoutes = () =>
       }
 
       const { arrowVariant, theme } = parseWidgetParams(query);
-      const postId = parsePostIdHeader(headers as Record<string, string | undefined>);
+      const postId = parsePostIdHeader(
+        headers as Record<string, string | undefined>,
+      );
 
       const program = Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
@@ -89,23 +141,26 @@ export const createWidgetRoutes = () =>
       const html = await LiveRuntime.runPromise(program);
 
       set.headers["Content-Type"] = "text/html; charset=utf-8";
-      set.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=86400";
+      set.headers["Cache-Control"] =
+        "public, max-age=300, stale-while-revalidate=86400";
 
       return html;
     })
     .get("/deals", async ({ query, set }) => {
       const limitParam = parseInt((query.limit as string) || "6", 10);
-      const limit = isNaN(limitParam) ? 6 : Math.min(Math.max(limitParam, 1), 12);
+      const limit = isNaN(limitParam)
+        ? 6
+        : Math.min(Math.max(limitParam, 1), 12);
       const sort = (query.sort as string) || "newest";
       const validSorts = ["newest", "cheapest", "hottest"] as const;
-      const sortOrder = validSorts.includes(sort as typeof validSorts[number])
-        ? (sort as typeof validSorts[number])
+      const sortOrder = validSorts.includes(sort as (typeof validSorts)[number])
+        ? (sort as (typeof validSorts)[number])
         : "newest";
       const minBonus = parseInt((query.minBonus as string) || "0", 10);
+      const safeMinBonus = isNaN(minBonus) ? 0 : minBonus;
       const channel = (query.channel as string) || undefined;
       const themeParam = query.theme as string | undefined;
-      const theme: "light" | "dark" =
-        themeParam === "dark" ? "dark" : "light";
+      const theme: "light" | "dark" = themeParam === "dark" ? "dark" : "light";
       const layoutParam = (query.layout as string) || "vertical";
       const layout: "vertical" | "horizontal" =
         layoutParam === "horizontal" ? "horizontal" : "vertical";
@@ -115,41 +170,72 @@ export const createWidgetRoutes = () =>
         return yield* widgetService.getDealsWidgetHtml({
           limit,
           sort: sortOrder,
-          minBonus: isNaN(minBonus) ? 0 : minBonus,
+          minBonus: safeMinBonus,
           channel,
           theme,
           layout,
         });
-      });
+      }).pipe(
+        Effect.catchAll((error) =>
+          Effect.logWarning("Widget deals render failed").pipe(
+            Effect.annotateLogs({
+              limit,
+              sort: sortOrder,
+              minBonus: safeMinBonus,
+              channel,
+              theme,
+              layout,
+              error,
+            }),
+            Effect.map(() => renderErrorWidget()),
+          ),
+        ),
+      );
 
       const html = await LiveRuntime.runPromise(program);
 
       set.headers["Content-Type"] = "text/html; charset=utf-8";
-      set.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=86400";
+      set.headers["Cache-Control"] =
+        "public, max-age=300, stale-while-revalidate=86400";
 
       return html;
     })
     .get("/price/:slug", async ({ params, query, set, headers }) => {
       const { slug } = params;
       const { arrowVariant, theme } = parseWidgetParams(query);
-      const postId = parsePostIdHeader(headers as Record<string, string | undefined>);
+      const postId = parsePostIdHeader(
+        headers as Record<string, string | undefined>,
+      );
 
       // Optional: pass mappingId via query param for direct slug access
       const mappingIdParam = query.mappingId as string | undefined;
-      const mappingId = mappingIdParam ? parseInt(mappingIdParam, 10) : undefined;
+      const mappingId = mappingIdParam
+        ? parseInt(mappingIdParam, 10)
+        : undefined;
 
       const tracking: WidgetTrackingContext | undefined =
-        postId || mappingId ? { postId, mappingId: mappingId && !isNaN(mappingId) ? mappingId : undefined } : undefined;
+        postId || mappingId
+          ? {
+              postId,
+              mappingId: mappingId && !isNaN(mappingId) ? mappingId : undefined,
+            }
+          : undefined;
 
       const program = Effect.gen(function* () {
         const widgetService = yield* WidgetService;
-        return yield* widgetService.getWidgetHtml({ slug, arrowVariant, theme, tracking });
+        return yield* widgetService.getWidgetHtml({
+          slug,
+          arrowVariant,
+          theme,
+          tracking,
+        });
       });
 
       const html = await LiveRuntime.runPromise(program);
 
       set.headers["Content-Type"] = "text/html; charset=utf-8";
-      set.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=86400";
+      set.headers["Cache-Control"] =
+        "public, max-age=300, stale-while-revalidate=86400";
 
       return html;
     })
@@ -160,35 +246,41 @@ export const createWidgetRoutes = () =>
         return "Invalid link ID";
       }
 
+      // Fast path: affiliate URL already in memory cache
+      const cached = affiliateUrlCache.get(linkId);
+      if (cached) {
+        fireClickEvent(linkId, cached);
+        set.status = 302;
+        set.headers["Location"] = cached;
+        set.headers["Cache-Control"] = "no-store";
+        return "";
+      }
+
+      // Cold path: look up from DB, generate affiliate URL, cache in memory
       const program = Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
         const affiliateService = yield* YandexAffiliateService;
 
-        // Get the link and increment click count atomically
         const rows = yield* sql<{
           resolved_url: string;
           affiliate_url: string | null;
         }>`
-          UPDATE telegram_feed_item_links
-          SET widget_click_count = widget_click_count + 1,
-              updated_at = unixepoch()
+          SELECT resolved_url, affiliate_url
+          FROM telegram_feed_item_links
           WHERE id = ${linkId}
             AND processing_state = 'done'
             AND is_yandex_market = 1
-          RETURNING resolved_url, affiliate_url
         `;
 
-        if (rows.length === 0) {
-          return null;
-        }
+        if (rows.length === 0) return null;
 
         const { resolved_url, affiliate_url } = rows[0];
 
-        // Return cached affiliate URL if available
+        // Use DB-cached affiliate URL
         if (affiliate_url) return affiliate_url;
 
-        // Generate affiliate URL on-demand, cache it
-        const affUrl = yield* affiliateService
+        // Generate affiliate URL, persist to DB (one-time write per link)
+        return yield* affiliateService
           .buildBasicAffiliateUrl(resolved_url)
           .pipe(
             Effect.tap((url) =>
@@ -200,15 +292,13 @@ export const createWidgetRoutes = () =>
             ),
             Effect.catchAll((error) =>
               Effect.gen(function* () {
-                yield* Effect.logWarning("Affiliate link generation failed, using direct URL").pipe(
-                  Effect.annotateLogs({ linkId, error }),
-                );
+                yield* Effect.logWarning(
+                  "Affiliate link generation failed, using direct URL",
+                ).pipe(Effect.annotateLogs({ linkId, error }));
                 return resolved_url;
               }),
             ),
           );
-
-        return affUrl;
       });
 
       const redirectUrl = await LiveRuntime.runPromise(program);
@@ -217,6 +307,10 @@ export const createWidgetRoutes = () =>
         set.status = 404;
         return "Link not found";
       }
+
+      // Cache in memory — links don't change, so no expiry needed
+      affiliateUrlCache.set(linkId, redirectUrl);
+      fireClickEvent(linkId, redirectUrl);
 
       set.status = 302;
       set.headers["Location"] = redirectUrl;
@@ -245,7 +339,13 @@ export const createWidgetRoutes = () =>
 
       return { success: true, message: "All widget caches invalidated" };
     })
-    .post("/deals/backfill-text-prices", async () => {
+    .post("/deals/backfill-text-prices", async ({ request, set }) => {
+      const authorized = await isWidgetWriteAuthorized(request);
+      if (!authorized) {
+        set.status = 401;
+        return { success: false, error: "Unauthorized" };
+      }
+
       const program = Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
 
