@@ -1,11 +1,15 @@
 import { Effect, Layer, Context, Data } from "effect";
 import { SqlClient } from "@effect/sql";
-import { WidgetDataService } from "./widget-data";
+import {
+  WidgetDataService,
+  type TelegramDealsSortOrder,
+} from "./widget-data";
 import {
   renderPriceWidget,
   renderEmptyWidget,
   renderNotFoundWidget,
   renderErrorWidget,
+  renderDealsWidget,
   ArrowVariant,
   WidgetTrackingContext,
 } from "./widget-render";
@@ -33,9 +37,23 @@ interface CacheEntry {
 const CACHE_TTL_MS = 300_000; // 5 minutes
 const CACHE_MAX_ENTRIES = 10_000;
 
+export type DealsWidgetLayout = "vertical" | "horizontal";
+
+export interface DealsWidgetParams {
+  limit?: number;
+  sort?: TelegramDealsSortOrder;
+  minBonus?: number;
+  channel?: string;
+  theme?: "light" | "dark";
+  layout?: DealsWidgetLayout;
+}
+
 export interface WidgetService {
   readonly getWidgetHtml: (
     params: WidgetParams,
+  ) => Effect.Effect<string, WidgetServiceError>;
+  readonly getDealsWidgetHtml: (
+    params: DealsWidgetParams,
   ) => Effect.Effect<string, WidgetServiceError>;
   readonly invalidateSlug: (slug: string) => Effect.Effect<void>;
   readonly invalidateAll: () => Effect.Effect<void>;
@@ -48,6 +66,16 @@ function makeCacheKey(params: WidgetParams): string {
   const arrowVariant = params.arrowVariant ?? "neutral";
   const theme = params.theme ?? "light";
   return `${params.slug}:${arrowVariant}:${theme}`;
+}
+
+function makeDealsCacheKey(params: DealsWidgetParams): string {
+  const limit = params.limit ?? 6;
+  const sort = params.sort ?? "newest";
+  const theme = params.theme ?? "light";
+  const minBonus = params.minBonus ?? 0;
+  const channel = params.channel ?? "";
+  const layout = params.layout ?? "vertical";
+  return `__deals__:${limit}:${sort}:${theme}:${minBonus}:${channel}:${layout}`;
 }
 
 type QuoteNeedingAffiliate = {
@@ -284,6 +312,44 @@ export const WidgetServiceLive = Layer.effect(
             evictOldestIfNeeded();
             cache.set(cacheKey, { html, createdAt: Date.now() });
           }
+
+          return html;
+        }),
+
+      getDealsWidgetHtml: (params) =>
+        Effect.gen(function* () {
+          const cacheKey = makeDealsCacheKey(params);
+          const cached = cache.get(cacheKey);
+          if (cached && !isExpired(cached)) {
+            return cached.html;
+          }
+          if (cached) {
+            cache.delete(cacheKey);
+          }
+
+          const items = yield* widgetDataService.getTelegramDealsData({
+            limit: Math.min(params.limit ?? 6, 12),
+            sort: params.sort ?? "newest",
+            minBonusMinorUnits: params.minBonus ? params.minBonus * 100 : undefined,
+            channel: params.channel,
+          });
+
+          const html = renderDealsWidget(
+            items.map((item) => ({
+              title: item.title,
+              priceMinorUnits: item.priceMinorUnits,
+              bonusMinorUnits: item.bonusMinorUnits,
+              currency: item.currency,
+              imageUrl: item.imageUrl,
+              resolvedUrl: item.resolvedUrl,
+              channelTitle: item.channelTitle,
+              channelUsername: item.channelUsername,
+            })),
+            { theme: params.theme, layout: params.layout },
+          );
+
+          evictOldestIfNeeded();
+          cache.set(cacheKey, { html, createdAt: Date.now() });
 
           return html;
         }),

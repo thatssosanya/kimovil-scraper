@@ -44,10 +44,36 @@ const SHOP_CONFIG: Record<string, string> = {
   price_ru: "Price.ru",
 };
 
+export type TelegramDealsSortOrder = "newest" | "cheapest" | "hottest";
+
+export interface TelegramDealsParams {
+  limit: number;
+  sort: TelegramDealsSortOrder;
+  minBonusMinorUnits?: number;
+  channel?: string;
+}
+
+export interface TelegramDealItem {
+  id: number;
+  title: string;
+  priceMinorUnits: number;
+  bonusMinorUnits: number | null;
+  currency: string;
+  imageUrl: string | null;
+  resolvedUrl: string;
+  yandexExternalId: string;
+  postedAt: number;
+  channelTitle: string | null;
+  channelUsername: string | null;
+}
+
 export interface WidgetDataService {
   readonly getWidgetData: (
     slug: string,
   ) => Effect.Effect<WidgetDeviceData | null, WidgetDataError>;
+  readonly getTelegramDealsData: (
+    params: TelegramDealsParams,
+  ) => Effect.Effect<TelegramDealItem[], WidgetDataError>;
 }
 
 export const WidgetDataService =
@@ -236,6 +262,109 @@ export const WidgetDataServiceLive = Layer.effect(
           ),
           Effect.mapError((e) =>
             e instanceof WidgetDataError ? e : wrapSqlError(e),
+          ),
+        ),
+
+      getTelegramDealsData: (params) =>
+        Effect.gen(function* () {
+          type DealRow = {
+            id: number;
+            title: string;
+            price_minor_units: number;
+            bonus_minor_units: number | null;
+            currency: string;
+            image_url: string | null;
+            resolved_url: string;
+            yandex_external_id: string;
+            posted_at: number;
+            channel_title: string | null;
+            channel_username: string | null;
+          };
+
+          // Fetch more than needed for JS-side dedup + filtering
+          const fetchLimit = params.limit * 3;
+
+          const rows = yield* sql<DealRow>`
+            SELECT
+              l.id,
+              l.title,
+              l.price_minor_units,
+              l.bonus_minor_units,
+              l.currency,
+              l.image_url,
+              l.resolved_url,
+              l.yandex_external_id,
+              fi.posted_at,
+              c.title AS channel_title,
+              c.username AS channel_username
+            FROM telegram_feed_item_links l
+            JOIN telegram_feed_items fi ON fi.id = l.feed_item_id
+            JOIN telegram_channels c ON c.id = fi.channel_id
+            WHERE l.processing_state = 'done'
+              AND l.is_yandex_market = 1
+              AND l.title IS NOT NULL
+              AND l.price_minor_units IS NOT NULL
+            ORDER BY fi.posted_at DESC
+            LIMIT ${fetchLimit}
+          `;
+
+          // Dedup by yandex_external_id (keep newest)
+          const seen = new Set<string>();
+          let items: DealRow[] = [];
+          for (const row of rows) {
+            if (row.yandex_external_id && seen.has(row.yandex_external_id)) continue;
+            if (row.yandex_external_id) seen.add(row.yandex_external_id);
+            items.push(row);
+          }
+
+          // Filter by min bonus
+          if (params.minBonusMinorUnits && params.minBonusMinorUnits > 0) {
+            items = items.filter(
+              (r) =>
+                r.bonus_minor_units != null &&
+                r.bonus_minor_units >= params.minBonusMinorUnits!,
+            );
+          }
+
+          // Filter by channel
+          if (params.channel) {
+            const ch = params.channel.replace(/^@/, "").toLowerCase();
+            items = items.filter(
+              (r) => r.channel_username?.toLowerCase() === ch,
+            );
+          }
+
+          // Sort (newest is default from SQL)
+          if (params.sort === "cheapest") {
+            items.sort((a, b) => a.price_minor_units - b.price_minor_units);
+          } else if (params.sort === "hottest") {
+            items.sort(
+              (a, b) =>
+                (b.bonus_minor_units ?? 0) - (a.bonus_minor_units ?? 0),
+            );
+          }
+
+          return items.slice(0, params.limit).map((r) => ({
+            id: r.id,
+            title: r.title,
+            priceMinorUnits: r.price_minor_units,
+            bonusMinorUnits: r.bonus_minor_units,
+            currency: r.currency ?? "RUB",
+            imageUrl: r.image_url,
+            resolvedUrl: r.resolved_url,
+            yandexExternalId: r.yandex_external_id,
+            postedAt: r.posted_at,
+            channelTitle: r.channel_title,
+            channelUsername: r.channel_username,
+          }));
+        }).pipe(
+          Effect.tapError((e) =>
+            Effect.logWarning(
+              "WidgetDataService.getTelegramDealsData failed",
+            ).pipe(Effect.annotateLogs({ error: e })),
+          ),
+          Effect.catchAll(() =>
+            Effect.succeed([] as TelegramDealItem[]),
           ),
         ),
     });

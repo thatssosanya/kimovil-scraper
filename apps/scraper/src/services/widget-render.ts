@@ -372,6 +372,168 @@ export function renderNotFoundWidget(
      style="visibility:hidden;height:0;overflow:hidden"></div>`;
 }
 
+// ── Deals Widget ──────────────────────────────────────────────────────
+
+export interface DealsWidgetItem {
+  title: string;
+  priceMinorUnits: number;
+  bonusMinorUnits: number | null;
+  currency: string;
+  imageUrl: string | null;
+  resolvedUrl: string;
+  channelTitle: string | null;
+  channelUsername: string | null;
+}
+
+export type DealsWidgetLayout = "vertical" | "horizontal";
+
+export interface DealsWidgetRenderOptions {
+  theme?: "light" | "dark";
+  layout?: DealsWidgetLayout;
+}
+
+function pluralItems(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return "товар";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "товара";
+  return "товаров";
+}
+
+// ── Vertical (list) layout ────────────────────────────────────────────
+
+function renderDealRow(item: DealsWidgetItem): string {
+  const url = sanitizeUrl(item.resolvedUrl);
+
+  return `
+    <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"
+       class="group flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-3 sm:py-3.5 hover:bg-neutral-50/80 transition-colors"
+       data-widget-click data-click-target="deal_link">
+
+      <!-- Product image -->
+      <div class="w-[44px] h-[44px] sm:w-[52px] sm:h-[52px] bg-neutral-50 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
+        ${item.imageUrl
+          ? `<img src="${escapeHtml(item.imageUrl)}" alt="" class="max-w-full max-h-full object-contain" loading="lazy" />`
+          : renderImagePlaceholder()}
+      </div>
+
+      <!-- Product title -->
+      <div class="flex-1 min-w-0">
+        <span class="font-medium text-[14px] sm:text-[15px] text-neutral-900 truncate block">${escapeHtml(item.title)}</span>
+      </div>
+
+      <!-- Price + Arrow -->
+      <div class="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+        <div class="text-right">
+          <div class="text-[15px] sm:text-[17px] font-semibold text-neutral-900 tabular-nums">
+            ${formatPrice(item.priceMinorUnits)} <span class="text-neutral-400 font-normal">₽</span>
+          </div>
+        </div>
+
+        <!-- Arrow -->
+        <svg class="w-4 h-4 sm:w-5 sm:h-5 text-neutral-300 group-hover:text-widget-up group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
+        </svg>
+      </div>
+    </a>`;
+}
+
+// ── Horizontal (shelf) layout ────────────────────────────────────────
+
+function renderDealCard(item: DealsWidgetItem): string {
+  const url = sanitizeUrl(item.resolvedUrl);
+
+  return `
+    <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"
+       class="group block flex-shrink-0 rounded-xl overflow-hidden transition-all hover:shadow-md"
+       style="width:148px"
+       data-widget-click data-click-target="deal_link">
+
+      <!-- Image -->
+      <div class="bg-neutral-50 flex items-center justify-center overflow-hidden" style="height:148px">
+        ${item.imageUrl
+          ? `<img src="${escapeHtml(item.imageUrl)}" alt="" class="max-w-full max-h-full object-contain" style="padding:12px" loading="lazy" />`
+          : `<div class="w-10 h-14 bg-neutral-100 rounded-lg"></div>`}
+      </div>
+
+      <!-- Info -->
+      <div class="p-3 pt-2.5">
+        <div class="text-[13px] font-medium text-neutral-900 leading-snug tracking-[-0.01em]" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.5em">
+          ${escapeHtml(item.title)}
+        </div>
+        <div class="mt-2 text-[15px] font-semibold text-neutral-900 tabular-nums tracking-[-0.01em]">
+          ${formatPrice(item.priceMinorUnits)} <span class="text-neutral-400 font-normal text-[13px]">₽</span>
+        </div>
+      </div>
+    </a>`;
+}
+
+// ── Public render entry point ────────────────────────────────────────
+
+const DEALS_EMPTY_HTML = `<div class="widget-deals-container w-full max-w-[680px] font-['Inter',system-ui,-apple-system,sans-serif]">
+  <div class="bg-white rounded-2xl border border-neutral-200/60 overflow-hidden">
+    <div class="p-12 text-center">
+      <div class="text-[15px] text-neutral-400">Нет находок</div>
+      <div class="text-[13px] text-neutral-300 mt-1.5">Товары появятся после обработки ссылок</div>
+    </div>
+  </div>
+</div>`;
+
+const DEALS_HEADER_HTML = `
+    <div class="p-4 pb-4 sm:p-6 sm:pb-5">
+      <h2 class="text-[18px] sm:text-[22px] font-semibold text-neutral-900 leading-tight tracking-[-0.02em]">
+        Лучшее из <a href="https://t.me/firstotdel" target="_blank" rel="noopener noreferrer" class="text-[#2AABEE] hover:underline">Первого скидочного отдела</a>
+      </h2>
+    </div>`;
+
+const DEALS_FOOTER_HTML = `
+    <div class="px-4 py-3 sm:px-6 sm:py-4 bg-neutral-50/50 border-t border-neutral-100 flex items-center justify-between">
+      <span class="text-[11px] sm:text-[12px] text-neutral-400">Обновлено сегодня</span>
+      <span class="text-[11px] sm:text-[12px] text-neutral-400">Реклама</span>
+    </div>`;
+
+// Hide scrollbar across browsers
+const DEALS_SCROLL_STYLE = `<style>.wdhs::-webkit-scrollbar{display:none}.wdhs{scrollbar-width:none;-webkit-overflow-scrolling:touch}</style>`;
+
+export function renderDealsWidget(
+  items: DealsWidgetItem[],
+  options?: DealsWidgetRenderOptions,
+): string {
+  if (items.length === 0) return DEALS_EMPTY_HTML;
+
+  const layout = options?.layout ?? "vertical";
+
+  if (layout === "horizontal") {
+    return `${DEALS_SCROLL_STYLE}<div class="widget-deals-container w-full max-w-[680px] font-['Inter',system-ui,-apple-system,sans-serif]">
+  <div class="bg-white rounded-2xl border border-neutral-200/60 overflow-hidden">
+${DEALS_HEADER_HTML}
+    <!-- Divider -->
+    <div class="h-px bg-neutral-100 mx-4 sm:mx-6"></div>
+
+    <!-- Horizontal shelf -->
+    <div class="wdhs flex gap-3 px-4 sm:px-6 py-4 sm:py-5 overflow-x-auto">
+      ${items.map((item) => renderDealCard(item)).join("\n      ")}
+    </div>
+${DEALS_FOOTER_HTML}
+  </div>
+</div>`;
+  }
+
+  return `<div class="widget-deals-container w-full max-w-[680px] font-['Inter',system-ui,-apple-system,sans-serif]">
+  <div class="bg-white rounded-2xl border border-neutral-200/60 overflow-hidden">
+${DEALS_HEADER_HTML}
+    <!-- Divider -->
+    <div class="h-px bg-neutral-100 mx-4 sm:mx-6"></div>
+
+    <!-- Vertical list -->
+    <div class="py-2">
+      ${items.map((item) => renderDealRow(item)).join("\n")}
+    </div>
+${DEALS_FOOTER_HTML}
+  </div>
+</div>`;
+}
+
 export function renderErrorWidget(): string {
   return `<div class="widget-price-container w-full max-w-[680px] font-['Inter',system-ui,-apple-system,sans-serif]">
   <div class="bg-white rounded-2xl border border-neutral-200/60 overflow-hidden">
@@ -570,4 +732,14 @@ export const WIDGET_TAILWIND_CLASSES = [
   "group-hover:text-[hsl(354,100%,64%)]",
   "group-hover:translate-x-0.5",
   "group-hover:-translate-y-0.5",
+  // Deals widget
+  "widget-deals-container",
+  "w-[44px]",
+  "h-[44px]",
+  "w-[52px]",
+  "h-[52px]",
+  "sm:w-[52px]",
+  "sm:h-[52px]",
+  "text-[#2AABEE]",
+  "hover:underline",
 ];

@@ -91,6 +91,42 @@ export const createWidgetRoutes = () =>
 
       return html;
     })
+    .get("/deals", async ({ query, set }) => {
+      const limitParam = parseInt((query.limit as string) || "6", 10);
+      const limit = isNaN(limitParam) ? 6 : Math.min(Math.max(limitParam, 1), 12);
+      const sort = (query.sort as string) || "newest";
+      const validSorts = ["newest", "cheapest", "hottest"] as const;
+      const sortOrder = validSorts.includes(sort as typeof validSorts[number])
+        ? (sort as typeof validSorts[number])
+        : "newest";
+      const minBonus = parseInt((query.minBonus as string) || "0", 10);
+      const channel = (query.channel as string) || undefined;
+      const themeParam = query.theme as string | undefined;
+      const theme: "light" | "dark" =
+        themeParam === "dark" ? "dark" : "light";
+      const layoutParam = (query.layout as string) || "vertical";
+      const layout: "vertical" | "horizontal" =
+        layoutParam === "horizontal" ? "horizontal" : "vertical";
+
+      const program = Effect.gen(function* () {
+        const widgetService = yield* WidgetService;
+        return yield* widgetService.getDealsWidgetHtml({
+          limit,
+          sort: sortOrder,
+          minBonus: isNaN(minBonus) ? 0 : minBonus,
+          channel,
+          theme,
+          layout,
+        });
+      });
+
+      const html = await LiveRuntime.runPromise(program);
+
+      set.headers["Content-Type"] = "text/html; charset=utf-8";
+      set.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=86400";
+
+      return html;
+    })
     .get("/price/:slug", async ({ params, query, set, headers }) => {
       const { slug } = params;
       const { arrowVariant, theme } = parseWidgetParams(query);
