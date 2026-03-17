@@ -121,6 +121,169 @@ const toWidgetDataError = (error: unknown): WidgetDataError =>
     cause: error,
   });
 
+const NEAR_DUPLICATE_DICE_THRESHOLD = 0.94;
+
+const TITLE_VARIANT_TOKENS = new Set([
+  "plus",
+  "ultra",
+  "pro",
+  "max",
+  "mini",
+  "lite",
+  "fe",
+]);
+
+interface TitleFingerprint {
+  normalized: string;
+  tokenSet: Set<string>;
+  tokenSetKey: string;
+  unitTokens: Set<string>;
+  trigrams: Set<string>;
+}
+
+const normalizeDealTitle = (title: string): string =>
+  title
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/wi[\s_-]*fi/giu, "wifi")
+    .replace(/(\p{L}|\d)\+/gu, "$1 plus ")
+    .replace(/(\d+)\s*(?:гб|gb)\b/giu, "$1gb")
+    .replace(/(\d+)\s*(?:тб|tb)\b/giu, "$1tb")
+    .replace(/(\d+)\s*(?:мп|mp)\b/giu, "$1mp")
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const makeTrigrams = (value: string): Set<string> => {
+  if (!value) return new Set();
+
+  const padded = ` ${value} `;
+  const trigrams = new Set<string>();
+  for (let i = 0; i <= padded.length - 3; i++) {
+    trigrams.add(padded.slice(i, i + 3));
+  }
+
+  if (trigrams.size === 0) {
+    trigrams.add(padded);
+  }
+
+  return trigrams;
+};
+
+const makeTitleFingerprint = (title: string): TitleFingerprint => {
+  const normalized = normalizeDealTitle(title);
+  const tokenSet = new Set(normalized.split(" ").filter(Boolean));
+  const sortedTokens = [...tokenSet].sort();
+  const unitTokens = new Set(
+    sortedTokens.filter((token) => /^\d+(?:gb|tb|mp)$/.test(token)),
+  );
+
+  return {
+    normalized,
+    tokenSet,
+    tokenSetKey: sortedTokens.join("|"),
+    unitTokens,
+    trigrams: makeTrigrams(normalized),
+  };
+};
+
+const diceCoefficient = (a: Set<string>, b: Set<string>): number => {
+  if (a.size === 0 || b.size === 0) return 0;
+
+  const [smaller, larger] = a.size <= b.size ? [a, b] : [b, a];
+  let intersection = 0;
+
+  for (const token of smaller) {
+    if (larger.has(token)) {
+      intersection++;
+    }
+  }
+
+  return (2 * intersection) / (a.size + b.size);
+};
+
+const containsWholePhrase = (haystack: string, needle: string): boolean => {
+  if (!haystack || !needle) return false;
+  return ` ${haystack} `.includes(` ${needle} `);
+};
+
+const hasMeaningfulTokenConflict = (
+  a: TitleFingerprint,
+  b: TitleFingerprint,
+): boolean => {
+  if (a.unitTokens.size > 0 && b.unitTokens.size > 0) {
+    if (a.unitTokens.size !== b.unitTokens.size) {
+      return true;
+    }
+    for (const token of a.unitTokens) {
+      if (!b.unitTokens.has(token)) {
+        return true;
+      }
+    }
+  }
+
+  for (const token of TITLE_VARIANT_TOKENS) {
+    if (a.tokenSet.has(token) !== b.tokenSet.has(token)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const areTitlesNearDuplicate = (
+  a: TitleFingerprint,
+  b: TitleFingerprint,
+): boolean => {
+  if (!a.normalized || !b.normalized) return false;
+  if (a.normalized === b.normalized) return true;
+  if (a.tokenSetKey === b.tokenSetKey) return true;
+  if (hasMeaningfulTokenConflict(a, b)) return false;
+  if (
+    containsWholePhrase(a.normalized, b.normalized) ||
+    containsWholePhrase(b.normalized, a.normalized)
+  ) {
+    return true;
+  }
+
+  return (
+    diceCoefficient(a.trigrams, b.trigrams) >= NEAR_DUPLICATE_DICE_THRESHOLD
+  );
+};
+
+function takeDistinctByTitle<T extends { title: string }>(
+  pool: T[],
+  limit: number,
+  alreadySelected: T[] = [],
+): T[] {
+  if (limit <= 0) return [];
+
+  const selectedFingerprints = alreadySelected.map((item) =>
+    makeTitleFingerprint(item.title),
+  );
+  const distinct: T[] = [];
+
+  for (const candidate of pool) {
+    if (distinct.length >= limit) {
+      break;
+    }
+
+    const candidateFingerprint = makeTitleFingerprint(candidate.title);
+    const isDuplicate = selectedFingerprints.some((selected) =>
+      areTitlesNearDuplicate(candidateFingerprint, selected),
+    );
+
+    if (isDuplicate) {
+      continue;
+    }
+
+    distinct.push(candidate);
+    selectedFingerprints.push(candidateFingerprint);
+  }
+
+  return distinct;
+}
+
 export const WidgetDataServiceLive = Layer.effect(
   WidgetDataService,
   Effect.gen(function* () {
@@ -381,7 +544,7 @@ export const WidgetDataServiceLive = Layer.effect(
               return ctrB - ctrA;
             });
 
-            const topPerformers = byCtr.slice(0, exploitSlots);
+            const topPerformers = takeDistinctByTitle(byCtr, exploitSlots);
             const topIds = new Set(topPerformers.map((r) => r.id));
 
             // Exploration: pick random items not in top performers
@@ -392,7 +555,11 @@ export const WidgetDataServiceLive = Layer.effect(
               .map((r) => ({ r, sort: (r.id * 2654435761 + epoch) >>> 0 }))
               .sort((a, b) => a.sort - b.sort)
               .map((x) => x.r);
-            const explorePicks = shuffled.slice(0, exploreSlots);
+            const explorePicks = takeDistinctByTitle(
+              shuffled,
+              exploreSlots,
+              topPerformers,
+            );
 
             selected = [...topPerformers, ...explorePicks];
           } else {
@@ -400,7 +567,7 @@ export const WidgetDataServiceLive = Layer.effect(
             const byRenderCount = [...items].sort(
               (a, b) => a.widget_render_count - b.widget_render_count,
             );
-            selected = byRenderCount.slice(0, params.limit);
+            selected = takeDistinctByTitle(byRenderCount, params.limit);
           }
 
           // Apply user's sort within selected items
